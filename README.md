@@ -101,3 +101,8 @@ npm run typecheck     # 类型检查
 - 应用内「设计系统」页可直接查看全部 token
 
 对应的 Ardot 设计稿：fileId `720132402843853`
+
+## 路线图
+
+AI Agent 选型决策与待办清单：[docs/ROADMAP.md](docs/ROADMAP.md)（2026-09 定：`genai` + 手写 agent 循环，Rust 侧实现）
+
