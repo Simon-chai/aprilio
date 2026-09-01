@@ -1,0 +1,254 @@
+<script setup lang="ts">
+import { computed, onMounted, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
+import { confirm } from "@tauri-apps/plugin-dialog";
+import AppButton from "../components/ui/AppButton.vue";
+import AppCard from "../components/ui/AppCard.vue";
+import StatusChip from "../components/ui/StatusChip.vue";
+import PhotoGrid from "../components/PhotoGrid.vue";
+import StudentFormDialog from "../components/StudentFormDialog.vue";
+import { addPhoto, deletePhoto, deleteStudent, getStudent, listPhotos, updateStudent, isTauri } from "../lib/db";
+import { deletePhotoFile, getPhotosDir, importPhoto } from "../lib/photos";
+import { formatShort } from "../lib/format";
+import { STATUS_LABEL } from "../types";
+import type { Photo, Student, StudentInput } from "../types";
+
+const route = useRoute();
+const router = useRouter();
+
+const id = computed(() => Number(route.params.id));
+const student = ref<Student | null>(null);
+const photos = ref<Photo[]>([]);
+const photosDir = ref("");
+const loading = ref(true);
+const error = ref("");
+const dialogOpen = ref(false);
+const busy = ref(false);
+
+async function refresh() {
+  loading.value = true;
+  error.value = "";
+  try {
+    student.value = await getStudent(id.value);
+    photos.value = await listPhotos(id.value);
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    loading.value = false;
+  }
+}
+
+onMounted(async () => {
+  photosDir.value = await getPhotosDir();
+  await refresh();
+});
+watch(id, refresh);
+
+const fields = computed(() => {
+  const s = student.value;
+  if (!s) return [];
+  return [
+    ["姓名", s.name],
+    ["性别", s.gender || "—"],
+    ["出生日期", s.birth_date || "—"],
+    ["学号", s.student_no],
+    ["年级班级", s.grade_class || "—"],
+    ["入学日期", s.enroll_date || "—"],
+  ] as const;
+});
+
+const guardianFields = computed(() => {
+  const s = student.value;
+  if (!s) return [];
+  return [
+    ["监护人", s.guardian_name || "—"],
+    ["联系电话", s.guardian_phone || "—"],
+    ["家庭住址", s.address || "—"],
+  ] as const;
+});
+
+async function onSave(input: StudentInput) {
+  await updateStudent(id.value, input);
+  dialogOpen.value = false;
+  await refresh();
+}
+
+async function onAddPhoto() {
+  if (!isTauri()) {
+    error.value = "图片导入需要 Tauri 外壳，请用 npm run tauri:dev 启动";
+    return;
+  }
+  busy.value = true;
+  try {
+    const fileName = await importPhoto();
+    if (fileName) {
+      await addPhoto(id.value, fileName, null, new Date().toISOString().slice(0, 10));
+      await refresh();
+    }
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function onRemovePhoto(photo: Photo) {
+  const ok = isTauri()
+    ? await confirm(`删除「${photo.caption || "未命名"}」这张图片？`, {
+        title: "删除图片",
+        kind: "warning",
+      })
+    : window.confirm("删除这张图片？");
+  if (!ok) return;
+
+  await deletePhoto(photo.id);
+  await deletePhotoFile(photo.file_name);
+  await refresh();
+}
+
+async function onDeleteStudent() {
+  const ok = isTauri()
+    ? await confirm(`删除学生「${student.value?.name ?? ""}」及其全部图片记录？`, {
+        title: "删除学生",
+        kind: "warning",
+      })
+    : window.confirm("删除该学生及其全部图片记录？");
+  if (!ok) return;
+
+  for (const p of photos.value) await deletePhotoFile(p.file_name);
+  await deleteStudent(id.value);
+  router.push({ name: "students" });
+}
+</script>
+
+<template>
+  <!-- 顶栏 -->
+  <header
+    class="flex h-[52px] shrink-0 items-center justify-between border-b border-hairline bg-parchment px-8"
+  >
+    <div class="flex items-center gap-2.5">
+      <button class="text-ink" title="返回列表" @click="router.push({ name: 'students' })">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path
+            d="M10 3L5 8L10 13"
+            stroke="#1d1d1f"
+            stroke-width="1.6"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+      </button>
+      <h1 class="text-tagline font-semibold text-ink">学生详情</h1>
+    </div>
+    <div class="flex items-center gap-3">
+      <AppButton variant="secondary" :disabled="!student" @click="dialogOpen = true">
+        编辑档案
+      </AppButton>
+      <AppButton :disabled="!student || busy" @click="onAddPhoto">添加图片</AppButton>
+    </div>
+  </header>
+
+  <!-- 内容 -->
+  <div class="scroll-thin flex-1 overflow-y-auto p-8">
+    <p v-if="error" class="mb-6 rounded-md bg-[#fdeef0] p-3 text-caption text-danger">
+      {{ error }}
+    </p>
+
+    <template v-if="student">
+      <!-- 档案头部 -->
+      <div class="flex items-center gap-6">
+        <div class="flex h-24 w-24 shrink-0 items-center justify-center rounded-full bg-parchment">
+          <svg width="40" height="40" viewBox="0 0 40 40" fill="none" aria-hidden="true">
+            <circle cx="20" cy="14" r="7" fill="#cccccc" />
+            <path d="M6 36c0-7.2 6.3-11 14-11s14 3.8 14 11" fill="#cccccc" />
+          </svg>
+        </div>
+        <div class="min-w-0 flex-1 space-y-2.5">
+          <div class="flex items-center gap-3">
+            <h2 class="text-display font-semibold text-ink">{{ student.name }}</h2>
+            <StatusChip>{{ STATUS_LABEL[student.status] ?? student.status }}</StatusChip>
+          </div>
+          <div class="flex items-center gap-2 text-caption text-weak">
+            <span>学号 {{ student.student_no }}</span>
+            <span class="h-[3px] w-[3px] rounded-full bg-faint" />
+            <span>{{ student.grade_class || "未分班" }}</span>
+            <span class="h-[3px] w-[3px] rounded-full bg-faint" />
+            <span>{{ student.gender || "性别未填" }}</span>
+          </div>
+          <p class="text-caption text-muted">
+            最近更新 {{ formatShort(student.updated_at) }} · 共 {{ photos.length }} 张图片记录
+          </p>
+        </div>
+        <AppButton variant="danger" @click="onDeleteStudent">删除学生</AppButton>
+      </div>
+
+      <!-- 主体 -->
+      <div class="mt-8 flex items-stretch gap-6">
+        <div class="w-[400px] shrink-0 space-y-5">
+          <AppCard>
+            <h3 class="mb-1 text-body font-semibold text-ink">基本信息</h3>
+            <div>
+              <div
+                v-for="[label, value] in fields"
+                :key="label"
+                class="flex h-[34px] items-center justify-between border-b border-divider last:border-b-0"
+              >
+                <span class="text-fine text-weak">{{ label }}</span>
+                <span class="text-caption text-ink">{{ value }}</span>
+              </div>
+            </div>
+          </AppCard>
+
+          <AppCard>
+            <h3 class="mb-1 text-body font-semibold text-ink">家长联系</h3>
+            <div>
+              <div
+                v-for="[label, value] in guardianFields"
+                :key="label"
+                class="flex h-[34px] items-center justify-between border-b border-divider last:border-b-0"
+              >
+                <span class="text-fine text-weak">{{ label }}</span>
+                <span class="truncate pl-4 text-caption text-ink">{{ value }}</span>
+              </div>
+            </div>
+          </AppCard>
+        </div>
+
+        <AppCard fill class="flex flex-col gap-4">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <h3 class="text-body font-semibold text-ink">图片记录</h3>
+              <span class="rounded-pill bg-parchment px-2 py-1 text-fine text-weak">
+                {{ photos.length }} 张
+              </span>
+            </div>
+            <button class="text-caption text-primary" @click="onAddPhoto">从本地导入</button>
+          </div>
+
+          <PhotoGrid
+            :photos="photos"
+            :dir="photosDir"
+            can-add
+            @add="onAddPhoto"
+            @remove="onRemovePhoto"
+          />
+
+          <p v-if="!loading && !photos.length" class="py-6 text-center text-caption text-weak">
+            还没有图片记录，点上面的「添加图片」从本地选一张。
+          </p>
+        </AppCard>
+      </div>
+    </template>
+
+    <p v-else-if="loading" class="py-20 text-center text-caption text-weak">加载中…</p>
+    <p v-else class="py-20 text-center text-caption text-weak">找不到这个学生</p>
+  </div>
+
+  <StudentFormDialog
+    :open="dialogOpen"
+    :initial="student"
+    title="编辑档案"
+    @close="dialogOpen = false"
+    @submit="onSave"
+  />
+</template>

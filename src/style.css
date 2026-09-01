@@ -1,0 +1,170 @@
+@import "tailwindcss";
+
+/* ---------------------------------------------------------------
+   aprilio 设计系统 —— 单一强调色 Action Blue，层级靠底色与发丝线
+   --------------------------------------------------------------- */
+@theme {
+  /* 颜色 */
+  --color-primary: #0066cc; /* 唯一的交互色 */
+  --color-primary-focus: #0071e3;
+  --color-primary-on-dark: #2997ff; /* 仅用于深色底 */
+  --color-primary-soft: #eaf3fc; /* 浅蓝标签底 */
+
+  --color-ink: #1d1d1f; /* 标题 / 正文 */
+  --color-muted: #333333; /* 次要正文 */
+  --color-weak: #7a7a7a; /* 弱化文本 / 占位符 */
+  --color-faint: #cccccc; /* 分隔点 / 禁用 */
+
+  --color-canvas: #ffffff; /* 内容底 */
+  --color-parchment: #f5f5f7; /* 侧栏 / 顶栏 */
+  --color-pearl: #fafafc; /* 表头 / 次级按钮底 */
+  --color-hairline: #e0e0e0; /* 1px 边框 */
+  --color-divider: #f0f0f0; /* 行分隔线 */
+  --color-tile: #272729; /* 深色块 */
+
+  --color-on-primary: #ffffff;
+  --color-success: #248a3d;
+  --color-danger: #d70015;
+  --color-danger-soft: #fdeef0;
+
+  /* 字体 */
+  --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", "PingFang SC",
+    "Microsoft YaHei", sans-serif;
+
+  /* 字号（含行高与字距，负字距是这套装的灵魂） */
+  --text-hero: 40px;
+  --text-hero--line-height: 1.1;
+  --text-hero--letter-spacing: -0.4px;
+
+  --text-mega: 56px; /* 首页问候语 */
+  --text-mega--line-height: 1.1;
+  --text-mega--letter-spacing: -1.2px;
+
+  --text-airy: 24px; /* 首页格言等轻量长句 */
+  --text-airy--line-height: 1.5;
+  --text-airy--letter-spacing: 0.2px;
+
+  --text-display: 34px;
+  --text-display--line-height: 1.25;
+  --text-display--letter-spacing: -0.37px;
+
+  --text-stat: 28px;
+  --text-stat--line-height: 1.1;
+  --text-stat--letter-spacing: -0.3px;
+
+  --text-tagline: 21px;
+  --text-tagline--line-height: 1.3;
+  --text-tagline--letter-spacing: 0.23px;
+
+  --text-body: 17px;
+  --text-body--line-height: 1.47;
+  --text-body--letter-spacing: -0.37px;
+
+  --text-caption: 14px;
+  --text-caption--line-height: 1.43;
+  --text-caption--letter-spacing: -0.22px;
+
+  --text-fine: 12px;
+  --text-fine--line-height: 1.3;
+  --text-fine--letter-spacing: -0.12px;
+
+  /* 圆角 */
+  --radius-sm: 8px;
+  --radius-md: 11px;
+  --radius-lg: 18px;
+  --radius-pill: 9999px;
+
+  /* 投影：全站只有两处，图片与窗口，卡片按钮一律不加 */
+  --shadow-photo: 3px 5px 30px rgba(0, 0, 0, 0.22);
+  --shadow-window: 0 24px 60px -12px rgba(0, 0, 0, 0.18);
+}
+
+@layer base {
+  html,
+  body,
+  #app {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background: var(--color-canvas);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* 桌面端禁止选中正文，避免拖拽时误选 */
+  .app-no-select {
+    user-select: none;
+  }
+}
+
+/* 细滚动条，跟 Apple 的克制感一致 */
+@layer utilities {
+  .scroll-thin {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-faint) transparent;
+  }
+  .scroll-thin::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .scroll-thin::-webkit-scrollbar-thumb {
+    background: var(--color-faint);
+    border-radius: 9999px;
+  }
+  .scroll-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+
+  .hero-ken {
+    animation: hero-ken 18s ease-in-out infinite alternate;
+    will-change: transform;
+  }
+
+  .arrow-bounce {
+    animation: arrow-bounce 1.8s ease-in-out infinite;
+  }
+}
+
+@keyframes hero-ken {
+  from {
+    transform: scale(1.02);
+  }
+  to {
+    transform: scale(1.07);
+  }
+}
+
+@keyframes arrow-bounce {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(5px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-ken,
+  .arrow-bounce {
+    animation: none;
+  }
+
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
