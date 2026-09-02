@@ -1,6 +1,3 @@
-import { invoke } from "@tauri-apps/api/core";
-import { isTauri } from "./db";
-
 /* ------------------------------------------------------------------ */
 /* 供应商预设                                                           */
 /* ------------------------------------------------------------------ */
@@ -80,36 +77,8 @@ export function isAiConfigured(config: AiConfig): boolean {
 }
 
 /* ------------------------------------------------------------------ */
-/* 聊天                                                                 */
+/* 错误友好化                                                            */
 /* ------------------------------------------------------------------ */
-
-export interface ChatTurn {
-  role: "user" | "assistant";
-  content: string;
-}
-
-/** 浏览器演示态（无 Tauri 外壳）的兜底回复 */
-const DEMO_REPLY =
-  "当前是浏览器演示态，AI 请求由桌面端 Rust 后端发出。运行 `npm run tauri:dev` 并在「数据与设置」里配好模型后再试试。";
-
-export async function aiChat(messages: ChatTurn[], config: AiConfig): Promise<string> {
-  if (!isTauri()) {
-    await new Promise((r) => setTimeout(r, 600));
-    return DEMO_REPLY;
-  }
-
-  return invoke<string>("ai_chat", {
-    params: {
-      provider: config.provider,
-      model: config.model,
-      api_key: config.apiKey.trim() || null,
-      base_url: config.baseUrl.trim() || null,
-      temperature: config.temperature,
-      system_prompt: config.systemPrompt.trim() || null,
-      messages: messages.map((m) => ({ role: m.role, content: m.content })),
-    },
-  });
-}
 
 export function aiErrorMessage(value: unknown): string {
   if (value instanceof Error) return aiFriendlyMessage(value.message);

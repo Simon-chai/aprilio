@@ -47,13 +47,24 @@ README 只描述「现在是什么」，这里记录「为什么这么选、接�
 - [ ] 新增 AIAssistant 视图（对话式 UI，风格沿用设计系统）
 - [ ] 首个场景：自然语言查学生，逐步替换 StudentsView 的 LIKE 搜索框
 
-### 第 2 步 · 下沉到 Rust（2~3 天）
+### 第 2 步 · Agent 框架落地（2026-09 完成）
 
-- [ ] `Cargo.toml`：加 `genai` + `tokio`
-- [ ] `src-tauri/src/ai/tools.rs`：把数据层包装成工具（`query_students` / `get_stats` / `search_photos` / `add_student_note`）
-- [ ] `src-tauri/src/ai/mod.rs`：tool calling 循环 + system prompt
+实际落地与原计划有两处偏差（决策详见 [AGENT.md](AGENT.md)）：
+
+1. genai 只做协议转换（工具定义透传 + tool_calls 返回），**tool-calling 循环放 TS 侧**
+   —— 工具执行体（vue-router 跳转、db 查询、文档检索）都在前端，循环贴近工具零 IPC 成本，
+   且 vitest 用 mock provider 可全链路测试。
+2. 数据层不在 Rust 重包一遍，工具直接复用 `src/lib/db.ts`（浏览器演示态走内存数据）。
+
+- [x] `Cargo.toml`：`genai`（tokio 随 tauri 已有）
+- [x] `src-tauri/src/ai.rs`：tool-calling 协议转换（消息协议 + 工具定义透传 + tool_calls 返回）
+- [x] `src/agent/`：循环 + 工具注册表 + system prompt（TS 侧）
+- [x] 首期三工具：`navigate`（页面跳转）/ `query_data`（数据查询）/ `find_docs`（文档检索）
+- [x] 全局聊天浮层 `AgentChat`（App.vue 挂载，替换原首页 HomeChatBox）
+- [x] 浏览器演示态规则 mock，不联网走通全链路
 - [ ] `tauri::ipc::Channel` 流式推送 token 到前端
-- [ ] 前端只留渲染，删除直连 API 代码
+- [ ] 云 API 场景的数据脱敏开关（工具结果含监护人电话等字段，见 AGENT.md 隐私节）
+- [ ] 细粒度 UI 动作（页面按钮操作）：页面动作注册表 + `ui_action` 工具
 
 ### 以后再说
 

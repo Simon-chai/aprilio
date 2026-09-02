@@ -7,6 +7,9 @@ license = ""
 repository = ""
 edition = "2021"
 rust-version = "1.77.2"
+# examples/ 下是手动运行的临时诊断脚本（依赖环境变量与 reqwest 直连），
+# 不随 cargo test / cargo build 自动编译；需要时显式 cargo run --example <name>
+autoexamples = false
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

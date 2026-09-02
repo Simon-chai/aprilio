@@ -12,6 +12,7 @@
 
 | 主题 | 文档 | 概要 |
 | --- | --- | --- |
+| Agent | [docs/AGENT.md](docs/AGENT.md) | 自主 Agent 框架分层、工具扩展步骤、应用界面注册表 |
 | 日志 | [docs/LOGGING.md](docs/LOGGING.md) | 日志文件位置、记录点清单、新增日志写法、排查流程 |
 
 ## 新增规则的拆分原则

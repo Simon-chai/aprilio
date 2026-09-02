@@ -2,7 +2,6 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { RouterLink } from "vue-router";
 import FeatureIcon from "../components/FeatureIcon.vue";
-import HomeChatBox from "../components/HomeChatBox.vue";
 import { useClock } from "../composables/useClock";
 import { usePagedScroll } from "../composables/usePagedScroll";
 import { getStats, listStudents } from "../lib/db";
@@ -334,9 +333,5 @@ const dotClass = (i: number) => {
       />
     </nav>
     </div>
-
-    <!-- AI 助手悬浮窗：右下角的深色玻璃层，悬浮在翻页内容之上。
-         暂定只挂在首页；后续要让 AI 在应用内跳转时，把它提升到 App.vue 作全局浮层即可 -->
-    <HomeChatBox />
   </div>
 </template>

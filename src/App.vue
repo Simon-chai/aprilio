@@ -2,6 +2,7 @@
 import { computed } from "vue";
 import { useRoute } from "vue-router";
 import AppSidebar from "./components/AppSidebar.vue";
+import AgentChat from "./components/agent/AgentChat.vue";
 
 const route = useRoute();
 
@@ -17,5 +18,7 @@ const fullBleed = computed(
     <main class="flex min-w-0 flex-1 flex-col overflow-hidden">
       <RouterView />
     </main>
+    <!-- AI 助手全局浮层：任何页面都可唤起，由自主 Agent 框架驱动 -->
+    <AgentChat />
   </div>
 </template>
