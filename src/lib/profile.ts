@@ -3,12 +3,7 @@ import defaultAvatar from "../assets/avatar-teacher.png";
 import defaultHero from "../assets/hero-classroom.png";
 import { DEFAULT_PROFILE } from "../types";
 import type { Profile } from "../types";
-import {
-  dbg,
-  getProfile,
-  isTauri,
-  saveProfile as saveProfileRecord,
-} from "./db";
+import { getProfile, isTauri, saveProfile as saveProfileRecord } from "./db";
 import {
   classifyProfileSaveError,
   profileSaveErrorDiagnostic,
@@ -52,7 +47,6 @@ async function readProfile(): Promise<Profile> {
 
 async function writeProfile(p: Profile): Promise<void> {
   const mode = isTauri() ? "tauri" : "browser";
-  void dbg(`PROFILE_SAVE_START mode=${mode}`);
 
   try {
     if (mode === "browser") {
@@ -64,12 +58,10 @@ async function writeProfile(p: Profile): Promise<void> {
     }
 
     await saveProfileRecord(p);
-    void dbg(`PROFILE_SAVE_SUCCESS mode=${mode}`);
   } catch (cause) {
     const kind = classifyProfileSaveError(cause);
     const detail = profileSaveErrorDiagnostic(cause);
     console.error(`[profile.save] failed mode=${mode} kind=${kind} detail=${detail}`);
-    void dbg(`PROFILE_SAVE_FAILURE mode=${mode} kind=${kind} detail=${detail}`);
     throw cause;
   }
 }

@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { RouterLink } from "vue-router";
 import FeatureIcon from "../components/FeatureIcon.vue";
+import HomeChatBox from "../components/HomeChatBox.vue";
 import { useClock } from "../composables/useClock";
 import { usePagedScroll } from "../composables/usePagedScroll";
 import { getStats, listStudents } from "../lib/db";
@@ -121,10 +122,12 @@ const dotClass = (i: number) => {
 </script>
 
 <template>
-  <div
-    ref="viewport"
-    class="relative h-full snap-y snap-mandatory overflow-y-auto scrollbar-none"
-  >
+  <div class="relative h-full overflow-hidden">
+    <!-- 翻页层与悬浮层分开：聊天区里的滚轮/按键不会触发翻页，悬浮层也不随内容滚动 -->
+    <div
+      ref="viewport"
+      class="relative h-full snap-y snap-mandatory overflow-y-auto scrollbar-none"
+    >
     <!-- ══════════════ 第 1 屏：全屏大图 + 实时时间 ══════════════ -->
     <section
       data-page="0"
@@ -259,9 +262,10 @@ const dotClass = (i: number) => {
     <!-- ══════════════ 第 2 屏：功能入口 ══════════════ -->
     <section
       data-page="1"
-      class="relative flex h-full w-full shrink-0 snap-start flex-col items-center justify-center bg-canvas px-12"
+      class="relative flex h-full w-full shrink-0 snap-start flex-col bg-canvas px-12 pb-9 pt-14"
     >
-      <div class="w-full max-w-[1000px]" data-page-scroll>
+      <div class="flex w-full flex-1 items-center justify-center">
+        <div class="w-full max-w-[1000px]" data-page-scroll>
         <div class="flex items-baseline justify-between">
           <h2 class="text-display font-semibold -tracking-[0.37px] text-ink">从哪里开始</h2>
           <RouterLink to="/profile" class="text-caption text-primary hover:underline">
@@ -309,6 +313,7 @@ const dotClass = (i: number) => {
           <p class="text-fine text-faint">滚轮、↓ 键、空格都能翻页 · 点头像可编辑资料和首页大图</p>
           <RouterLink to="/design" class="text-fine text-faint hover:text-weak">设计系统</RouterLink>
         </div>
+        </div>
       </div>
     </section>
 
@@ -328,5 +333,10 @@ const dotClass = (i: number) => {
         @click="goTo(i - 1)"
       />
     </nav>
+    </div>
+
+    <!-- AI 助手悬浮窗：右下角的深色玻璃层，悬浮在翻页内容之上。
+         暂定只挂在首页；后续要让 AI 在应用内跳转时，把它提升到 App.vue 作全局浮层即可 -->
+    <HomeChatBox />
   </div>
 </template>

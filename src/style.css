@@ -134,6 +134,25 @@
   .arrow-bounce {
     animation: arrow-bounce 1.8s ease-in-out infinite;
   }
+
+  /* AI 回复等待时的省略号 */
+  .typing-dots::after {
+    content: "";
+    display: inline-block;
+    width: 1.2em;
+    text-align: left;
+    animation: typing-dots 1.2s steps(1, end) infinite;
+  }
+}
+
+/* 深色玻璃浮层 —— AI 助手悬浮窗这类要盖在大图上、还保持白字可读的浮层。
+   面足够深 + 毛玻璃背景撑起对比，底图再亮也只是整体提亮玻璃而不影响文字。 */
+@utility glass-dark {
+  background-color: rgb(29 29 31 / 0.62);
+  border: 1px solid rgb(255 255 255 / 0.16);
+  box-shadow: var(--shadow-window);
+  -webkit-backdrop-filter: blur(22px) saturate(1.6);
+  backdrop-filter: blur(22px) saturate(1.6);
 }
 
 @keyframes hero-ken {
@@ -152,6 +171,21 @@
   }
   50% {
     transform: translateY(5px);
+  }
+}
+
+@keyframes typing-dots {
+  0% {
+    content: "";
+  }
+  25% {
+    content: "·";
+  }
+  50% {
+    content: "··";
+  }
+  75% {
+    content: "···";
   }
 }
 

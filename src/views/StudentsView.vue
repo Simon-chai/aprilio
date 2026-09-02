@@ -6,7 +6,8 @@ import AppInput from "../components/ui/AppInput.vue";
 import StudentTable from "../components/StudentTable.vue";
 import StudentFormDialog from "../components/StudentFormDialog.vue";
 import EmptyState from "../components/ui/EmptyState.vue";
-import { createStudent, dbg, getStats, isTauri, listStudents } from "../lib/db";
+import { createStudent, getStats, listStudents } from "../lib/db";
+
 import type { Stats, StudentInput, StudentRow } from "../types";
 
 const router = useRouter();
@@ -24,11 +25,9 @@ async function refresh() {
   try {
     rows.value = await listStudents(keyword.value);
     stats.value = await getStats();
-    await dbg(`OK rows=${rows.value.length}`);
   } catch (e) {
     const msg = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
     error.value = msg;
-    await dbg(`FAIL: ${msg}`);
   } finally {
     loading.value = false;
   }
@@ -40,10 +39,7 @@ watch(keyword, () => {
   timer = setTimeout(refresh, 250);
 });
 
-onMounted(async () => {
-  await dbg(`MOUNT isTauri=${isTauri()} internals=${"__TAURI_INTERNALS__" in window} gTauri=${"isTauri" in globalThis}`);
-  await refresh();
-});
+onMounted(refresh);
 onBeforeUnmount(() => clearTimeout(timer));
 
 async function onSubmit(input: StudentInput) {

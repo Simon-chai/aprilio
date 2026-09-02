@@ -33,5 +33,6 @@ export async function deletePhotoFile(fileName: string): Promise<void> {
 /** 把 <图片目录>/<文件名> 转成 <img src> 能用的地址 */
 export function photoUrl(dir: string, fileName: string): string {
   if (!dir || !fileName) return "";
-  return convertFileSrc(`${dir.replace(/\\/g, "/")}/${fileName}`, "img");
+  // 使用 Tauri 2 内置 asset 协议（tauri.conf.json 的 assetProtocol scope 限定到照片目录）
+  return convertFileSrc(`${dir.replace(/\\/g, "/")}/${fileName}`);
 }

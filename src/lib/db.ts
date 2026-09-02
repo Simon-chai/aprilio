@@ -10,27 +10,12 @@ const DB_URL = "sqlite:aprilio.db";
 
 let dbPromise: Promise<Database> | null = null;
 
-// TEMP-DEBUG
-export async function dbg(msg: string): Promise<void> {
-  try {
-    await fetch(`http://127.0.0.1:9911/?m=${encodeURIComponent(msg)}`);
-  } catch {
-    /* ignore */
-  }
-}
-
 function getDb(): Promise<Database> {
   if (!dbPromise) {
-    dbPromise = Database.load(DB_URL)
-      .then((d) => {
-        void dbg("DB LOAD OK");
-        return d;
-      })
-      .catch((e: unknown) => {
-        dbPromise = null;
-        void dbg(`DB LOAD FAIL: ${String(e)}`);
-        throw e;
-      });
+    dbPromise = Database.load(DB_URL).catch((e: unknown) => {
+      dbPromise = null;
+      throw e;
+    });
   }
   return dbPromise;
 }

@@ -8,7 +8,6 @@ const profileMocks = vi.hoisted(() => {
     getProfile: vi.fn(),
     isTauri: vi.fn(() => runtime.tauri),
     saveProfile: vi.fn(),
-    dbg: vi.fn(),
     deletePhotoFile: vi.fn(),
     getPhotosDir: vi.fn(),
     importPhoto: vi.fn(),
@@ -20,7 +19,6 @@ vi.mock("../src/lib/db", () => ({
   getProfile: profileMocks.getProfile,
   isTauri: profileMocks.isTauri,
   saveProfile: profileMocks.saveProfile,
-  dbg: profileMocks.dbg,
 }));
 
 vi.mock("../src/lib/photos", () => ({
@@ -98,7 +96,6 @@ describe("profile persistence", () => {
     profileMocks.getProfile.mockReset().mockResolvedValue({ ...DEFAULT_PROFILE });
     profileMocks.isTauri.mockClear();
     profileMocks.saveProfile.mockReset().mockResolvedValue(undefined);
-    profileMocks.dbg.mockReset().mockResolvedValue(undefined);
     profileMocks.deletePhotoFile.mockReset().mockResolvedValue(undefined);
     profileMocks.getPhotosDir.mockReset().mockResolvedValue("");
     profileMocks.importPhoto.mockReset().mockResolvedValue(null);
@@ -606,33 +603,25 @@ describe("profile persistence", () => {
     expect(localStorage.getItem("aprilio.profile.v1")).toBeNull();
   });
 
-  it("records a sanitized Tauri save lifecycle", async () => {
-    profileMocks.runtime.tauri = true;
-
-    const saving = saveProfileChanges(nextProfile);
-    await vi.advanceTimersByTimeAsync(350);
-    await expect(saving).resolves.toBeUndefined();
-
-    expect(profileMocks.dbg).toHaveBeenCalledWith("PROFILE_SAVE_START mode=tauri");
-    expect(profileMocks.dbg).toHaveBeenCalledWith("PROFILE_SAVE_SUCCESS mode=tauri");
-    const messages = profileMocks.dbg.mock.calls.flat().join(" ");
-    expect(messages).not.toContain(nextProfile.name);
-    expect(messages).not.toContain(nextProfile.title);
-    expect(messages).not.toContain(nextProfile.motto);
-  });
-
-  it("classifies a Tauri execute permission failure in diagnostics", async () => {
+  it("logs a sanitized diagnostics entry when a Tauri save fails", async () => {
     profileMocks.runtime.tauri = true;
     profileMocks.saveProfile.mockRejectedValueOnce(new Error("command execute not allowed"));
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
 
     const saving = saveProfileChanges(nextProfile);
     const rejection = expect(saving).rejects.toThrow("command execute not allowed");
     await vi.advanceTimersByTimeAsync(350);
     await rejection;
 
-    expect(profileMocks.dbg).toHaveBeenCalledWith(
-      "PROFILE_SAVE_FAILURE mode=tauri kind=database-permission detail=Error command execute not allowed",
-    );
+    expect(consoleError).toHaveBeenCalledOnce();
+    const message = String(consoleError.mock.calls[0]?.[0]);
+    expect(message).toContain("[profile.save] failed");
+    expect(message).toContain("mode=tauri");
+    expect(message).toContain("kind=database-permission");
+    expect(message).not.toContain(nextProfile.name);
+    expect(message).not.toContain(nextProfile.title);
+    expect(message).not.toContain(nextProfile.motto);
+    consoleError.mockRestore();
   });
 
   it("rejects every waiter when a debounced write fails", async () => {

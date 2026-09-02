@@ -35,11 +35,11 @@ README 只描述「现在是什么」，这里记录「为什么这么选、接�
 
 ### 第 0 步 · 修复 src-tauri 契约（前置，约半天）
 
-- [ ] `Cargo.toml`：补 `tauri-plugin-sql` / `dialog` / `fs` / `opener` 依赖
-- [ ] `lib.rs`：注册插件 + 恢复迁移 + 恢复 `photos_dir` / `import_photo` / `delete_photo_file` 命令
-- [ ] `capabilities/default.json`：补 `sql:allow-execute`、`sql:allow-load`、`sql:allow-select`、`dialog:default` 等权限
-- [ ] `npm test` 转绿（`tauri-capability.test.ts`）
-- [ ] 清理 `db.ts` / `StudentsView.vue` 里的 TEMP-DEBUG `dbg()` 代码
+- [x] `Cargo.toml`：补 `tauri-plugin-sql` / `dialog` / `fs` / `opener` 依赖
+- [x] `lib.rs`：注册插件 + 迁移（students / photos / profile）+ 恢复 `photos_dir` / `import_photo` / `delete_photo_file` 命令
+- [x] `capabilities/default.json`：补 `sql:allow-execute`、`sql:allow-load`、`sql:allow-select`、`dialog:default` 等权限
+- [x] `npm test` 转绿（`tauri-capability.test.ts`）
+- [x] 清理 `db.ts` / `StudentsView.vue` / `profile.ts` 里的 TEMP-DEBUG `dbg()` 代码
 
 ### 第 1 步 · AI 原型（1~2 天）
 
