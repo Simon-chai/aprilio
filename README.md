@@ -22,7 +22,8 @@ src/
 ├── lib/
 │   ├── db.ts              # 数据访问（Tauri 走 SQLite，浏览器走内存示例数据）
 │   ├── photos.ts          # 图片导入 / 删除 / convertFileSrc
-│   └── format.ts          # 日期格式化
+│   ├── format.ts          # 日期格式化
+│   └── markdown.ts        # 助手回复的 markdown 渲染（marked + DOMPurify 消毒）
 ├── components/
 │   ├── AppSidebar.vue
 │   ├── StudentTable.vue
