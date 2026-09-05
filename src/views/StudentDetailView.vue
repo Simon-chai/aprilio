@@ -119,6 +119,18 @@ async function onDeleteStudent() {
   await deleteStudent(id.value);
   router.push({ name: "students" });
 }
+
+function goBack() {
+  if (window?.history?.state?.back) {
+    router.back();
+    return;
+  }
+  if (student.value?.grade_class) {
+    router.push(`/classes/${encodeURIComponent(student.value.grade_class)}`);
+    return;
+  }
+  router.push({ name: "students" });
+}
 </script>
 
 <template>
@@ -127,7 +139,7 @@ async function onDeleteStudent() {
     class="flex h-[52px] shrink-0 items-center justify-between border-b border-hairline bg-parchment px-8"
   >
     <div class="flex items-center gap-2.5">
-      <button class="text-ink" title="返回列表" @click="router.push({ name: 'students' })">
+      <button class="text-ink" title="返回列表" @click="goBack">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
           <path
             d="M10 3L5 8L10 13"
