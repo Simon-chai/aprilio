@@ -7,11 +7,22 @@ import AppCard from "../components/ui/AppCard.vue";
 import StatusChip from "../components/ui/StatusChip.vue";
 import PhotoGrid from "../components/PhotoGrid.vue";
 import StudentFormDialog from "../components/StudentFormDialog.vue";
-import { addPhoto, deletePhoto, deleteStudent, getStudent, listPhotos, updateStudent, isTauri } from "../lib/db";
+import QuickBehaviorPopover from "../components/QuickBehaviorPopover.vue";
+import StudentBehaviorTimeline from "../components/StudentBehaviorTimeline.vue";
+import {
+  addPhoto,
+  deletePhoto,
+  deleteStudent,
+  getStudent,
+  listBehaviorRecords,
+  listPhotos,
+  updateStudent,
+  isTauri,
+} from "../lib/db";
 import { deletePhotoFile, getPhotosDir, importPhoto } from "../lib/photos";
 import { formatShort } from "../lib/format";
 import { STATUS_LABEL } from "../types";
-import type { Photo, Student, StudentInput } from "../types";
+import type { BehaviorPolarity, Photo, Student, StudentBehaviorRecord, StudentInput } from "../types";
 
 const route = useRoute();
 const router = useRouter();
@@ -19,18 +30,53 @@ const router = useRouter();
 const id = computed(() => Number(route.params.id));
 const student = ref<Student | null>(null);
 const photos = ref<Photo[]>([]);
+const behaviors = ref<StudentBehaviorRecord[]>([]);
+const activeTab = ref<"behaviors" | "photos">("behaviors");
 const photosDir = ref("");
 const loading = ref(true);
 const error = ref("");
 const dialogOpen = ref(false);
 const busy = ref(false);
 
+const quickOpen = ref(false);
+const quickAnchor = ref<{ x: number; y: number } | null>(null);
+const toast = ref("");
+let toastTimer: ReturnType<typeof setTimeout> | undefined;
+
+function openQuickBehavior(e?: MouseEvent) {
+  if (e && (e.currentTarget || e.target)) {
+    const el = (e.currentTarget || e.target) as HTMLElement;
+    if (typeof el.getBoundingClientRect === "function") {
+      const rect = el.getBoundingClientRect();
+      quickAnchor.value = { x: rect.right, y: rect.bottom + 6 };
+    } else {
+      quickAnchor.value = null;
+    }
+  } else {
+    quickAnchor.value = null;
+  }
+  quickOpen.value = true;
+}
+
+async function onQuickSaved(payload: { studentName: string; dimensionName: string; polarity: BehaviorPolarity }) {
+  toast.value = `已记录 ${payload.studentName} ${payload.dimensionName}`;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => (toast.value = ""), 2400);
+  behaviors.value = await listBehaviorRecords(id.value);
+}
+
 async function refresh() {
   loading.value = true;
   error.value = "";
   try {
-    student.value = await getStudent(id.value);
-    photos.value = await listPhotos(id.value);
+    const [s, p, b] = await Promise.all([
+      getStudent(id.value),
+      listPhotos(id.value),
+      listBehaviorRecords(id.value),
+    ]);
+    student.value = s;
+    photos.value = p;
+    behaviors.value = b;
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e);
   } finally {
@@ -144,10 +190,19 @@ function goBack() {
       <h1 class="text-tagline font-semibold text-ink">学生详情</h1>
     </div>
     <div class="flex items-center gap-3">
+      <AppButton
+        data-test="quick-behavior-btn"
+        :disabled="!student"
+        @click="openQuickBehavior"
+      >
+        + 记表现
+      </AppButton>
       <AppButton variant="secondary" :disabled="!student" @click="dialogOpen = true">
         编辑档案
       </AppButton>
-      <AppButton :disabled="!student || busy" @click="onAddPhoto">添加图片</AppButton>
+      <AppButton variant="secondary" :disabled="!student || busy" @click="onAddPhoto">
+        添加图片
+      </AppButton>
     </div>
   </header>
 
@@ -179,7 +234,7 @@ function goBack() {
             <span>{{ student.gender || "性别未填" }}</span>
           </div>
           <p class="text-caption text-muted">
-            最近更新 {{ formatShort(student.updated_at) }} · 共 {{ photos.length }} 张图片记录
+            最近更新 {{ formatShort(student.updated_at) }} · 共 {{ photos.length }} 张图片 · 共 {{ behaviors.length }} 条表现记录
           </p>
         </div>
         <AppButton variant="danger" @click="onDeleteStudent">删除学生</AppButton>
@@ -234,28 +289,72 @@ function goBack() {
           </AppCard>
         </div>
 
+        <!-- 右侧卡片：Tab 主体 -->
         <AppCard fill class="flex flex-col gap-4">
-          <div class="flex items-center justify-between">
+          <div class="flex items-center justify-between border-b border-hairline pb-3">
             <div class="flex items-center gap-2">
-              <h3 class="text-body font-semibold text-ink">图片记录</h3>
-              <span class="rounded-pill bg-parchment px-2 py-1 text-fine text-weak">
-                {{ photos.length }} 张
-              </span>
+              <button
+                type="button"
+                data-test="tab-behaviors"
+                class="rounded-sm px-3.5 py-1.5 text-caption font-medium transition-colors"
+                :class="activeTab === 'behaviors' ? 'bg-ink text-canvas' : 'text-weak hover:text-ink hover:bg-pearl'"
+                @click="activeTab = 'behaviors'"
+              >
+                日常表现 ({{ behaviors.length }})
+              </button>
+              <button
+                type="button"
+                data-test="tab-photos"
+                class="rounded-sm px-3.5 py-1.5 text-caption font-medium transition-colors"
+                :class="activeTab === 'photos' ? 'bg-ink text-canvas' : 'text-weak hover:text-ink hover:bg-pearl'"
+                @click="activeTab = 'photos'"
+              >
+                图片记录 ({{ photos.length }})
+              </button>
             </div>
-            <button class="text-caption text-primary" @click="onAddPhoto">从本地导入</button>
+            <div v-if="activeTab === 'behaviors'">
+              <button
+                type="button"
+                class="text-caption text-primary transition-opacity hover:opacity-80"
+                @click="openQuickBehavior"
+              >
+                + 记表现
+              </button>
+            </div>
+            <div v-else-if="activeTab === 'photos'">
+              <button
+                type="button"
+                class="text-caption text-primary transition-opacity hover:opacity-80"
+                @click="onAddPhoto"
+              >
+                从本地导入
+              </button>
+            </div>
           </div>
 
-          <PhotoGrid
-            :photos="photos"
-            :dir="photosDir"
-            can-add
-            @add="onAddPhoto"
-            @remove="onRemovePhoto"
-          />
+          <!-- Tab 内容：日常表现 -->
+          <div v-if="activeTab === 'behaviors'">
+            <StudentBehaviorTimeline
+              :records="behaviors"
+              :loading="loading"
+              @add="openQuickBehavior"
+            />
+          </div>
 
-          <p v-if="!loading && !photos.length" class="py-6 text-center text-caption text-weak">
-            还没有图片记录，点上面的「添加图片」从本地选一张。
-          </p>
+          <!-- Tab 内容：图片记录 -->
+          <div v-else-if="activeTab === 'photos'" class="flex flex-col gap-4">
+            <PhotoGrid
+              :photos="photos"
+              :dir="photosDir"
+              can-add
+              @add="onAddPhoto"
+              @remove="onRemovePhoto"
+            />
+
+            <p v-if="!loading && !photos.length" class="py-6 text-center text-caption text-weak">
+              还没有图片记录，点上面的「添加图片」从本地选一张。
+            </p>
+          </div>
         </AppCard>
       </div>
     </template>
@@ -271,4 +370,35 @@ function goBack() {
     @close="dialogOpen = false"
     @submit="onSave"
   />
+
+  <QuickBehaviorPopover
+    :open="quickOpen"
+    :student="student"
+    :anchor="quickAnchor"
+    @close="quickOpen = false"
+    @saved="onQuickSaved"
+  />
+
+  <!-- 快捷记表现 Toast 提示 -->
+  <Transition name="qb-toast">
+    <div
+      v-if="toast"
+      data-test="quick-toast"
+      class="fixed inset-x-0 top-4 z-[60] mx-auto w-fit rounded-full bg-tile px-4 py-1.5 text-fine text-white shadow-lg"
+    >
+      {{ toast }}
+    </div>
+  </Transition>
 </template>
+
+<style scoped>
+.qb-toast-enter-active,
+.qb-toast-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.qb-toast-enter-from,
+.qb-toast-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+</style>
