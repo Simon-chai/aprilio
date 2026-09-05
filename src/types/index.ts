@@ -41,11 +41,22 @@ export const DEFAULT_PROFILE: Profile = {
 
 export interface Photo {
   id: number;
-  student_id: number;
+  student_id: number | null;
+  grade_class?: string | null;
   file_name: string;
   caption: string | null;
   taken_at: string | null;
   created_at: string;
+}
+
+export interface ClassSummary {
+  name: string;
+  studentCount: number;
+  maleCount: number;
+  femaleCount: number;
+  photoCount: number;
+  classPhotoCount: number;
+  studentPhotoCount: number;
 }
 
 /** 列表页顶部三张统计卡 */

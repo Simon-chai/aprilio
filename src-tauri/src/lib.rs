@@ -1,5 +1,11 @@
 mod ai;
+mod capabilities;
+mod db;
+pub mod mcp_server;
+mod paths;
 mod photos;
+mod rag;
+mod roster;
 
 use tauri_plugin_log::{Target, TargetKind};
 use tauri_plugin_sql::{Migration, MigrationKind};
@@ -52,6 +58,13 @@ fn migrations() -> Vec<Migration> {
       INSERT INTO profile (id) VALUES (1) ON CONFLICT(id) DO NOTHING;
     "#,
     kind: MigrationKind::Up,
+  }, Migration {
+    version: 2,
+    description: "add_class_photos_support",
+    sql: r#"
+      ALTER TABLE photos ADD COLUMN grade_class TEXT;
+    "#,
+    kind: MigrationKind::Up,
   }]
 }
 
@@ -78,6 +91,8 @@ pub fn run() {
     )
     .setup(|_app| {
       log::info!("aprilio 启动（debug={}）", cfg!(debug_assertions));
+      // Rust 执行面能力装载打点 + 与 invoke_handler 对账（漂移即报错）
+      capabilities::log_inventory();
       // 把 panic 也记入日志文件，便于排查崩溃。
       std::panic::set_hook(Box::new(|info| {
         log::error!("panic: {info}");
@@ -94,9 +109,15 @@ pub fn run() {
     )
     .invoke_handler(tauri::generate_handler![
       ai::ai_chat,
+      ai::ai_chat_stream,
+      capabilities::agent_capabilities,
       photos::photos_dir,
       photos::import_photo,
-      photos::delete_photo_file
+      photos::delete_photo_file,
+      rag::rag_reindex,
+      rag::semantic_search,
+      roster::roster_read_text,
+      roster::roster_read_table
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");

@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
-import { RouterLink } from "vue-router";
+import { RouterLink, useRouter } from "vue-router";
+import AppButton from "../components/ui/AppButton.vue";
 import { getPhotosDir, photoUrl } from "../lib/photos";
 import { listPhotos, listStudents } from "../lib/db";
 import type { Photo, StudentRow } from "../types";
+
+const router = useRouter();
 
 interface ClassGroup {
   name: string;
@@ -37,11 +40,16 @@ const groups = computed<ClassGroup[]>(() => {
 
 const totalStudents = computed(() => rows.value.length);
 
+/** 花名册批量导入入口：跳到学生档案页并自动打开导入对话框 */
+function goImportRoster() {
+  router.push({ path: "/students", query: { import: "1" } });
+}
+
 /** 最近 4 条图片记录；浏览器演示模式下文件不存在，展示占位底色 */
 const recent = computed<RecordCard[]>(() =>
   photos.value.slice(0, 4).map((p) => ({
     id: p.id,
-    title: p.caption || names.value.get(p.student_id) || "图片记录",
+    title: p.caption || (p.student_id != null ? names.value.get(p.student_id) : p.grade_class) || "图片记录",
     time: (p.taken_at || p.created_at || "").slice(0, 10),
     url: photoUrl(photosDir.value, p.file_name),
   }))
@@ -76,15 +84,18 @@ onMounted(async () => {
         <span class="text-body text-primary">首页</span>
       </RouterLink>
 
-      <button
-        class="flex items-center gap-1.5 rounded-pill bg-primary px-[22px] py-[11px] text-caption text-on-primary transition-transform active:scale-[0.95]"
-        title="下一版提供"
-      >
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-          <path d="M7 2v10M2 7h10" stroke="#ffffff" stroke-width="2" stroke-linecap="round" />
-        </svg>
-        新建班级
-      </button>
+      <div class="flex items-center gap-3">
+        <AppButton variant="secondary" @click="goImportRoster">导入花名册</AppButton>
+        <button
+          class="flex items-center gap-1.5 rounded-pill bg-primary px-[22px] py-[11px] text-caption text-on-primary transition-transform active:scale-[0.95]"
+          title="下一版提供"
+        >
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+            <path d="M7 2v10M2 7h10" stroke="#ffffff" stroke-width="2" stroke-linecap="round" />
+          </svg>
+          新建班级
+        </button>
+      </div>
     </header>
 
     <!-- 内容 -->
@@ -141,7 +152,7 @@ onMounted(async () => {
       </div>
 
       <p v-else class="mt-10 text-caption text-weak">
-        还没有学生记录 —— 先到「学生档案」里建第一条学生，班级会自动归组。
+        还没有学生记录 —— 点击右上角「导入花名册」批量建档，或到「学生档案」新建第一条学生。
       </p>
 
       <!-- 最近记录 -->

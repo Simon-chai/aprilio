@@ -10,8 +10,8 @@ const students = ref<StudentRow[]>([]);
 const photosDir = ref("");
 const loading = ref(true);
 
-const studentName = (id: number) =>
-  students.value.find((s) => s.id === id)?.name ?? `学生 #${id}`;
+const studentName = (id: number | null) =>
+  id != null ? students.value.find((s) => s.id === id)?.name ?? `学生 #${id}` : "班级照片";
 
 onMounted(async () => {
   photosDir.value = await getPhotosDir();
