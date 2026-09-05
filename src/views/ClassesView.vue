@@ -3,16 +3,10 @@ import { computed, onMounted, ref } from "vue";
 import { RouterLink, useRouter } from "vue-router";
 import AppButton from "../components/ui/AppButton.vue";
 import { getPhotosDir, photoUrl } from "../lib/photos";
-import { listPhotos, listStudents } from "../lib/db";
-import type { Photo, StudentRow } from "../types";
+import { listClasses, listPhotos, listStudents } from "../lib/db";
+import type { ClassSummary, Photo, StudentRow } from "../types";
 
 const router = useRouter();
-
-interface ClassGroup {
-  name: string;
-  students: number;
-  photos: number;
-}
 
 interface RecordCard {
   id: number;
@@ -21,24 +15,15 @@ interface RecordCard {
   url: string;
 }
 
+const groups = ref<ClassSummary[]>([]);
 const rows = ref<StudentRow[]>([]);
 const photos = ref<Photo[]>([]);
 const names = ref<Map<number, string>>(new Map());
 const photosDir = ref("");
 
-const groups = computed<ClassGroup[]>(() => {
-  const map = new Map<string, ClassGroup>();
-  for (const r of rows.value) {
-    const key = r.grade_class || "未分班";
-    const g = map.get(key) ?? { name: key, students: 0, photos: 0 };
-    g.students += 1;
-    g.photos += r.photo_count;
-    map.set(key, g);
-  }
-  return [...map.values()].sort((a, b) => a.name.localeCompare(b.name, "zh"));
-});
-
-const totalStudents = computed(() => rows.value.length);
+const totalStudents = computed(() =>
+  groups.value.reduce((acc, g) => acc + g.studentCount, 0)
+);
 
 /** 花名册批量导入入口：跳到学生档案页并自动打开导入对话框 */
 function goImportRoster() {
@@ -56,7 +41,12 @@ const recent = computed<RecordCard[]>(() =>
 );
 
 onMounted(async () => {
-  const [studentRows, photoRows] = await Promise.all([listStudents(), listPhotos()]);
+  const [classList, studentRows, photoRows] = await Promise.all([
+    listClasses(),
+    listStudents(),
+    listPhotos(),
+  ]);
+  groups.value = classList;
   rows.value = studentRows;
   photos.value = photoRows;
   names.value = new Map(studentRows.map((s) => [s.id, s.name]));
@@ -86,15 +76,12 @@ onMounted(async () => {
 
       <div class="flex items-center gap-3">
         <AppButton variant="secondary" @click="goImportRoster">导入花名册</AppButton>
-        <button
-          class="flex items-center gap-1.5 rounded-pill bg-primary px-[22px] py-[11px] text-caption text-on-primary transition-transform active:scale-[0.95]"
-          title="下一版提供"
-        >
+        <AppButton variant="primary" title="下一版提供">
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
             <path d="M7 2v10M2 7h10" stroke="#ffffff" stroke-width="2" stroke-linecap="round" />
           </svg>
           新建班级
-        </button>
+        </AppButton>
       </div>
     </header>
 
@@ -110,7 +97,7 @@ onMounted(async () => {
         <RouterLink
           v-for="g in groups"
           :key="g.name"
-          to="/students"
+          :to="{ name: 'class-detail', params: { name: g.name } }"
           class="flex w-[410px] flex-col gap-5 rounded-lg border border-hairline bg-canvas p-7 transition-all hover:bg-pearl active:scale-[0.95]"
         >
           <div class="flex items-center gap-4">
@@ -129,7 +116,9 @@ onMounted(async () => {
               <p class="truncate text-tagline font-semibold -tracking-[0.3px] text-ink">
                 {{ g.name }}
               </p>
-              <p class="mt-0.5 text-caption text-weak">{{ g.students }} 名学生</p>
+              <p class="mt-0.5 text-caption text-weak">
+                {{ g.studentCount }} 名学生 ({{ g.maleCount }} 男 · {{ g.femaleCount }} 女)
+              </p>
             </div>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <path
@@ -145,8 +134,10 @@ onMounted(async () => {
           <div class="h-px w-full bg-hairline" />
 
           <div class="flex items-center justify-between">
-            <span class="text-caption text-weak">图片记录 {{ g.photos }} 条</span>
-            <span class="text-caption text-weak">进入查看</span>
+            <span class="text-caption text-weak">
+              照片 {{ g.photoCount }} 张 (公共 {{ g.classPhotoCount }} · 个人 {{ g.studentPhotoCount }})
+            </span>
+            <span class="text-caption text-primary">进入班级 →</span>
           </div>
         </RouterLink>
       </div>
