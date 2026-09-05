@@ -9,37 +9,48 @@ import StudentTable from "../components/StudentTable.vue";
 import StudentFormDialog from "../components/StudentFormDialog.vue";
 import ImportRosterDialog from "../components/ImportRosterDialog.vue";
 import ClassFormDialog from "../components/ClassFormDialog.vue";
+import QuickBehaviorPopover from "../components/QuickBehaviorPopover.vue";
+import ClassBehaviorTimeline from "../components/ClassBehaviorTimeline.vue";
 import {
   addClassPhoto,
   createStudent,
   getClassSummary,
   isTauri,
+  listBehaviorRecordsByClass,
   listClasses,
   listPhotosByClass,
   listStudents,
   renameClass,
 } from "../lib/db";
 import { getPhotosDir, importPhoto, photoUrl } from "../lib/photos";
-import type { ClassSummary, Photo, StudentInput, StudentRow } from "../types";
+import type { BehaviorPolarity, ClassBehaviorRecord, ClassSummary, Photo, StudentInput, StudentRow } from "../types";
 
 const props = defineProps<{ name: string }>();
 const router = useRouter();
 
 const summary = ref<ClassSummary | null>(null);
 const students = ref<StudentRow[]>([]);
+const classStudents = ref<StudentRow[]>([]);
 const photos = ref<Photo[]>([]);
+const behaviorRecords = ref<ClassBehaviorRecord[]>([]);
 const photosDir = ref("");
 const studentNames = ref<Map<number, string>>(new Map());
 const existingClasses = ref<ClassSummary[]>([]);
 
 const keyword = ref("");
-const activeTab = ref<"students" | "photos">("students");
+const activeTab = ref<"students" | "photos" | "behaviors">("students");
 const photoFilter = ref<"all" | "public" | "student">("all");
 
 const importOpen = ref(false);
 const createDialogOpen = ref(false);
 const renameDialogOpen = ref(false);
 const fileInputRef = ref<HTMLInputElement | null>(null);
+
+const quickOpen = ref(false);
+const quickStudent = ref<StudentRow | null>(null);
+const quickAnchor = ref<{ x: number; y: number } | null>(null);
+const toast = ref("");
+let toastTimer: ReturnType<typeof setTimeout> | undefined;
 
 const filterOptions: { label: string; value: "all" | "public" | "student" }[] = [
   { label: "全部", value: "all" },
@@ -48,20 +59,44 @@ const filterOptions: { label: string; value: "all" | "public" | "student" }[] = 
 ];
 
 async function refresh() {
-  const [sum, studentList, photoList, allStudents, pDir, classList] = await Promise.all([
+  const [sum, studentList, photoList, allStudents, pDir, classList, bList] = await Promise.all([
     getClassSummary(props.name),
     listStudents(keyword.value, props.name),
     listPhotosByClass(props.name, photoFilter.value),
     listStudents(),
     getPhotosDir(),
     listClasses(),
+    listBehaviorRecordsByClass(props.name),
   ]);
   summary.value = sum;
   students.value = studentList;
   photos.value = photoList;
   photosDir.value = pDir;
   studentNames.value = new Map(allStudents.map((s) => [s.id, s.name]));
+  classStudents.value = allStudents.filter((s) => s.grade_class === props.name);
   existingClasses.value = classList;
+  behaviorRecords.value = bList;
+}
+
+function openQuickBehavior(targetStudentId?: number) {
+  quickAnchor.value = null;
+  if (targetStudentId) {
+    quickStudent.value = classStudents.value.find((s) => s.id === targetStudentId) ?? null;
+  } else {
+    quickStudent.value = classStudents.value[0] ?? null;
+  }
+  quickOpen.value = true;
+}
+
+async function onQuickSaved(payload: { studentName: string; dimensionName: string; polarity: BehaviorPolarity }) {
+  toast.value = `已记录 ${payload.studentName} ${payload.dimensionName}`;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => (toast.value = ""), 2400);
+  behaviorRecords.value = await listBehaviorRecordsByClass(props.name);
+}
+
+function goStudentById(studentId: number) {
+  router.push({ name: "student-detail", params: { id: studentId } });
 }
 
 async function handleRenameClass(newName: string) {
@@ -89,7 +124,10 @@ watch(photoFilter, async () => {
 watch(() => props.name, refresh);
 
 onMounted(refresh);
-onBeforeUnmount(() => clearTimeout(timer));
+onBeforeUnmount(() => {
+  clearTimeout(timer);
+  clearTimeout(toastTimer);
+});
 
 function openImportDialog() {
   importOpen.value = true;
@@ -224,7 +262,7 @@ function goStudentDetail(row: StudentRow) {
           <div class="mt-2 text-title font-semibold text-ink">
             {{ students.length }} 名有效学生
           </div>
-          <div class="mt-1 text-fine text-muted">已归档</div>
+          <div class="mt-1 text-fine text-muted">已归档 · {{ behaviorRecords.length }} 条表现记录</div>
         </AppCard>
       </div>
 
@@ -245,6 +283,14 @@ function goStudentDetail(row: StudentRow) {
           @click="activeTab = 'photos'"
         >
           班级相册 ({{ summary?.photoCount ?? 0 }})
+        </button>
+        <button
+          type="button"
+          class="rounded-sm px-4 py-2 text-caption font-medium transition-colors"
+          :class="activeTab === 'behaviors' ? 'bg-ink text-canvas' : 'text-weak hover:text-ink hover:bg-pearl'"
+          @click="activeTab = 'behaviors'"
+        >
+          日常表现 ({{ behaviorRecords.length }})
         </button>
       </div>
 
@@ -333,6 +379,16 @@ function goStudentDetail(row: StudentRow) {
           description="点击右上角「添加班级照片」上传班级活动照片"
         />
       </div>
+
+      <!-- Tab 3: 日常表现 -->
+      <div v-else-if="activeTab === 'behaviors'" class="space-y-4">
+          <ClassBehaviorTimeline
+            :records="behaviorRecords"
+            :class-students="classStudents"
+          @add="openQuickBehavior"
+          @select-student="goStudentById"
+        />
+      </div>
     </div>
 
     <!-- 对话框 -->
@@ -358,5 +414,37 @@ function goStudentDetail(row: StudentRow) {
       @close="renameDialogOpen = false"
       @submit="handleRenameClass"
     />
+
+    <QuickBehaviorPopover
+      :open="quickOpen"
+      :student="quickStudent"
+      :students="classStudents"
+      :anchor="quickAnchor"
+      @close="quickOpen = false"
+      @saved="onQuickSaved"
+    />
+
+    <!-- 快捷记表现 Toast 提示 -->
+    <Transition name="qb-toast">
+      <div
+        v-if="toast"
+        data-test="quick-toast"
+        class="fixed inset-x-0 top-4 z-[60] mx-auto w-fit rounded-full bg-tile px-4 py-1.5 text-fine text-white shadow-lg"
+      >
+        {{ toast }}
+      </div>
+    </Transition>
   </div>
 </template>
+
+<style scoped>
+.qb-toast-enter-active,
+.qb-toast-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.qb-toast-enter-from,
+.qb-toast-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+</style>

@@ -5,6 +5,7 @@ import ClassDetailView from "../src/views/ClassDetailView.vue";
 import StudentDetailView from "../src/views/StudentDetailView.vue";
 import ImportRosterDialog from "../src/components/ImportRosterDialog.vue";
 import StudentFormDialog from "../src/components/StudentFormDialog.vue";
+import QuickBehaviorPopover from "../src/components/QuickBehaviorPopover.vue";
 import AppButton from "../src/components/ui/AppButton.vue";
 import { deleteStudent, listStudents } from "../src/lib/db";
 
@@ -121,7 +122,7 @@ describe("ClassDetailView.vue", () => {
     expect(text).toContain("已归档");
   });
 
-  it("has tabs for 学生条目 and 班级相册 and switches content when toggled", async () => {
+  it("has tabs for 学生条目, 班级相册 and 日常表现 and switches to ClassBehaviorTimeline when toggled", async () => {
     const router = createTestRouter();
     await router.push("/classes/三年级二班");
     await router.isReady();
@@ -138,9 +139,11 @@ describe("ClassDetailView.vue", () => {
     const buttons = wrapper.findAll("button");
     const studentsTab = buttons.find((b) => b.text().includes("学生条目"));
     const photosTab = buttons.find((b) => b.text().includes("班级相册"));
+    const behaviorsTab = buttons.find((b) => b.text().includes("日常表现"));
 
     expect(studentsTab).toBeDefined();
     expect(photosTab).toBeDefined();
+    expect(behaviorsTab).toBeDefined();
 
     // Default tab is students: table / student list should be present
     expect(wrapper.text()).toContain("林知远");
@@ -148,9 +151,12 @@ describe("ClassDetailView.vue", () => {
     // Click photos tab
     await photosTab!.trigger("click");
     await flushPromises();
-
-    // In photos tab, photo filter pills or photo cards should be visible
     expect(wrapper.text()).toContain("班级公共");
+
+    // Click behaviors tab
+    await behaviorsTab!.trigger("click");
+    await flushPromises();
+    expect(wrapper.findComponent({ name: "ClassBehaviorTimeline" }).exists()).toBe(true);
   });
 
   it("integrates ImportRosterDialog and StudentFormDialog with preset class", async () => {
@@ -238,5 +244,55 @@ describe("ClassDetailView.vue", () => {
     await flushPromises();
 
     expect(router.currentRoute.value.path).toBe(`/classes/${encodeURIComponent("三年级二班")}`);
+  });
+
+  it("integrates ClassBehaviorTimeline and QuickBehaviorPopover with student navigation", async () => {
+    const router = createTestRouter();
+    await router.push("/classes/三年级二班");
+    await router.isReady();
+
+    const wrapper = mount(ClassDetailView, {
+      props: { name: "三年级二班" },
+      global: { plugins: [router] },
+    });
+    await flushPromises();
+
+    // Switch to behaviors tab
+    const behaviorsTab = wrapper.findAll("button").find((b) => b.text().includes("日常表现"));
+    await behaviorsTab!.trigger("click");
+    await flushPromises();
+
+    const timeline = wrapper.findComponent({ name: "ClassBehaviorTimeline" });
+    expect(timeline.exists()).toBe(true);
+
+    // Test select-student navigates to student-detail
+    timeline.vm.$emit("selectStudent", 1);
+    await flushPromises();
+    expect(router.currentRoute.value.path).toBe("/students/1");
+  });
+
+  it("opens quick behavior popover with the first student in the class", async () => {
+    const router = createTestRouter();
+    await router.push("/classes/三年级二班");
+    await router.isReady();
+
+    const wrapper = mount(ClassDetailView, {
+      props: { name: "三年级二班" },
+      global: { plugins: [router], stubs: { teleport: true } },
+    });
+    await flushPromises();
+
+    const behaviorsTab = wrapper.findAll("button").find((b) => b.text().includes("日常表现"));
+    await behaviorsTab!.trigger("click");
+    await flushPromises();
+
+    const timeline = wrapper.findComponent({ name: "ClassBehaviorTimeline" });
+    const popover = wrapper.findComponent(QuickBehaviorPopover);
+    timeline.vm.$emit("add");
+    await flushPromises();
+
+    expect(popover.props("open")).toBe(true);
+    expect((popover.props("student") as StudentRow).grade_class).toBe("三年级二班");
+    expect((popover.props("students") as StudentRow[]).length).toBeGreaterThanOrEqual(1);
   });
 });
