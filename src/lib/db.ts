@@ -1,6 +1,22 @@
 import Database from "@tauri-apps/plugin-sql";
+import { localDateStr } from "./format";
 import { DEFAULT_PROFILE } from "../types";
-import type { ClassSummary, Gender, Guardian, Photo, Profile, Stats, Student, StudentInput, StudentRow } from "../types";
+import type {
+  BehaviorDimension,
+  BehaviorInput,
+  ClassBehaviorRecord,
+  ClassSummary,
+  CommentPreset,
+  Gender,
+  Guardian,
+  Photo,
+  Profile,
+  Stats,
+  Student,
+  StudentBehaviorRecord,
+  StudentInput,
+  StudentRow,
+} from "../types";
 
 /** 是否在 Tauri 外壳里运行；浏览器里跑 dev 时走内存兜底，方便调样式。 */
 export const isTauri = (): boolean =>
@@ -29,12 +45,49 @@ interface MemoryStore {
   photos: Photo[];
   classes: string[];
   guardians: Guardian[];
+  behaviorDimensions: BehaviorDimension[];
+  behaviorRecords: StudentBehaviorRecord[];
+  commentPresets: (CommentPreset & { last_used_at: string })[];
   nextStudentId: number;
   nextPhotoId: number;
   nextGuardianId: number;
+  nextDimensionId: number;
+  nextBehaviorRecordId: number;
+  nextCommentPresetId: number;
 }
 
 const now = () => new Date().toISOString().slice(0, 19).replace("T", " ");
+
+/** 与 Rust Migration 5 的种子数据保持一致，浏览器演示态/单测共用 */
+const BEHAVIOR_DIMENSIONS: BehaviorDimension[] = [
+  { id: 1, category: "study", code: "homework", name: "作业情况", icon: "BookOpen", sort_order: 1, is_system: 1, is_active: 1 },
+  { id: 2, category: "study", code: "exam", name: "单元/期中期末成绩", icon: "GraduationCap", sort_order: 2, is_system: 1, is_active: 1 },
+  { id: 3, category: "behavior", code: "classroom", name: "课堂表现", icon: "MessageSquare", sort_order: 3, is_system: 1, is_active: 1 },
+  { id: 4, category: "behavior", code: "labor", name: "劳动情况", icon: "Sparkles", sort_order: 4, is_system: 1, is_active: 1 },
+];
+
+const BEHAVIOR_PRESET_SEED: [number, CommentPreset["type"], string][] = [
+  [1, "praise", "书写工整规范，解题步骤完整清晰"],
+  [1, "praise", "按时独立完成作业，正确率极高"],
+  [1, "improve", "作业未按时提交，需及时补交"],
+  [1, "improve", "错题漏题较多，未进行及时订正"],
+  [1, "neutral", "作业按时完成，整体表现平稳"],
+  [2, "praise", "测试成绩名列前茅，基础扎实知识掌握牢固"],
+  [2, "praise", "较上次有显著进步，难题突破能力提升"],
+  [2, "improve", "基础计算失误较多，需加强审题与验算习惯"],
+  [2, "improve", "重点知识点有脱节，需针对性复习补漏"],
+  [2, "neutral", "成绩处于班级平均水平，保持学习节奏"],
+  [3, "praise", "课堂听讲专注，积极举手发言发表独到见解"],
+  [3, "praise", "互动热烈，能主动带动小组讨论探索"],
+  [3, "improve", "课堂听讲容易走神，需要老师多次提醒注意集中"],
+  [3, "improve", "自控力较弱，有做小动作或讲话现象"],
+  [3, "neutral", "课堂表现平稳，能按时完成课堂任务"],
+  [4, "praise", "主动承担卫生大扫除，擦黑板和整理卫生角非常细致"],
+  [4, "praise", "值日尽职尽责，主动帮助其他同学整理桌椅"],
+  [4, "improve", "值日敷衍草率，未完成清洁任务提前离开"],
+  [4, "improve", "缺乏公共卫生意识，桌面及周围杂物未整理"],
+  [4, "neutral", "按安排完成值日任务"],
+];
 
 function seedStore(): MemoryStore {
   const base = now();
@@ -130,9 +183,23 @@ function seedStore(): MemoryStore {
     photos,
     classes: initialClasses,
     guardians,
+    behaviorDimensions: BEHAVIOR_DIMENSIONS.map((d) => ({ ...d })),
+    behaviorRecords: [],
+    commentPresets: BEHAVIOR_PRESET_SEED.map(([dimensionId, type, content], i) => ({
+      id: i + 1,
+      dimension_id: dimensionId,
+      type,
+      content,
+      use_count: 1,
+      source: "system" as const,
+      last_used_at: base,
+    })),
     nextStudentId: 11,
     nextPhotoId: pid,
     nextGuardianId: gid,
+    nextDimensionId: BEHAVIOR_DIMENSIONS.length + 1,
+    nextBehaviorRecordId: 1,
+    nextCommentPresetId: BEHAVIOR_PRESET_SEED.length + 1,
   };
 }
 
@@ -337,12 +404,14 @@ export async function deleteStudent(id: number): Promise<void> {
     store.students = store.students.filter((s) => s.id !== id);
     store.photos = store.photos.filter((p) => p.student_id !== id);
     store.guardians = store.guardians.filter((g) => g.student_id !== id);
+    store.behaviorRecords = store.behaviorRecords.filter((r) => r.student_id !== id);
     return;
   }
 
   const db = await getDb();
   await db.execute("DELETE FROM guardians WHERE student_id = ?", [id]);
   await db.execute("DELETE FROM photos WHERE student_id = ?", [id]);
+  await db.execute("DELETE FROM student_behavior_records WHERE student_id = ?", [id]);
   await db.execute("DELETE FROM students WHERE id = ?", [id]);
 }
 
@@ -784,6 +853,7 @@ export async function clearAll(): Promise<void> {
     memory.photos = [];
     memory.classes = [];
     memory.guardians = [];
+    memory.behaviorRecords = [];
     return;
   }
   const db = await getDb();
@@ -792,7 +862,258 @@ export async function clearAll(): Promise<void> {
   } catch {}
   await db.execute("DELETE FROM photos");
   await db.execute("DELETE FROM students");
+  await db.execute("DELETE FROM student_behavior_records");
   try {
     await db.execute("DELETE FROM classes");
   } catch {}
+}
+
+/* ------------------------------------------------------------------ */
+/* 日常表现：维度字典 / 事实流水 / 评语沉淀（三层范式）                     */
+/* ------------------------------------------------------------------ */
+
+/** 维度字典列表（启用中的，按 sort_order 排序） */
+export async function listBehaviorDimensions(): Promise<BehaviorDimension[]> {
+  if (!isTauri()) {
+    return mem()
+      .behaviorDimensions.filter((d) => d.is_active)
+      .sort((a, b) => a.sort_order - b.sort_order || a.id - b.id);
+  }
+  const db = await getDb();
+  return db.select<BehaviorDimension[]>(
+    "SELECT * FROM behavior_dimensions WHERE is_active = 1 ORDER BY sort_order ASC, id ASC"
+  );
+}
+
+/** 新增自定义维度（is_system = 0，category 固定 other，code 自动生成） */
+export async function createBehaviorDimension(name: string): Promise<BehaviorDimension> {
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error("维度名称不能为空");
+  if (trimmed.length > 12) throw new Error("维度名称请控制在 12 字以内");
+
+  const code = `custom_${Date.now().toString(36)}_${Math.floor(Math.random() * 1e4)}`;
+
+  if (!isTauri()) {
+    const store = mem();
+    const maxOrder = Math.max(0, ...store.behaviorDimensions.map((d) => d.sort_order));
+    const dim: BehaviorDimension = {
+      id: store.nextDimensionId++,
+      category: "other",
+      code,
+      name: trimmed,
+      icon: null,
+      sort_order: maxOrder + 1,
+      is_system: 0,
+      is_active: 1,
+    };
+    store.behaviorDimensions.push(dim);
+    return { ...dim };
+  }
+
+  const db = await getDb();
+  const result = await db.execute(
+    `INSERT INTO behavior_dimensions (category, code, name, icon, sort_order, is_system)
+     VALUES ('other', ?, ?, NULL,
+       (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM behavior_dimensions), 0)`,
+    [code, trimmed]
+  );
+  const id = Number(result.lastInsertId ?? 0);
+  return {
+    id,
+    category: "other",
+    code,
+    name: trimmed,
+    icon: null,
+    sort_order: 0,
+    is_system: 0,
+    is_active: 1,
+  };
+}
+
+/**
+ * 写入一条表现流水，并同步评语沉淀（自学习闭环）：
+ * 已有同 (维度, 倾向, 内容) 词条 → use_count+1；没有 → 新增 source='history'。
+ */
+export async function addBehaviorRecord(input: BehaviorInput): Promise<number> {
+  if (!input.student_id) throw new Error("缺少学生");
+  const comment = input.comment.trim();
+  if (!comment) throw new Error("评语内容不能为空");
+  if (comment.length > 200) throw new Error("评语请控制在 200 字以内");
+  if (input.type !== "praise" && input.type !== "improve" && input.type !== "neutral")
+    throw new Error("评价倾向不合法");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.recorded_date)) throw new Error("日期格式不合法");
+  if (input.recorded_date > localDateStr()) throw new Error("不能录入未来日期");
+
+  if (!isTauri()) {
+    const store = mem();
+    const dim = store.behaviorDimensions.find((d) => d.id === input.dimension_id);
+    if (!dim) throw new Error("评价维度不存在");
+
+    const id = store.nextBehaviorRecordId++;
+    store.behaviorRecords.push({
+      id,
+      student_id: input.student_id,
+      dimension_id: dim.id,
+      dimension_name_snap: dim.name,
+      category_snap: dim.category,
+      type: input.type,
+      comment,
+      recorded_date: input.recorded_date,
+      created_at: now(),
+    });
+
+    const preset = store.commentPresets.find(
+      (p) => p.dimension_id === dim.id && p.type === input.type && p.content === comment
+    );
+    if (preset) {
+      preset.use_count += 1;
+      preset.last_used_at = now();
+    } else {
+      store.commentPresets.push({
+        id: store.nextCommentPresetId++,
+        dimension_id: dim.id,
+        type: input.type,
+        content: comment,
+        use_count: 1,
+        source: "history",
+        last_used_at: now(),
+      });
+    }
+    return id;
+  }
+
+  const db = await getDb();
+  const result = await db.execute(
+    `INSERT INTO student_behavior_records
+       (student_id, dimension_id, dimension_name_snap, category_snap, type, comment, recorded_date)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [
+      input.student_id,
+      input.dimension_id,
+      input.dimension_name_snap,
+      input.category_snap,
+      input.type,
+      comment,
+      input.recorded_date,
+    ]
+  );
+
+  const existing = await db.select<{ id: number }[]>(
+    `SELECT id FROM behavior_comment_presets
+      WHERE dimension_id = ? AND type = ? AND content = ? LIMIT 1`,
+    [input.dimension_id, input.type, comment]
+  );
+  if (existing[0]) {
+    await db.execute(
+      `UPDATE behavior_comment_presets
+          SET use_count = use_count + 1, last_used_at = datetime('now','localtime')
+        WHERE id = ?`,
+      [existing[0].id]
+    );
+  } else {
+    await db.execute(
+      `INSERT INTO behavior_comment_presets (dimension_id, type, content, use_count, source)
+       VALUES (?, ?, ?, 1, 'history')`,
+      [input.dimension_id, input.type, comment]
+    );
+  }
+  return Number(result.lastInsertId ?? 0);
+}
+
+/** 常用评语：按使用频次取前 N 条（默认 4） */
+export async function listCommentPresets(
+  dimensionId: number,
+  type: CommentPreset["type"],
+  limit = 4
+): Promise<CommentPreset[]> {
+  if (!isTauri()) {
+    return mem()
+      .commentPresets.filter((p) => p.dimension_id === dimensionId && p.type === type)
+      .sort(
+        (a, b) => b.use_count - a.use_count || (a.last_used_at < b.last_used_at ? 1 : -1) || a.id - b.id
+      )
+      .slice(0, limit)
+      .map((p) => ({
+        id: p.id,
+        dimension_id: p.dimension_id,
+        type: p.type,
+        content: p.content,
+        use_count: p.use_count,
+        source: p.source,
+      }));
+  }
+  const db = await getDb();
+  return db.select<CommentPreset[]>(
+    `SELECT id, dimension_id, type, content, use_count, source
+       FROM behavior_comment_presets
+      WHERE dimension_id = ? AND type = ?
+      ORDER BY use_count DESC, last_used_at DESC, id ASC
+      LIMIT ?`,
+    [dimensionId, type, limit]
+  );
+}
+
+/** 表现流水查询（详情页/统计用，默认最近 100 条） */
+export async function listBehaviorRecords(
+  studentId?: number,
+  limit = 100
+): Promise<StudentBehaviorRecord[]> {
+  if (!isTauri()) {
+    return mem()
+      .behaviorRecords.filter((r) => studentId === undefined || r.student_id === studentId)
+      .sort((a, b) => b.id - a.id)
+      .slice(0, limit);
+  }
+  const db = await getDb();
+  return db.select<StudentBehaviorRecord[]>(
+    `SELECT * FROM student_behavior_records
+      WHERE (? IS NULL OR student_id = ?)
+      ORDER BY created_at DESC, id DESC
+      LIMIT ?`,
+    [studentId ?? null, studentId ?? null, limit]
+  );
+}
+
+/** 班级表现流水查询（班级管理时间轴用，带学生基本快照信息） */
+export async function listBehaviorRecordsByClass(
+  className: string,
+  limit = 200
+): Promise<ClassBehaviorRecord[]> {
+  if (!isTauri()) {
+    const store = mem();
+    const classStudents = store.students.filter((s) => s.grade_class === className);
+    const studentMap = new Map(classStudents.map((s) => [s.id, s]));
+    return store.behaviorRecords
+      .filter((r) => studentMap.has(r.student_id))
+      .map((r) => {
+        const s = studentMap.get(r.student_id)!;
+        return {
+          ...r,
+          student_name: s.name,
+          student_no: s.student_no,
+          student_gender: s.gender,
+        };
+      })
+      .sort((a, b) => {
+        const da = a.recorded_date || a.created_at;
+        const db = b.recorded_date || b.created_at;
+        if (da !== db) return da < db ? 1 : -1;
+        return b.id - a.id;
+      })
+      .slice(0, limit);
+  }
+  const db = await getDb();
+  return db.select<ClassBehaviorRecord[]>(
+    `SELECT 
+      r.*,
+      s.name AS student_name,
+      s.student_no,
+      s.gender AS student_gender
+    FROM student_behavior_records r
+    INNER JOIN students s ON r.student_id = s.id
+    WHERE s.grade_class = ?
+    ORDER BY r.recorded_date DESC, r.created_at DESC, r.id DESC
+    LIMIT ?`,
+    [className, limit]
+  );
 }

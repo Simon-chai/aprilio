@@ -97,3 +97,75 @@ export const STATUS_LABEL: Record<string, string> = {
   graduated: "毕业",
   transferred: "转出",
 };
+
+/* ------------------------------------------------------------------ */
+/* 日常表现记录（三层范式：维度字典 → 事实流水 → 评语沉淀）                */
+/* ------------------------------------------------------------------ */
+
+export type BehaviorCategory = "study" | "behavior" | "other";
+/** 评价倾向：表扬 👍 | 待改进 ⚠️ | 中立 ➖ */
+export type BehaviorPolarity = "praise" | "improve" | "neutral";
+
+export const BEHAVIOR_POLARITY_LABEL: Record<BehaviorPolarity, string> = {
+  praise: "表扬",
+  improve: "待改进",
+  neutral: "中立",
+};
+
+export const BEHAVIOR_CATEGORY_LABEL: Record<BehaviorCategory, string> = {
+  study: "学习表现",
+  behavior: "行为习惯",
+  other: "其他表现",
+};
+
+/** 维度字典：未来新增事项只插数据，零表结构变更 */
+export interface BehaviorDimension {
+  id: number;
+  category: BehaviorCategory;
+  code: string;
+  name: string;
+  icon?: string | null;
+  sort_order: number;
+  is_system: number;
+  is_active: number;
+}
+
+/** 表现事实流水（维度名/分类为快照字段，防字典更名影响历史） */
+export interface StudentBehaviorRecord {
+  id: number;
+  student_id: number;
+  dimension_id: number;
+  dimension_name_snap: string;
+  category_snap: string;
+  type: BehaviorPolarity;
+  comment: string;
+  recorded_date: string;
+  created_at: string;
+}
+
+/** 班级聚合表现记录（在流水基础上扩展学生主体信息） */
+export interface ClassBehaviorRecord extends StudentBehaviorRecord {
+  student_name: string;
+  student_no?: string;
+  student_gender?: Gender;
+}
+
+export interface BehaviorInput {
+  student_id: number;
+  dimension_id: number;
+  dimension_name_snap: string;
+  category_snap: string;
+  type: BehaviorPolarity;
+  comment: string;
+  recorded_date: string;
+}
+
+/** 评语沉淀词条：system 预置 | history 手输沉淀 | ai 采纳沉淀 */
+export interface CommentPreset {
+  id: number;
+  dimension_id: number;
+  type: BehaviorPolarity;
+  content: string;
+  use_count: number;
+  source: "system" | "history" | "ai";
+}
