@@ -65,6 +65,38 @@ fn migrations() -> Vec<Migration> {
       ALTER TABLE photos ADD COLUMN grade_class TEXT;
     "#,
     kind: MigrationKind::Up,
+  }, Migration {
+    version: 3,
+    description: "create_classes_table",
+    sql: r#"
+      CREATE TABLE IF NOT EXISTS classes (
+        name       TEXT PRIMARY KEY,
+        created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+      );
+
+      INSERT OR IGNORE INTO classes (name)
+        SELECT DISTINCT grade_class FROM students
+        WHERE grade_class IS NOT NULL AND grade_class != '' AND grade_class != '未分班';
+    "#,
+    kind: MigrationKind::Up,
+  }, Migration {
+    version: 4,
+    description: "create_guardians_table",
+    sql: r#"
+      CREATE TABLE IF NOT EXISTS guardians (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        student_id INTEGER NOT NULL,
+        name       TEXT NOT NULL DEFAULT '',
+        phone      TEXT NOT NULL DEFAULT '',
+        relation   TEXT NOT NULL DEFAULT '监护人',
+        is_primary INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_guardians_student_id ON guardians(student_id);
+    "#,
+    kind: MigrationKind::Up,
   }]
 }
 

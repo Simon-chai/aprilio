@@ -1,11 +1,11 @@
 /**
- * 工具 3：find_docs —— 文档查找（广义数据查询）。
+ * 工具：find_docs —— 文档查找（声明式注册，default export 即被容器装载）。
  *
  * 文档在构建期通过 import.meta.glob 内联（浏览器/桌面端行为一致，无运行时 IO）：
  * - docs/*.md：项目文档（含 AGENT.md —— 本助手的能力说明本身也是可检索文档）
  * 检索策略：按行做关键词命中打分，返回带标题与位置的片段。
  */
-import type { AgentTool, ToolResult } from "../types";
+import { defineAgentTool } from "../define";
 
 const DEFAULT_LIMIT = 6;
 
@@ -61,59 +61,57 @@ function searchFragments(docs: DocEntry[], keywords: string[]): Fragment[] {
   return picked;
 }
 
-export function findDocsTool(): AgentTool {
-  return {
-    definition: {
-      name: "find_docs",
-      description:
-        "在应用文档与帮助资料中检索内容（功能说明、操作指南、设计决策、日志排查等），是广义的数据查询。适合回答「怎么用 / 为什么 / 有哪些文档」。",
-      parameters: {
-        type: "object",
-        properties: {
-          keywords: {
-            type: "string",
-            description: "检索关键词，多个词用空格分隔，如「日志 排查」",
-          },
-          limit: {
-            type: "number",
-            description: "最多返回的片段数，默认 6",
-          },
-        },
-        required: ["keywords"],
+export default defineAgentTool({
+  name: "find_docs",
+  label: "文档检索",
+  description:
+    "在应用文档与帮助资料中检索内容（功能说明、操作指南、设计决策、日志排查等），是广义的数据查询。适合回答「怎么用 / 为什么 / 有哪些文档」。",
+  tags: ["readonly"],
+  parameters: {
+    type: "object",
+    properties: {
+      keywords: {
+        type: "string",
+        description: "检索关键词，多个词用空格分隔，如「日志 排查」",
+      },
+      limit: {
+        type: "number",
+        description: "最多返回的片段数，默认 6",
       },
     },
-    async execute(args): Promise<ToolResult> {
-      const raw = String(args.keywords ?? "").trim();
-      if (!raw) {
-        return { ok: false, summary: "", error: "keywords 不能为空。" };
-      }
-      const keywords = raw
-        .split(/[\s,，、;；]+/)
-        .map((k) => k.trim())
-        .filter(Boolean)
-        .slice(0, 5);
-      const limit = Math.max(1, Math.min(Number(args.limit) || DEFAULT_LIMIT, 20));
+    required: ["keywords"],
+  },
+  async execute(args) {
+    const raw = String(args.keywords ?? "").trim();
+    if (!raw) {
+      return { ok: false, summary: "", error: "keywords 不能为空。" };
+    }
+    const keywords = raw
+      .split(/[\s,，、;；]+/)
+      .map((k) => k.trim())
+      .filter(Boolean)
+      .slice(0, 5);
+    const limit = Math.max(1, Math.min(Number(args.limit) || DEFAULT_LIMIT, 20));
 
-      const docs = buildDocs();
-      const fragments = searchFragments(docs, keywords).slice(0, limit);
+    const docs = buildDocs();
+    const fragments = searchFragments(docs, keywords).slice(0, limit);
 
-      if (!fragments.length) {
-        const files = docs.map((d) => d.file).join("、");
-        return {
-          ok: true,
-          summary: `没有找到与「${raw}」相关的内容。现有文档：${files}。`,
-          data: [],
-        };
-      }
-
-      const body = fragments
-        .map((f) => `【${f.doc.title} · ${f.doc.file}:${f.lineNo}】\n${f.text}`)
-        .join("\n");
+    if (!fragments.length) {
+      const files = docs.map((d) => d.file).join("、");
       return {
         ok: true,
-        summary: `找到 ${fragments.length} 个相关片段（关键词：${keywords.join("、")}）：\n${body}`,
-        data: fragments,
+        summary: `没有找到与「${raw}」相关的内容。现有文档：${files}。`,
+        data: [],
       };
-    },
-  };
-}
+    }
+
+    const body = fragments
+      .map((f) => `【${f.doc.title} · ${f.doc.file}:${f.lineNo}】\n${f.text}`)
+      .join("\n");
+    return {
+      ok: true,
+      summary: `找到 ${fragments.length} 个相关片段（关键词：${keywords.join("、")}）：\n${body}`,
+      data: fragments,
+    };
+  },
+});

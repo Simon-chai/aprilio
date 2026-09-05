@@ -7,8 +7,8 @@
 import { computed, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { createLlm } from "../agent/providers";
-import { defaultAgentTools, createToolRegistry } from "../agent/registry";
 import { runAgentTurn } from "../agent/loop";
+import { buildCapabilityContainer, ensureRustCapabilities } from "../agent/manifest";
 import type { AgentMessage, ToolCallPayload, ToolResult } from "../agent/types";
 import { isAiConfigured, loadAiConfig, aiErrorMessage, type AiConfig } from "../lib/ai";
 import { logError } from "../lib/logger";
@@ -31,7 +31,17 @@ const TOOL_LABELS: Record<string, string> = {
   navigate: "界面跳转",
   query_data: "数据查询",
   find_docs: "文档检索",
+  ui_action: "页面动作",
 };
+
+/** 容器装载后工具名 → 中文名；扫描产物自带 label，未匹配的落到静态表或工具名 */
+function buildToolLabels(containerTools: { definition: { name: string }; label?: string }[]): Record<string, string> {
+  const labels: Record<string, string> = { ...TOOL_LABELS };
+  for (const tool of containerTools) {
+    if (tool.label) labels[tool.definition.name] = tool.label;
+  }
+  return labels;
+}
 
 /** 工具卡片的参数摘要：一行说清楚这次调用要干什么 */
 function toolDetail(call: ToolCallPayload): string {
@@ -51,6 +61,22 @@ function toolDetail(call: ToolCallPayload): string {
     }
     case "find_docs":
       return `关键词「${String(args.keywords ?? "")}」`;
+    case "ui_action": {
+      const confirm = args.confirm === true ? " · 已确认" : "";
+      return `${String(args.page ?? "")}/${String(args.action ?? "")}${confirm}`;
+    }
+    case "import_student_roster": {
+      const confirm = args.confirm === true ? " · 已确认" : "";
+      const file = args.file_path ? String(args.file_path).split(/[\\/]/).pop() : "选择文件";
+      const column = args.name_column ? ` · 姓名列「${String(args.name_column)}」` : "";
+      return `${file}${column}${confirm}`;
+    }
+    case "semantic_search":
+      return `「${String(args.query ?? "")}」`;
+    case "rag_reindex":
+      return String(args.model ?? "bge-m3");
+    case "photos_dir":
+      return "查询存储目录";
     default:
       return JSON.stringify(args);
   }
@@ -71,6 +97,9 @@ export function useAgent() {
   const aiReady = computed(() => isAiConfigured(loadAiConfig()));
   const canSend = computed(() => !sending.value);
 
+  /** 工具卡片中文名：容器装载时取一次（能力清单变化时重建会话自然取新值） */
+  let toolLabels = { ...TOOL_LABELS };
+
   function pushHistory(messages: AgentMessage[]) {
     history.value = [...history.value, ...messages].slice(-MAX_HISTORY);
   }
@@ -82,7 +111,7 @@ export function useAgent() {
         kind: "tool",
         id: call.id,
         name: call.name,
-        label: TOOL_LABELS[call.name] ?? call.name,
+        label: toolLabels[call.name] ?? call.name,
         detail: toolDetail(call),
         status: result ? (result.ok ? "done" : "failed") : "running",
         result,
@@ -93,6 +122,30 @@ export function useAgent() {
     if (item.kind === "tool" && result) {
       item.status = result.ok ? "done" : "failed";
       item.result = result;
+    }
+  }
+
+  /** 流式期间的「进行中」助手条目下标；工具调用开始时置空，下一轮文本重新开条目 */
+  let liveAssistant: number | null = null;
+
+  function appendDelta(text: string) {
+    const idx = liveAssistant;
+    if (idx !== null && items.value[idx]?.kind === "assistant") {
+      items.value[idx].text += text;
+      return;
+    }
+    liveAssistant = items.value.length;
+    items.value.push({ kind: "assistant", text });
+  }
+
+  /** 收尾：把流式条目的文本对齐为最终回复（处理 trim / 空回复兜底的差异） */
+  function settleStreamedReply(reply: string) {
+    const idx = liveAssistant;
+    liveAssistant = null;
+    if (idx !== null && items.value[idx]?.kind === "assistant") {
+      items.value[idx].text = reply;
+    } else {
+      items.value.push({ kind: "assistant", text: reply });
     }
   }
 
@@ -109,28 +162,42 @@ export function useAgent() {
     error.value = "";
     items.value.push({ kind: "user", text: trimmed });
     sending.value = true;
+    liveAssistant = null;
 
     try {
-      const registry = createToolRegistry(defaultAgentTools());
+      await ensureRustCapabilities(); // 桌面端启动后拉一次 Rust 执行面能力（后续走缓存）
+      const container = buildCapabilityContainer();
+      toolLabels = buildToolLabels(container.allTools());
+      const ctx = { router };
+      const registry = container.registry(ctx);
       const turn = await runAgentTurn({
         userText: trimmed,
         history: history.value,
         registry,
         llm: createLlm(),
         config,
-        ctx: { router },
+        ctx,
         currentRoute: String(route.name ?? ""),
         onEvent: (event) => {
-          if (event.type === "tool-start") upsertToolItem(event.call);
+          if (event.type === "text-delta") appendDelta(event.text);
+          if (event.type === "tool-start") {
+            liveAssistant = null; // 本轮文本已定格，下一轮增量另开条目
+            upsertToolItem(event.call);
+          }
           if (event.type === "tool-end") upsertToolItem(event.call, event.result);
         },
       });
 
       pushHistory(turn.messages);
-      items.value.push({ kind: "assistant", text: turn.reply });
+      settleStreamedReply(turn.reply);
     } catch (e) {
-      // 完整错误落日志；界面展示友好化文案
+      // 完整错误落日志；界面展示友好化文案。空的流式条目清掉，有部分文本则保留
       logError("Agent 执行失败", e);
+      if (liveAssistant !== null) {
+        const item = items.value[liveAssistant];
+        if (item?.kind === "assistant" && !item.text) items.value.splice(liveAssistant, 1);
+      }
+      liveAssistant = null;
       error.value = aiErrorMessage(e);
     } finally {
       sending.value = false;
@@ -141,6 +208,7 @@ export function useAgent() {
     items.value = [];
     history.value = [];
     error.value = "";
+    liveAssistant = null;
   }
 
   return { items, sending, error, aiReady, canSend, send, clear };

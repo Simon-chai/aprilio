@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { defineComponent } from "vue";
 import { createMemoryHistory, createRouter, type Router } from "vue-router";
-import { navigateTool, NAV_TARGETS } from "../src/agent/tools/navigation";
+import navTool, { NAV_TARGETS } from "../src/agent/tools/navigation";
 
 const Blank = defineComponent({ render: () => null });
 
@@ -25,7 +25,7 @@ async function makeRouter(): Promise<Router> {
   return router;
 }
 
-const tool = navigateTool();
+const tool = navTool;
 
 describe("navigate tool", () => {
   it("covers all registered routes", () => {

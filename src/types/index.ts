@@ -1,24 +1,36 @@
+export type Gender = "男" | "女";
+
+export interface Guardian {
+  id?: number;
+  student_id?: number;
+  name: string;
+  phone: string;
+  relation: string;
+  is_primary?: boolean;
+}
+
 export interface Student {
   id: number;
   name: string;
-  gender: string;
+  gender: Gender;
   birth_date: string | null;
   student_no: string;
   grade_class: string;
   enroll_date: string | null;
-  guardian_name: string | null;
-  guardian_phone: string | null;
   address: string | null;
   status: string;
   note: string | null;
+  guardians: Guardian[];
   created_at: string;
   updated_at: string;
 }
 
 export type StudentInput = Omit<Student, "id" | "created_at" | "updated_at">;
 
-/** 列表行：额外带一张图片计数 */
+/** 列表行：额外带主联系人电话与一张图片计数 */
 export interface StudentRow extends Student {
+  primary_phone?: string | null;
+  primary_relation?: string | null;
   photo_count: number;
 }
 
@@ -68,16 +80,15 @@ export interface Stats {
 
 export const emptyStudentInput = (): StudentInput => ({
   name: "",
-  gender: "",
+  gender: "男",
   birth_date: null,
   student_no: "",
   grade_class: "",
   enroll_date: null,
-  guardian_name: null,
-  guardian_phone: null,
   address: null,
   status: "active",
   note: null,
+  guardians: [],
 });
 
 export const STATUS_LABEL: Record<string, string> = {

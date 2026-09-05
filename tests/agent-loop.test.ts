@@ -62,7 +62,7 @@ describe("runAgentTurn", () => {
     const result = await runAgentTurn({
       userText: "打开学生列表",
       history: [],
-      registry: createToolRegistry([ (await import("../src/agent/tools/navigation")).navigateTool() ]),
+      registry: createToolRegistry([ (await import("../src/agent/tools/navigation")).default ]),
       llm,
       config: DEFAULT_AI_CONFIG,
       ctx: { router },
@@ -144,7 +144,7 @@ describe("runAgentTurn", () => {
     const result = await runAgentTurn({
       userText: "循环",
       history: [],
-      registry: createToolRegistry([(await import("../src/agent/tools/navigation")).navigateTool()]),
+      registry: createToolRegistry([(await import("../src/agent/tools/navigation")).default]),
       llm,
       config: DEFAULT_AI_CONFIG,
       ctx: { router },
@@ -154,5 +154,36 @@ describe("runAgentTurn", () => {
 
     expect(result.reply).toContain("上限");
     expect(result.toolRuns).toHaveLength(2);
+  });
+
+  it("forwards text deltas as events in streaming order", async () => {
+    const router = await makeRouter();
+    const deltas: string[] = [];
+    const llm: AgentLlm = {
+      async chat({ onDelta }) {
+        onDelta?.("先查");
+        onDelta?.("一下");
+        return { content: "先查一下", toolCalls: [] };
+      },
+    };
+
+    const events: AgentEvent[] = [];
+    const result = await runAgentTurn({
+      userText: "你好",
+      history: [],
+      registry: createToolRegistry([]),
+      llm,
+      config: DEFAULT_AI_CONFIG,
+      ctx: { router },
+      currentRoute: "home",
+      onEvent: (e) => events.push(e),
+    });
+
+    expect(result.reply).toBe("先查一下");
+    // delta 事件先于最终回复定稿，文本按序拼接
+    expect(events.map((e) => (e.type === "text-delta" ? e.text : `<${e.type}>`))).toEqual([
+      "先查",
+      "一下",
+    ]);
   });
 });

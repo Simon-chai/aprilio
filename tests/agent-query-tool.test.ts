@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { createMemoryHistory, createRouter } from "vue-router";
-import { queryDataTool } from "../src/agent/tools/query";
+import queryDataTool from "../src/agent/tools/query";
 
 /** jsdom 无 Tauri 外壳 → db.ts 自动走内存示例数据（10 名学生、若干照片） */
-const tool = queryDataTool();
+const tool = queryDataTool;
 const ctx = {
   router: createRouter({ history: createMemoryHistory(), routes: [] }),
 };

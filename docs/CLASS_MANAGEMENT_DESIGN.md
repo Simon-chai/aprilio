@@ -131,6 +131,10 @@ photos（不动）   已满足 MVP；后续可加 event 关联
 
 ## 8. 花名册导入 MVP 详细设计（第一步）
 
+> **2026-09 已落地**：指定格式导入 + 智能导入（姓名列自动识别，规则 + AI 双轨）+ Agent
+> 工具/页面动作集成。实现说明与验收清单见 [docs/ROSTER_IMPORT.md](ROSTER_IMPORT.md)；
+> 下文为原始设计稿（五步向导中的冲突逐条决策、错误 CSV 导出仍后置）。
+
 入口：`ClassesView` / `StudentsView` 空状态 + 「导入花名册」按钮。
 
 **文件格式**：CSV 优先（UTF-8 与 GBK 双编码探测，WebView2 的 `TextDecoder('gbk')` 支持）；Excel 后置（引入 xlsx 解析库需单独评估体积与离线约束）。同时提供「下载模板」导出标准 CSV。
@@ -164,4 +168,7 @@ photos（不动）   已满足 MVP；后续可加 event 关联
 2. `grade_class` 文本字段与 `classes` 表的迁移策略：新数据写 `class_id`，旧数据启动时一次性归并或保留只读
 3. 小学成绩按**百分制**还是**等级制**导入？（两种都要支持，映射步骤里让班主任选）
 4. Excel（.xlsx）解析是否引入第三方库（如 SheetJS，约 300KB，纯前端离线可用）——取决于对安装包体积的容忍度
+   **（2026-09-05 已评估并实施**：采纳 Rust calamine（+483KB 二进制实测），`roster_read_table`
+   解码 + 前端语义管道不变；初评的前端 fflate 自研方案因长尾健壮性否决。
+   实测数据与理由见 [EXCEL_PARSING_EVALUATION.md](EXCEL_PARSING_EVALUATION.md)**）**
 

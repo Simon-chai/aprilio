@@ -23,7 +23,8 @@ src/
 │   ├── db.ts              # 数据访问（Tauri 走 SQLite，浏览器走内存示例数据）
 │   ├── photos.ts          # 图片导入 / 删除 / convertFileSrc
 │   ├── format.ts          # 日期格式化
-│   └── markdown.ts        # 助手回复的 markdown 渲染（marked + DOMPurify 消毒）
+│   ├── markdown.ts        # 助手回复的 markdown 渲染（marked + DOMPurify 消毒）
+│   └── roster.ts          # 花名册导入（解析 / 姓名列智能识别 / 批量落库）
 ├── components/
 │   ├── AppSidebar.vue
 │   ├── StudentTable.vue
@@ -35,6 +36,7 @@ src/
 src-tauri/
 ├── src/db.rs              # 两张表的迁移
 ├── src/photos.rs          # photos_dir / import_photo / delete_photo_file
+├── src/roster.rs          # 花名册读取（CSV/TSV 文本 + xlsx/xls calamine 解码）
 └── src/lib.rs             # 插件与命令注册
 ```
 
@@ -105,5 +107,5 @@ npm run typecheck     # 类型检查
 
 ## 路线图
 
-AI Agent 选型决策与待办清单：[docs/ROADMAP.md](docs/ROADMAP.md)（2026-09 定：`genai` + 手写 agent 循环，Rust 侧实现）
+AI Agent 选型决策与待办清单：[docs/ROADMAP.md](docs/ROADMAP.md)（2026-09 收敛：`rig-core` 内嵌引擎 + `rmcp` MCP 能力出口，技术栈方案见 docs/AGENT_FRAMEWORK_EVALUATION.md）
 

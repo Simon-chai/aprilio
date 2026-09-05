@@ -1,0 +1,5 @@
+# 本机 rustc 1.98 在 incremental 编译下反复 ICE（codegen_and_build_linker panic，
+# 清 incremental 缓存可临时恢复但会复发，2026-09-04 一天两遇）。
+# 关闭增量编译换取构建稳定；代价是 lib 改动后重编稍慢，可接受。
+[build]
+incremental = false

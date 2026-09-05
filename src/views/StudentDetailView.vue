@@ -54,15 +54,6 @@ const fields = computed(() => {
     ["学号", s.student_no],
     ["年级班级", s.grade_class || "—"],
     ["入学日期", s.enroll_date || "—"],
-  ] as const;
-});
-
-const guardianFields = computed(() => {
-  const s = student.value;
-  if (!s) return [];
-  return [
-    ["监护人", s.guardian_name || "—"],
-    ["联系电话", s.guardian_phone || "—"],
     ["家庭住址", s.address || "—"],
   ] as const;
 });
@@ -212,17 +203,34 @@ function goBack() {
           </AppCard>
 
           <AppCard>
-            <h3 class="mb-1 text-body font-semibold text-ink">家长联系</h3>
-            <div>
+            <div class="mb-3 flex items-center justify-between">
+              <h3 class="text-body font-semibold text-ink">家长联系</h3>
+              <span class="rounded-pill bg-parchment px-2 py-0.5 text-fine text-weak">
+                {{ student.guardians?.length ?? 0 }} 位
+              </span>
+            </div>
+            <div v-if="student.guardians?.length" class="divide-y divide-divider">
               <div
-                v-for="[label, value] in guardianFields"
-                :key="label"
-                class="flex h-[34px] items-center justify-between border-b border-divider last:border-b-0"
+                v-for="g in student.guardians"
+                :key="g.name + g.phone"
+                class="flex items-center justify-between py-2.5 first:pt-0 last:pb-0"
               >
-                <span class="text-fine text-weak">{{ label }}</span>
-                <span class="truncate pl-4 text-caption text-ink">{{ value }}</span>
+                <div class="flex items-center gap-2 min-w-0">
+                  <span class="rounded bg-parchment px-2 py-0.5 text-fine font-medium text-ink shrink-0">
+                    {{ g.relation || "监护人" }}
+                  </span>
+                  <span class="truncate text-caption font-medium text-ink">{{ g.name }}</span>
+                  <span
+                    v-if="g.is_primary"
+                    class="rounded-pill bg-primary-soft px-2 py-0.5 text-[11px] text-primary shrink-0"
+                  >
+                    主联系
+                  </span>
+                </div>
+                <span class="text-caption text-muted shrink-0">{{ g.phone || "—" }}</span>
               </div>
             </div>
+            <p v-else class="py-2 text-caption text-weak">暂未登记监护人信息</p>
           </AppCard>
         </div>
 

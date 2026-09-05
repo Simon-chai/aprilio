@@ -1,26 +1,39 @@
-//! AI 基础能力：基于 genai 的多供应商 LLM 接入，支持工具调用（tool calling）。
+//! AI 基础能力：基于 rig-core 的多供应商 LLM 接入，支持工具调用（tool calling）。
 //!
 //! 本模块是「协议转换层」：把前端 Agent 循环传来的多轮消息与工具定义
-//! 翻译成 genai 请求，把响应拆回文本 + tool_calls。供应商 / 模型 / 密钥由
-//! 前端设置页管理，每次调用随参数传入，后端不持久化任何配置，
+//! 翻译成 rig 的 CompletionRequest，把响应拆回文本 + tool_calls。
+//! 供应商 / 模型 / 密钥由前端设置页管理，每次调用随参数传入，后端不持久化任何配置，
 //! 保持「本地优先、无隐藏状态」。
 //!
 //! 循环本身在 TS 侧（src/agent/loop.ts）：工具执行体（路由跳转、数据查询、
 //! 文档检索）都是前端能力，循环贴近工具执行，无需 Rust ↔ 前端往返。
+//!
+//! 两条命令共用同一套供应商映射（`dispatch_provider!` 宏是唯一事实源）：
+//! - `ai_chat`：一次性返回完整结果；
+//! - `ai_chat_stream`：助手文本经 `tauri::ipc::Channel` 逐段推送（事件 `delta`），
+//!   最终结果仍随命令返回值一次性给出；工具调用不逐段推，直接随返回值给全量。
+//!
+//! 供应商映射（docs/AGENT_FRAMEWORK_EVALUATION.md §2）：
+//! - anthropic / gemini / ollama → rig 原生 provider
+//! - openai / deepseek / moonshot / zhipu / openrouter / custom → rig 的
+//!   OpenAI 兼容 Chat Completions 客户端（CompletionsClient），各官方端点见
+//!   `default_endpoint_for`；带自定义 base_url 时一律走兼容通道。
 
-use genai::chat::{
-  ChatMessage, ChatOptions, ChatRequest, ChatRole, ContentPart, MessageContent, Tool, ToolCall,
-  ToolName, ToolResponse,
+use futures::StreamExt;
+use rig_core::client::CompletionClient;
+use rig_core::completion::message::{ToolCall, ToolFunction, Text};
+use rig_core::completion::{
+  AssistantContent, CompletionModel, CompletionRequest, CompletionResponse, Message, ToolDefinition,
 };
-use genai::resolver::{AuthData, AuthResolver, Endpoint, ServiceTargetResolver};
-use genai::ServiceTarget;
-use genai::Client;
+use rig_core::providers::{anthropic, gemini, ollama, openai};
+use rig_core::streaming::StreamedAssistantContent;
 use log::{error, info};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use tauri::ipc::Channel;
 
 /* ------------------------------------------------------------------ */
-/* 前端 ↔ Rust 的消息协议                                               */
+/* 前端 ↔ Rust 的消息协议（与 genai 时期保持不变）                        */
 /* ------------------------------------------------------------------ */
 
 /// 单个工具调用（模型发起）。arguments 保持 JSON 值，由前端按工具 schema 解析。
@@ -55,7 +68,7 @@ pub enum AiMessage {
   },
 }
 
-/// 工具定义（JSON Schema 形式），透传给 genai 的 Tool。
+/// 工具定义（JSON Schema 形式），透传给 rig 的 ToolDefinition。
 #[derive(Debug, Deserialize)]
 pub struct AiToolDef {
   pub name: String,
@@ -90,19 +103,26 @@ pub struct AiChatResult {
   pub tool_calls: Vec<AiToolCall>,
 }
 
+/// 流式过程事件：助手文本增量。最终结果仍由命令返回值承载。
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum AiStreamEvent {
+  Delta { text: String },
+}
+
 /* ------------------------------------------------------------------ */
 /* 协议转换（纯函数，单测覆盖）                                          */
 /* ------------------------------------------------------------------ */
 
-/// 前端消息 → genai 消息。空文本且无调用的 assistant 消息返回 None（跳过）。
-fn convert_message(msg: AiMessage) -> Option<ChatMessage> {
+/// 前端消息 → rig 消息。空文本且无调用的 assistant 消息返回 None（跳过）。
+fn convert_message(msg: AiMessage) -> Option<Message> {
   match msg {
     AiMessage::User { content } => {
       let content = content.trim();
       if content.is_empty() {
         None
       } else {
-        Some(ChatMessage::user(content))
+        Some(Message::user(content))
       }
     }
     AiMessage::Assistant { content, tool_calls } => {
@@ -111,103 +131,71 @@ fn convert_message(msg: AiMessage) -> Option<ChatMessage> {
         return None;
       }
       if tool_calls.is_empty() {
-        return Some(ChatMessage::assistant(text));
+        return Some(Message::assistant(text));
       }
-      // 文本 + 工具调用混合时，拼成 ContentPart 序列保留完整上下文
-      let calls: Vec<ToolCall> = tool_calls
-        .into_iter()
-        .map(|c| ToolCall {
-          call_id: c.id,
-          fn_name: c.name,
-          fn_arguments: c.arguments,
-          thought_signatures: None,
-        })
-        .collect();
-
-      if text.is_empty() {
-        return Some(ChatMessage::from(calls));
+      // 文本 + 工具调用混合时，按序保留完整上下文
+      let mut parts: Vec<AssistantContent> = Vec::with_capacity(1 + tool_calls.len());
+      if !text.is_empty() {
+        parts.push(AssistantContent::Text(Text::new(text)));
       }
-
-      let mut parts = vec![ContentPart::Text(text)];
-      parts.extend(calls.into_iter().map(ContentPart::ToolCall));
-      let content: MessageContent = parts.into_iter().collect();
-      Some(ChatMessage::new(ChatRole::Assistant, content))
+      for c in tool_calls {
+        parts.push(AssistantContent::ToolCall(ToolCall::from_wire(
+          c.id,
+          ToolFunction {
+            name: c.name,
+            arguments: c.arguments,
+          },
+        )));
+      }
+      Some(Message::Assistant { id: None, content: parts })
     }
     AiMessage::Tool {
       tool_call_id,
       name,
       content,
-    } => Some(ChatMessage::from(
-      ToolResponse::new(tool_call_id, content).with_fn_name(name),
-    )),
+    } => Some(Message::tool_result(tool_call_id, name, content)),
   }
 }
 
-/// 工具定义 → genai Tool（名称 / 描述 / JSON Schema 原样透传）。
-fn convert_tool(def: AiToolDef) -> Tool {
-  Tool {
-    name: ToolName::Custom(def.name),
-    description: def.description,
-    schema: def.schema,
-    strict: None,
-    config: None,
+/// 工具定义 → rig ToolDefinition（名称 / 描述 / JSON Schema 原样透传）。
+fn convert_tool(def: AiToolDef) -> ToolDefinition {
+  ToolDefinition {
+    name: def.name,
+    description: def.description.unwrap_or_default(),
+    parameters: def.schema.unwrap_or_else(|| serde_json::json!({ "type": "object", "properties": {} })),
+  }
+}
+
+/// rig ToolCall → 前端协议。id 取 wire 形态（与 tool 消息回喂时的 call_id 对齐）。
+fn tool_call_to_ai(c: ToolCall) -> AiToolCall {
+  AiToolCall {
+    id: c.wire_call_id().to_string(),
+    name: c.function.name,
+    arguments: c.function.arguments,
   }
 }
 
 /* ------------------------------------------------------------------ */
-/* 供应商接入（沿用原有逻辑）                                            */
+/* 供应商接入                                                           */
 /* ------------------------------------------------------------------ */
 
-/// 供应商 → genai 模型命名空间。
-/// genai 依据模型名前缀自动映射适配器（gpt*/claude*/gemini* 等），
-/// 其余名字一律落到 Ollama，因此除 ollama 外都显式加 `adapter::` 前缀最稳。
-fn namespaced_model(provider: &str, model: &str) -> String {
-  let model = model.trim();
-  // 用户已手写命名空间（如 "groq::llama-3.3-70b"），尊重原样
-  if model.contains("::") {
-    return model.to_string();
-  }
+/// OpenAI 兼容供应商 → 官方端点（TS 未传 base_url 时使用）。
+/// 这些供应商都暴露 Chat Completions 兼容接口，统一走 rig 的 CompletionsClient。
+fn default_endpoint_for(provider: &str) -> Option<&'static str> {
   match provider {
-    "openai" | "custom" => format!("openai::{model}"),
-    "anthropic" => format!("anthropic::{model}"),
-    "gemini" => format!("gemini::{model}"),
-    "deepseek" => format!("deepseek::{model}"),
-    "moonshot" => format!("moonshot::{model}"),
-    "zhipu" => format!("zai::{model}"),
-    "openrouter" => format!("openrouter::{model}"),
-    // ollama 及其他：走 genai 默认映射
-    _ => model.to_string(),
+    "deepseek" => Some("https://api.deepseek.com"),
+    "moonshot" => Some("https://api.moonshot.cn/v1"),
+    "zhipu" => Some("https://open.bigmodel.cn/api/paas/v4"),
+    "openrouter" => Some("https://openrouter.ai/api/v1"),
+    _ => None,
   }
-}
-
-fn build_client(api_key: Option<&str>, base_url: Option<&str>) -> Client {
-  let mut builder = Client::builder();
-
-  if let Some(key) = api_key.map(str::trim).filter(|k| !k.is_empty()).map(String::from) {
-    builder = builder.with_auth_resolver(AuthResolver::from_resolver_fn(
-      move |_model_iden| Ok(Some(AuthData::from_single(key))),
-    ));
-  }
-
-  if let Some(url) = base_url.map(str::trim).filter(|u| !u.is_empty()).map(normalize_base_url) {
-    builder = builder.with_service_target_resolver(ServiceTargetResolver::from_resolver_fn(
-      move |mut target: ServiceTarget| {
-        target.endpoint = Endpoint::from_owned(url.clone());
-        Ok(target)
-      },
-    ));
-  }
-
-  builder.build()
 }
 
 /// 规范化自定义 Base URL：确保以 `/` 结尾。
 ///
-/// genai 内部用 `Url::join("chat/completions")` 拼 API 路径，而 join 的语义是
-/// 「替换 base 的最后一段路径」：`https://api.example.com/v1` join 后会变成
-/// `https://api.example.com/chat/completions`，`/v1` 被吃掉。很多网关对未知路径
-/// 返回 200 + 前端页面（而非 JSON），导致「返回内容不是 JSON」的迷惑报错。
-/// 补上尾斜杠后 join 才是「追加」语义，官方默认 endpoint 也正是带尾斜杠的。
+/// 兼容网关按 `base + path` 拼 URL 时，缺尾斜杠会把 base 的最后一段吃掉
+/// （`/v1` join `chat/completions` 变成 `/chat/completions`），导致
+/// 「返回内容不是 JSON」的迷惑报错。补上尾斜杠才是「追加」语义。
 fn normalize_base_url(url: &str) -> String {
   if url.ends_with('/') {
     url.to_string()
@@ -218,10 +206,10 @@ fn normalize_base_url(url: &str) -> String {
 
 /// 把后端错误压成适合展示给用户的一小段文字。
 ///
-/// genai 的错误串可能携带整个响应体（比如网关风控时返回的整页 HTML），
+/// 供应商错误串可能携带整个响应体（比如网关风控时返回的整页 HTML），
 /// 原样透传会在界面上刷出大段无关内容。完整错误已经由 error! 写入日志，
 /// 这里只保留第一行并限制长度，供前端做友好化包装后展示。
-fn shorten_error_message(err: &genai::Error) -> String {
+fn shorten_error_message(err: impl std::fmt::Display) -> String {
   let text = err.to_string();
   let first_line = text.lines().next().unwrap_or("未知错误").trim();
   const MAX_LEN: usize = 300;
@@ -233,98 +221,254 @@ fn shorten_error_message(err: &genai::Error) -> String {
   }
 }
 
+/// 从 rig 归一化响应中提取文本与 tool_calls。
+fn extract_choice(res: CompletionResponse) -> AiChatResult {
+  let mut content = String::new();
+  let mut tool_calls: Vec<AiToolCall> = Vec::new();
+  for item in res.choice {
+    match item {
+      AssistantContent::Text(t) => content.push_str(&t.text),
+      AssistantContent::ToolCall(c) => tool_calls.push(tool_call_to_ai(c)),
+      _ => {}
+    }
+  }
+  AiChatResult { content, tool_calls }
+}
+
+/// 执行模式：一次性返回，或逐段推给前端 Channel。
+#[derive(Clone, Copy)]
+enum ExecMode<'a> {
+  Once,
+  Stream(&'a Channel<AiStreamEvent>),
+}
+
+/// 泛型执行：不同 provider 的模型类型不同（CompletionModel 非动态兼容），
+/// 每个分支各调一次，共用这段提取逻辑。流式模式下文本增量逐段 send 给 Channel。
+async fn exec_model<M: CompletionModel>(
+  model: &M,
+  req: CompletionRequest,
+  provider: &str,
+  model_name: &str,
+  mode: ExecMode<'_>,
+) -> Result<AiChatResult, String> {
+  let result = match mode {
+    ExecMode::Once => match model.completion(req).await {
+      Ok(res) => {
+        let r = extract_choice(res);
+        info!(
+          target: "ai",
+          "AI 请求成功：provider={} model={} 回复 {} 字符 tool_calls={}",
+          provider, model_name, r.content.chars().count(), r.tool_calls.len()
+        );
+        r
+      }
+      Err(err) => {
+        error!(target: "ai", "AI 请求失败：provider={} model={} {err}", provider, model_name);
+        return Err(shorten_error_message(err));
+      }
+    },
+    ExecMode::Stream(channel) => match model.stream(req).await {
+      Ok(mut stream) => {
+        let mut content = String::new();
+        let mut tool_calls: Vec<AiToolCall> = Vec::new();
+        while let Some(item) = stream.next().await {
+          match item {
+            Ok(StreamedAssistantContent::Text(t)) => {
+              content.push_str(&t.text);
+              // 推送失败（窗口关闭等）只放弃流式展示，不影响最终结果
+              if let Err(e) = channel.send(AiStreamEvent::Delta { text: t.text }) {
+                log::warn!(target: "ai", "流式增量推送失败（继续聚合）：{e}");
+              }
+            }
+            Ok(StreamedAssistantContent::ToolCall { tool_call, .. }) => {
+              tool_calls.push(tool_call_to_ai(tool_call));
+            }
+            Ok(_) => {}
+            Err(err) => {
+              error!(target: "ai", "AI 流式请求失败：provider={} model={} {err}", provider, model_name);
+              return Err(shorten_error_message(err));
+            }
+          }
+        }
+        info!(
+          target: "ai",
+          "AI 流式请求成功：provider={} model={} 回复 {} 字符 tool_calls={}",
+          provider, model_name, content.chars().count(), tool_calls.len()
+        );
+        AiChatResult { content, tool_calls }
+      }
+      Err(err) => {
+        error!(target: "ai", "AI 流式请求发起失败：provider={} model={} {err}", provider, model_name);
+        return Err(shorten_error_message(err));
+      }
+    },
+  };
+  Ok(result)
+}
+
+fn require_key(api_key: &Option<String>, provider: &str) -> Result<String, String> {
+  api_key
+    .as_deref()
+    .map(str::trim)
+    .filter(|k| !k.is_empty())
+    .map(String::from)
+    .ok_or_else(|| format!("供应商 {provider} 需要 API Key，请到「数据与设置」填写。"))
+}
+
 /* ------------------------------------------------------------------ */
-/* 命令                                                                 */
+/* 请求构造 + 供应商分发（两条命令的唯一事实源）                          */
 /* ------------------------------------------------------------------ */
 
-/// 带 tool calling 的多轮聊天补全。
-/// 返回助手文本与 tool_calls；工具的实际执行与循环推进由前端 Agent 框架负责。
-#[tauri::command]
-pub async fn ai_chat(params: AiChatParams) -> Result<AiChatResult, String> {
-  let model = params.model.trim().to_string();
-  if model.is_empty() {
-    error!(target: "ai", "AI 请求被拒绝：模型名称为空（provider={})", params.provider);
+/// 校验参数并构造 rig CompletionRequest。返回（provider, model_name, api_key, endpoint, request）。
+fn prepare_request(
+  params: AiChatParams,
+) -> Result<(String, String, Option<String>, Option<String>, CompletionRequest), String> {
+  let AiChatParams {
+    provider,
+    model,
+    api_key,
+    base_url,
+    temperature,
+    system_prompt,
+    messages,
+    tools,
+  } = params;
+
+  let model_name = model.trim().to_string();
+  if model_name.is_empty() {
+    error!(target: "ai", "AI 请求被拒绝：模型名称为空（provider={})", provider);
     return Err("尚未配置模型名称，请到「数据与设置」填写。".to_string());
   }
   info!(
     target: "ai",
     "AI 请求开始：provider={} model={} turns={} tools={}",
-    params.provider, model, params.messages.len(), params.tools.len()
+    provider, model_name, messages.len(), tools.len()
   );
 
-  let mut messages: Vec<ChatMessage> = Vec::with_capacity(params.messages.len() + 1);
-  if let Some(system) = params
-    .system_prompt
-    .as_deref()
-    .map(str::trim)
-    .filter(|s| !s.is_empty())
-  {
-    messages.push(ChatMessage::system(system));
+  let mut chat_history: Vec<Message> = Vec::with_capacity(messages.len() + 1);
+  if let Some(system) = system_prompt.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+    chat_history.push(Message::system(system));
   }
-  for m in params.messages {
+  for m in messages {
     if let Some(msg) = convert_message(m) {
-      messages.push(msg);
+      chat_history.push(msg);
     }
   }
-  if messages.is_empty() {
+  if chat_history.is_empty() {
     return Err("消息内容为空。".to_string());
   }
 
-  let mut chat_req = ChatRequest::new(messages);
-  if !params.tools.is_empty() {
-    chat_req = chat_req.with_tools(params.tools.into_iter().map(convert_tool));
-  }
+  let req = CompletionRequest {
+    model: None,
+    preamble: None, // 系统指令走 chat_history 首条 System 消息（rig 0.42 推荐形态）
+    chat_history,
+    documents: vec![],
+    tools: tools.into_iter().map(convert_tool).collect(),
+    temperature,
+    max_tokens: None,
+    tool_choice: None,
+    additional_params: None,
+    output_schema: None,
+    record_telemetry_content: false,
+  };
 
-  let chat_opts = params.temperature.map(|t| ChatOptions::default().with_temperature(t));
+  let endpoint = base_url
+    .as_deref()
+    .map(str::trim)
+    .filter(|u| !u.is_empty())
+    .map(normalize_base_url);
 
-  let client = build_client(params.api_key.as_deref(), params.base_url.as_deref());
+  Ok((provider, model_name, api_key, endpoint, req))
+}
 
-  let res = client
-    .exec_chat(
-      &namespaced_model(&params.provider, &model),
-      chat_req,
-      chat_opts.as_ref(),
-    )
-    .await;
-
-  match res {
-    Ok(res) => {
-      // 先借用收集 tool_calls，再消费响应取文本
-      let tool_calls: Vec<AiToolCall> = res
-        .tool_calls()
-        .into_iter()
-        .map(|c| AiToolCall {
-          id: c.call_id.clone(),
-          name: c.fn_name.clone(),
-          arguments: c.fn_arguments.clone(),
-        })
-        .collect();
-      let content = res.into_first_text().unwrap_or_default();
-
-      info!(
-        target: "ai",
-        "AI 请求成功：model={} 回复 {} 字符 tool_calls={}",
-        model, content.chars().count(), tool_calls.len()
-      );
-      Ok(AiChatResult { content, tool_calls })
+/// 供应商映射宏：分支里构造各自 client 并以 `($model, $req, $provider, $model_name, $mode)`
+/// 调用执行器。新增 OpenAI 兼容供应商时在这里加端点即可同时覆盖两条命令。
+macro_rules! dispatch_provider {
+  ($provider:expr, $api_key:expr, $endpoint:expr, $model_name:expr, $req:expr, $mode:expr) => {
+    match $provider.as_str() {
+      "anthropic" => {
+        let key = require_key(&$api_key, &$provider)?;
+        let mut b = anthropic::Client::builder().api_key(key);
+        if let Some(url) = &$endpoint {
+          b = b.base_url(url);
+        }
+        let client = b.build().map_err(|e| e.to_string())?;
+        exec_model(&client.completion_model(&$model_name), $req, &$provider, &$model_name, $mode).await
+      }
+      "gemini" => {
+        let key = require_key(&$api_key, &$provider)?;
+        let mut b = gemini::Client::builder().api_key(key);
+        if let Some(url) = &$endpoint {
+          b = b.base_url(url);
+        }
+        let client = b.build().map_err(|e| e.to_string())?;
+        exec_model(&client.completion_model(&$model_name), $req, &$provider, &$model_name, $mode).await
+      }
+      "ollama" => {
+        // 本地模型：无密钥（OllamaApiKey 接受 Nothing），兼容端点即 Ollama 服务地址
+        let mut b = ollama::Client::builder().api_key(rig_core::client::Nothing);
+        if let Some(url) = &$endpoint {
+          b = b.base_url(url);
+        }
+        let client = b.build().map_err(|e| e.to_string())?;
+        exec_model(&client.completion_model(&$model_name), $req, &$provider, &$model_name, $mode).await
+      }
+      // openai / deepseek / moonshot / zhipu / openrouter / custom：
+      // 全部是 OpenAI 兼容 Chat Completions，统一走 CompletionsClient。
+      _ => {
+        let key = require_key(&$api_key, &$provider)?;
+        let url = match $endpoint {
+          Some(url) => url,
+          None => default_endpoint_for(&$provider)
+            .map(str::to_string)
+            .ok_or_else(|| format!("供应商 {} 需要填写 Base URL。", $provider))?,
+        };
+        let client = openai::CompletionsClient::builder()
+          .api_key(key)
+          .base_url(url)
+          .build()
+          .map_err(|e| e.to_string())?;
+        exec_model(&client.completion_model(&$model_name), $req, &$provider, &$model_name, $mode).await
+      }
     }
-    Err(err) => {
-      // 完整错误（可能含整页响应体）只进日志；回传前端的压缩版本由前端再包装。
-      error!(target: "ai", "AI 请求失败：provider={} model={} {err}", params.provider, model);
-      Err(shorten_error_message(&err))
-    }
-  }
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* 命令                                                                 */
+/* ------------------------------------------------------------------ */
+
+/// 带 tool calling 的多轮聊天补全（一次性）。
+/// 返回助手文本与 tool_calls；工具的实际执行与循环推进由前端 Agent 框架负责。
+#[tauri::command]
+pub async fn ai_chat(params: AiChatParams) -> Result<AiChatResult, String> {
+  let (provider, model_name, api_key, endpoint, req) = prepare_request(params)?;
+  dispatch_provider!(provider, api_key, endpoint, model_name, req, ExecMode::Once)
+}
+
+/// 流式版聊天补全：助手文本增量经 `on_delta` Channel 逐段推给前端，
+/// 最终结果（全文 + tool_calls）仍随命令返回值一次性给出。
+#[tauri::command]
+pub async fn ai_chat_stream(
+  params: AiChatParams,
+  on_delta: Channel<AiStreamEvent>,
+) -> Result<AiChatResult, String> {
+  let (provider, model_name, api_key, endpoint, req) = prepare_request(params)?;
+  dispatch_provider!(provider, api_key, endpoint, model_name, req, ExecMode::Stream(&on_delta))
 }
 
 #[cfg(test)]
 mod tests {
-  use super::{convert_message, convert_tool, normalize_base_url, AiMessage, AiToolCall, AiToolDef};
-  use genai::chat::ChatRole;
+  use super::{
+    convert_message, convert_tool, default_endpoint_for, normalize_base_url, tool_call_to_ai,
+    AiMessage, AiStreamEvent, AiToolCall, AiToolDef,
+  };
+  use rig_core::completion::message::{AssistantContent, ToolCall, ToolFunction, UserContent};
+  use rig_core::completion::Message;
   use serde_json::json;
 
   #[test]
   fn appends_missing_trailing_slash() {
-    // genai 内部 Url::join 会替换 base 最后一段，缺尾斜杠时 /v1 会被吃掉
     assert_eq!(
       normalize_base_url("https://api.example.com/v1"),
       "https://api.example.com/v1/"
@@ -344,6 +488,17 @@ mod tests {
     assert_eq!(normalize_base_url("http://localhost:11434"), "http://localhost:11434/");
   }
 
+  #[test]
+  fn maps_compatible_providers_to_official_endpoints() {
+    assert_eq!(default_endpoint_for("deepseek"), Some("https://api.deepseek.com"));
+    assert_eq!(default_endpoint_for("moonshot"), Some("https://api.moonshot.cn/v1"));
+    assert_eq!(default_endpoint_for("zhipu"), Some("https://open.bigmodel.cn/api/paas/v4"));
+    assert_eq!(default_endpoint_for("openrouter"), Some("https://openrouter.ai/api/v1"));
+    // openai 有默认端点、未知供应商不猜
+    assert_eq!(default_endpoint_for("openai"), None);
+    assert_eq!(default_endpoint_for("something-else"), None);
+  }
+
   /// 模拟前端发来的消息序列（serde tag = "role"）
   #[test]
   fn deserializes_agent_message_sequence() {
@@ -361,13 +516,13 @@ mod tests {
 
     let converted: Vec<_> = msgs.into_iter().filter_map(convert_message).collect();
     assert_eq!(converted.len(), 4);
-    assert!(matches!(converted[0].role, ChatRole::User));
-    assert!(matches!(converted[1].role, ChatRole::Assistant));
-    assert!(matches!(converted[2].role, ChatRole::Tool));
-    assert!(matches!(converted[3].role, ChatRole::Assistant));
+    assert!(matches!(converted[0], Message::User { .. }));
+    assert!(matches!(converted[1], Message::Assistant { .. }));
+    assert!(matches!(converted[2], Message::User { .. })); // tool result 以 User 消息承载
+    assert!(matches!(converted[3], Message::Assistant { .. }));
   }
 
-  /// 混合内容：assistant 文本 + tool_calls 应拼成 Text + ToolCall parts
+  /// 混合内容：assistant 文本 + tool_calls 应按序保留 Text 与 ToolCall
   #[test]
   fn assistant_message_keeps_text_alongside_tool_calls() {
     let msg: AiMessage = serde_json::from_value(json!({
@@ -380,11 +535,19 @@ mod tests {
     .expect("反序列化应成功");
 
     let converted = convert_message(msg).expect("非空消息应转换成功");
-    assert!(matches!(converted.role, ChatRole::Assistant));
-    assert_eq!(converted.content.joined_texts().as_deref(), Some("我来查一下"));
-    let calls = converted.content.tool_calls();
-    assert_eq!(calls.len(), 1);
-    assert_eq!(calls[0].fn_name, "query_data");
+    let Message::Assistant { content, .. } = converted else {
+      panic!("应为 assistant 消息");
+    };
+    assert_eq!(content.len(), 2);
+    assert!(matches!(content[0], AssistantContent::Text(_)));
+    match &content[1] {
+      AssistantContent::ToolCall(call) => {
+        assert_eq!(call.function.name, "query_data");
+        assert_eq!(call.function.arguments["entity"], "stats");
+        assert_eq!(call.wire_call_id(), "call-1");
+      }
+      other => panic!("应为 ToolCall，得到 {other:?}"),
+    }
   }
 
   /// 空文本且无调用的 assistant 消息应被跳过
@@ -399,7 +562,7 @@ mod tests {
     assert!(convert_message(msg).is_none());
   }
 
-  /// 工具定义透传：名称、描述、JSON Schema 原样进入 genai Tool
+  /// 工具定义透传：名称、描述、JSON Schema 原样进入 rig ToolDefinition
   #[test]
   fn converts_tool_definition() {
     let def: AiToolDef = serde_json::from_value(json!({
@@ -414,13 +577,9 @@ mod tests {
     .expect("反序列化应成功");
 
     let tool = convert_tool(def);
-    assert!(matches!(tool.name, genai::chat::ToolName::Custom(_)));
-    if let genai::chat::ToolName::Custom(name) = tool.name {
-      assert_eq!(name, "navigate");
-    }
-    assert_eq!(tool.description.as_deref(), Some("打开或切换应用内的某个页面。"));
-    let schema = tool.schema.expect("schema 应透传");
-    assert_eq!(schema["properties"]["target"]["enum"][1], "students");
+    assert_eq!(tool.name, "navigate");
+    assert_eq!(tool.description, "打开或切换应用内的某个页面。");
+    assert_eq!(tool.parameters["properties"]["target"]["enum"][1], "students");
   }
 
   /// tool 消息（工具结果）应带上 call_id 与函数名
@@ -435,11 +594,17 @@ mod tests {
     .expect("反序列化应成功");
 
     let converted = convert_message(msg).expect("非空消息应转换成功");
-    assert!(matches!(converted.role, ChatRole::Tool));
-    let responses = converted.content.tool_responses();
-    assert_eq!(responses.len(), 1);
-    assert_eq!(responses[0].call_id, "call-9");
-    assert_eq!(responses[0].fn_name.as_deref(), Some("find_docs"));
+    let Message::User { content } = converted else {
+      panic!("tool result 应转换为 User 消息");
+    };
+    assert_eq!(content.len(), 1);
+    match &content[0] {
+      UserContent::ToolResult(result) => {
+        assert_eq!(result.wire_call_id(), "call-9");
+        assert_eq!(result.name, "find_docs");
+      }
+      other => panic!("应为 ToolResult，得到 {other:?}"),
+    }
   }
 
   /// 序列化往返：AiChatResult 能转回前端需要的 JSON
@@ -456,5 +621,26 @@ mod tests {
     let value = serde_json::to_value(&result).expect("序列化应成功");
     assert_eq!(value["tool_calls"][0]["name"], "navigate");
     assert_eq!(value["tool_calls"][0]["arguments"]["target"], "home");
+  }
+
+  /// 流式事件带 delta 标签，前端按 type 分派
+  #[test]
+  fn stream_event_serializes_with_delta_tag() {
+    let value = serde_json::to_value(AiStreamEvent::Delta { text: "你好".into() }).expect("序列化应成功");
+    assert_eq!(value["type"], "delta");
+    assert_eq!(value["text"], "你好");
+  }
+
+  /// rig ToolCall → 前端协议：id 取 wire 形态、arguments 原样保留
+  #[test]
+  fn converts_tool_call_to_frontend_shape() {
+    let call = ToolCall::from_wire(
+      "call-7".to_string(),
+      ToolFunction { name: "find_docs".into(), arguments: json!({ "keywords": "日志" }) },
+    );
+    let ai = tool_call_to_ai(call);
+    assert_eq!(ai.id, "call-7");
+    assert_eq!(ai.name, "find_docs");
+    assert_eq!(ai.arguments["keywords"], "日志");
   }
 }

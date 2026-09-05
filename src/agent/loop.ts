@@ -51,7 +51,13 @@ export async function runAgentTurn(options: AgentTurnOptions): Promise<AgentTurn
   const system = buildSystemPrompt(currentRoute, config.systemPrompt);
 
   for (let round = 0; round < maxRounds; round++) {
-    const res = await llm.chat({ system, messages, tools, config });
+    const res = await llm.chat({
+      system,
+      messages,
+      tools,
+      config,
+      onDelta: (text) => onEvent?.({ type: "text-delta", text }),
+    });
 
     if (res.toolCalls.length > 0) {
       messages.push({ role: "assistant", content: res.content, toolCalls: res.toolCalls });

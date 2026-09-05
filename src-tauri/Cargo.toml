@@ -6,10 +6,8 @@ authors = ["you"]
 license = ""
 repository = ""
 edition = "2021"
-rust-version = "1.77.2"
-# examples/ 下是手动运行的临时诊断脚本（依赖环境变量与 reqwest 直连），
-# 不随 cargo test / cargo build 自动编译；需要时显式 cargo run --example <name>
-autoexamples = false
+# rmcp 3.2 要求 rustc >= 1.88（本机 1.98 满足）
+rust-version = "1.88"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -30,4 +28,25 @@ tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-sql = { version = "2", features = ["sqlite"] }
-genai = "0.6.5"
+# 精确锁定：rig pre-1.0 存在破坏性变更（docs/AGENT_FRAMEWORK_EVALUATION.md 风险清单）
+# TLS 走 native-tls（Windows schannel）：避开 ring / aws-lc 两套 C 加密栈的编译坑
+rig-core = { version = "=0.42.0", default-features = false, features = ["reqwest", "derive", "native-tls"] }
+# Rust 执行面能力的散装注册（编译期收集，docs/AGENT_FRAMEWORK_EVALUATION.md §4.4）
+inventory = "0.3"
+# Agent 循环流式输出（ai_chat_stream 逐 token 推送）
+futures = "0.3"
+# P3：应用内 MCP server（stdio 子命令 aprilio mcp serve，docs/AGENT_FRAMEWORK_EVALUATION.md §3）
+rmcp = { version = "=3.2.0", features = ["transport-io"] }
+# P3/P4：MCP 进程与 RAG 直接读写 SQLite（与 tauri-plugin-sql 同版本，编译产物复用）
+sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio", "sqlite"] }
+# P3：MCP 子进程无 Tauri 上下文，用 dirs 定位 app_config_dir（%APPDATA%/<identifier>）
+dirs = "6"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std"] }
+# P4：调用 Ollama /api/embed 计算 embedding（0.13 与 rig 的 reqwest 统一为一个版本；
+# native-tls = Windows schannel，不引入 ring/aws-lc C 加密栈）
+reqwest = { version = "0.13", default-features = false, features = ["json", "native-tls", "charset", "http2", "system-proxy"] }
+# 花名册 GBK 解码（roster.rs；reqwest charset 特性已引入同一依赖，增量≈0）
+encoding_rs = "0.8"
+# 花名册表格通道（roster.rs）：xlsx/xls/xlsb/xlsm/ods 解码为二维矩阵
+# 精确锁定：pre-1.0 有破坏性变更惯例（docs/EXCEL_PARSING_EVALUATION.md）
+calamine = "=0.36.1"

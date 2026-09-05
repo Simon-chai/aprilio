@@ -1,8 +1,9 @@
 /**
- * Tauri Provider —— LLM 请求经 Rust 侧 genai 发出（多供应商 + 密钥不出本机）。
- * Rust 命令 ai_chat 负责协议转换：工具定义 → genai Tool，tool_calls → 回传 TS。
+ * Tauri Provider —— LLM 请求经 Rust 侧 rig-core 发出（多供应商 + 密钥不出本机）。
+ * Rust 命令 ai_chat_stream 负责协议转换：工具定义 → rig ToolDefinition，
+ * 助手文本增量经 ipc::Channel 逐段推送（事件 { type: "delta" }），最终结果随返回值给出。
  */
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, Channel } from "@tauri-apps/api/core";
 import type { AgentLlm, LlmResponse, ToolDefinition } from "../types";
 
 /** Rust 侧 AiChatResult 的返回结构 */
@@ -11,10 +12,21 @@ interface AiChatResult {
   tool_calls: { id: string; name: string; arguments: Record<string, unknown> }[];
 }
 
+/** Rust 侧 AiStreamEvent（tag = "type"） */
+type AiStreamEvent = { type: "delta"; text: string };
+
 export function tauriLlm(): AgentLlm {
   return {
-    async chat({ system, messages, tools, config }): Promise<LlmResponse> {
-      const result = await invoke<AiChatResult>("ai_chat", {
+    async chat({ system, messages, tools, config, onDelta }): Promise<LlmResponse> {
+      const channel = new Channel<AiStreamEvent>();
+      if (onDelta) {
+        channel.onmessage = (event) => {
+          if (event.type === "delta" && event.text) onDelta(event.text);
+        };
+      }
+
+      const result = await invoke<AiChatResult>("ai_chat_stream", {
+        onDelta: channel,
         params: {
           provider: config.provider,
           model: config.model,

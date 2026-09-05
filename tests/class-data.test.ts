@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   addClassPhoto,
+  createClass,
   createStudent,
   deleteStudent,
   getClassSummary,
   listClasses,
   listPhotosByClass,
   listStudents,
+  renameClass,
 } from "../src/lib/db";
 import type { StudentInput } from "../src/types";
 
@@ -124,5 +126,67 @@ describe("class data and aggregation interfaces in db", () => {
     expect(allPhotos.length).toBe(publicPhotos.length + studentPhotos.length);
     expect(publicPhotos.every((p) => p.student_id === null && p.grade_class === "三年级二班")).toBe(true);
     expect(studentPhotos.every((p) => p.student_id !== null)).toBe(true);
+  });
+
+  it("createClass creates a new class and allows 未分班 without throwing error", async () => {
+    await createClass("六年级一班");
+    const classes = await listClasses();
+    expect(classes.some((c) => c.name === "六年级一班")).toBe(true);
+
+    // Allowing 未分班 as requested by user
+    await expect(createClass("未分班")).resolves.not.toThrow();
+  });
+
+  it("renameClass renames an existing class and updates students and photos", async () => {
+    await createClass("七年级一班");
+    const testStudentId = await createStudent({
+      name: "测试更名生",
+      gender: "男",
+      birth_date: "2015-01-01",
+      student_no: "RENAME_001",
+      grade_class: "七年级一班",
+      enroll_date: "2026-09-01",
+      guardian_name: null,
+      guardian_phone: null,
+      address: null,
+      status: "active",
+      note: null,
+    });
+
+    try {
+      await renameClass("七年级一班", "七年级实验班");
+      const students = await listStudents("", "七年级实验班");
+      expect(students.some((s) => s.id === testStudentId)).toBe(true);
+
+      const oldStudents = await listStudents("", "七年级一班");
+      expect(oldStudents.length).toBe(0);
+    } finally {
+      await deleteStudent(testStudentId);
+    }
+  });
+
+  it("renameClass can rename 未分班 to a concrete class name", async () => {
+    const unassignedStudentId = await createStudent({
+      name: "导入未分班生",
+      gender: "女",
+      birth_date: "2017-03-01",
+      student_no: "UNASSIGNED_001",
+      grade_class: "",
+      enroll_date: "2026-09-01",
+      guardian_name: null,
+      guardian_phone: null,
+      address: null,
+      status: "active",
+      note: null,
+    });
+
+    try {
+      // Renaming 未分班 to 八年级二班
+      await renameClass("未分班", "八年级二班");
+      const newClassStudents = await listStudents("", "八年级二班");
+      expect(newClassStudents.some((s) => s.id === unassignedStudentId)).toBe(true);
+    } finally {
+      await deleteStudent(unassignedStudentId);
+    }
   });
 });

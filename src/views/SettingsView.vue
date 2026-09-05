@@ -136,7 +136,7 @@ async function onClear() {
           </div>
 
           <p class="border-t border-divider pt-3 text-fine text-faint">
-            当前状态：{{ aiReady ? "已配置 ✓" : "未配置" }} · 请求由本机 Rust 后端（genai）发出，
+            当前状态：{{ aiReady ? "已配置 ✓" : "未配置" }} · 请求由本机 Rust 后端（rig-core）发出，
             {{ isTauri() ? "桌面端即刻可用。" : "浏览器演示态下不会真实联网。" }}
           </p>
         </div>

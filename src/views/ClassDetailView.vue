@@ -8,13 +8,16 @@ import EmptyState from "../components/ui/EmptyState.vue";
 import StudentTable from "../components/StudentTable.vue";
 import StudentFormDialog from "../components/StudentFormDialog.vue";
 import ImportRosterDialog from "../components/ImportRosterDialog.vue";
+import ClassFormDialog from "../components/ClassFormDialog.vue";
 import {
   addClassPhoto,
   createStudent,
   getClassSummary,
   isTauri,
+  listClasses,
   listPhotosByClass,
   listStudents,
+  renameClass,
 } from "../lib/db";
 import { getPhotosDir, importPhoto, photoUrl } from "../lib/photos";
 import type { ClassSummary, Photo, StudentInput, StudentRow } from "../types";
@@ -27,6 +30,7 @@ const students = ref<StudentRow[]>([]);
 const photos = ref<Photo[]>([]);
 const photosDir = ref("");
 const studentNames = ref<Map<number, string>>(new Map());
+const existingClasses = ref<ClassSummary[]>([]);
 
 const keyword = ref("");
 const activeTab = ref<"students" | "photos">("students");
@@ -34,6 +38,7 @@ const photoFilter = ref<"all" | "public" | "student">("all");
 
 const importOpen = ref(false);
 const createDialogOpen = ref(false);
+const renameDialogOpen = ref(false);
 const fileInputRef = ref<HTMLInputElement | null>(null);
 
 const filterOptions: { label: string; value: "all" | "public" | "student" }[] = [
@@ -43,18 +48,30 @@ const filterOptions: { label: string; value: "all" | "public" | "student" }[] = 
 ];
 
 async function refresh() {
-  const [sum, studentList, photoList, allStudents, pDir] = await Promise.all([
+  const [sum, studentList, photoList, allStudents, pDir, classList] = await Promise.all([
     getClassSummary(props.name),
     listStudents(keyword.value, props.name),
     listPhotosByClass(props.name, photoFilter.value),
     listStudents(),
     getPhotosDir(),
+    listClasses(),
   ]);
   summary.value = sum;
   students.value = studentList;
   photos.value = photoList;
   photosDir.value = pDir;
   studentNames.value = new Map(allStudents.map((s) => [s.id, s.name]));
+  existingClasses.value = classList;
+}
+
+async function handleRenameClass(newName: string) {
+  if (newName && newName !== props.name) {
+    await renameClass(props.name, newName);
+    renameDialogOpen.value = false;
+    router.replace({ name: "class-detail", params: { name: newName } });
+  } else {
+    renameDialogOpen.value = false;
+  }
 }
 
 let timer: ReturnType<typeof setTimeout> | undefined;
@@ -149,7 +166,20 @@ function goStudentDetail(row: StudentRow) {
           <span class="text-hairline shrink-0">|</span>
           <div class="min-w-0">
             <div class="flex items-baseline gap-3 flex-wrap">
-              <h1 class="text-display font-semibold text-ink truncate">{{ name }}</h1>
+              <div class="flex items-center gap-2">
+                <h1 class="text-display font-semibold text-ink truncate">{{ name }}</h1>
+                <button
+                  type="button"
+                  class="flex h-7 w-7 items-center justify-center rounded-md text-weak hover:bg-pearl hover:text-ink transition-colors"
+                  title="修改班级名称"
+                  @click="renameDialogOpen = true"
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                  </svg>
+                </button>
+              </div>
               <span class="text-caption text-weak">
                 {{ summary?.studentCount ?? 0 }} 名学生 ({{ summary?.maleCount ?? 0 }} 男 · {{ summary?.femaleCount ?? 0 }} 女) · 照片 {{ summary?.photoCount ?? 0 }} 张
               </span>
@@ -318,6 +348,15 @@ function goStudentDetail(row: StudentRow) {
       :initial="{ grade_class: name }"
       @close="createDialogOpen = false"
       @submit="handleCreateStudent"
+    />
+
+    <ClassFormDialog
+      :open="renameDialogOpen"
+      mode="rename"
+      :initial-name="name"
+      :existing-classes="existingClasses"
+      @close="renameDialogOpen = false"
+      @submit="handleRenameClass"
     />
   </div>
 </template>

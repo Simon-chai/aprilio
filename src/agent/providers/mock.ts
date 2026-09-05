@@ -22,15 +22,27 @@ const NAV_WORDS = ["打开", "跳转", "跳到", "切换", "回到", "去", "看
 const STATS_WORDS = ["几个", "多少", "统计", "一共", "总数", "数量"];
 const STUDENT_WORDS = ["学生", "名单", "花名册", "档案", "资料"];
 const PHOTO_WORDS = ["照片", "相册", "图片"];
-const DOC_WORDS = ["文档", "帮助", "指南", "怎么用", "怎么", "如何", "哪里", "说明"];
+const DOC_WORDS = ["文档", "帮助", "指南", "怎么用", "如何", "哪里", "说明", "手册", "配置", "排查"];
 
 /** 用户口语 → 界面注册表 key 的别名 */
 const NAV_ALIASES: [string, string][] = [
   ["学生列表", "students"],
   ["学生名单", "students"],
+  ["学生档案", "students"],
   ["首页", "home"],
   ["主页", "home"],
   ["设置", "settings"],
+  ["系统设置", "settings"],
+  ["班级管理", "classes"],
+  ["班级列表", "classes"],
+  ["班级", "classes"],
+  ["照片墙", "photos"],
+  ["照片列表", "photos"],
+  ["相册", "photos"],
+  ["个人资料", "profile"],
+  ["教师资料", "profile"],
+  ["设计系统", "design"],
+  ["设计规范", "design"],
 ];
 
 /** 「打开学生列表」→ 命中的导航目标 key */
@@ -60,11 +72,13 @@ function extractKeyword(text: string): string {
 
 export function mockLlm(): AgentLlm {
   return {
-    async chat({ messages }): Promise<LlmResponse> {
+    async chat({ messages, onDelta }): Promise<LlmResponse> {
       // 第二轮：尾部是工具结果 → 生成总结
       const last = lastMessage(messages);
       if (last?.role === "tool") {
-        return { content: `已完成，结果如下：\n${last.content.slice(0, 500)}`, toolCalls: [] };
+        const text = `已完成，结果如下：\n${last.content.slice(0, 500)}`;
+        onDelta?.(text); // mock 无真实增量，整段模拟一次推送，保持与真实 provider 相同的事件路径
+        return { content: text, toolCalls: [] };
       }
 
       const userText = [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
@@ -72,6 +86,30 @@ export function mockLlm(): AgentLlm {
       const navTarget = matchNavTarget(userText);
       if (navTarget) {
         const call: ToolCallPayload = { id: nextCallId(), name: "navigate", arguments: { target: navTarget } };
+        return { content: "", toolCalls: [call] };
+      }
+
+      if (userText.includes("清空全部数据") || userText.includes("清空数据")) {
+        const isConfirmed = userText.includes("确认") || userText.includes("确定");
+        const args: Record<string, unknown> = { page: "settings", action: "clear-all-data" };
+        if (isConfirmed) args.confirm = true;
+        const call: ToolCallPayload = { id: nextCallId(), name: "ui_action", arguments: args };
+        return { content: "", toolCalls: [call] };
+      }
+
+      if (userText.includes("新建学生") || userText.includes("添加学生") || userText.includes("创建学生")) {
+        const call: ToolCallPayload = { id: nextCallId(), name: "ui_action", arguments: { page: "students", action: "create-student" } };
+        return { content: "", toolCalls: [call] };
+      }
+
+      // 导入花名册 → 打开导入对话框（须在学生查询规则之前，避免被「学生/花名册」关键词劫持）
+      if (/导入/.test(userText) && /花名册|学生|名单/.test(userText)) {
+        const mode = userText.includes("指定格式") || userText.includes("模板") ? "template" : "smart";
+        const call: ToolCallPayload = {
+          id: nextCallId(),
+          name: "ui_action",
+          arguments: { page: "students", action: "import-roster", args: { mode } },
+        };
         return { content: "", toolCalls: [call] };
       }
 
@@ -98,11 +136,10 @@ export function mockLlm(): AgentLlm {
         return { content: "", toolCalls: [call] };
       }
 
-      return {
-        content:
-          "当前是浏览器演示态（规则模式），可以试试：「打开学生列表」「现在有多少学生」「查一下林知远」。桌面端在「数据与设置」配好模型后可使用完整 AI 能力。",
-        toolCalls: [],
-      };
+      const fallbackText =
+        "当前是浏览器演示态（规则模式），可以试试：「打开学生列表」「现在有多少学生」「查一下林知远」。桌面端在「数据与设置」配好模型后可使用完整 AI 能力。";
+      onDelta?.(fallbackText);
+      return { content: fallbackText, toolCalls: [] };
     },
   };
 }

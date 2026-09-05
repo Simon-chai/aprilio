@@ -36,7 +36,12 @@ const COLS = "180px 140px 160px 170px 120px 160px 120px 1fr";
       <span class="font-semibold text-ink">{{ row.name }}</span>
       <span class="text-muted">{{ row.student_no }}</span>
       <span class="text-muted">{{ row.grade_class }}</span>
-      <span class="text-muted">{{ row.guardian_phone ?? "—" }}</span>
+      <span class="text-muted truncate">
+        {{ row.primary_phone ?? "—" }}
+        <span v-if="row.primary_relation" class="text-fine text-weak ml-1">
+          ({{ row.primary_relation }})
+        </span>
+      </span>
       <span class="text-muted">{{ row.photo_count }} 张</span>
       <span class="text-weak">{{ formatShort(row.updated_at) }}</span>
       <span class="text-primary">查看</span>
