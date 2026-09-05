@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import type { BehaviorPolarity, StudentBehaviorRecord } from "../types";
 
 const props = defineProps<{
@@ -23,15 +23,23 @@ const availableDimensions = computed(() => {
   return Array.from(set);
 });
 
+watch(availableDimensions, (dims) => {
+  if (selectedDimension.value !== "all" && !dims.includes(selectedDimension.value)) {
+    selectedDimension.value = "all";
+  }
+});
+
 // 统计各倾向数量
 const stats = computed(() => {
   let praise = 0;
   let improve = 0;
+  let neutral = 0;
   for (const r of props.records) {
     if (r.type === "praise") praise++;
     else if (r.type === "improve") improve++;
+    else if (r.type === "neutral") neutral++;
   }
-  return { all: props.records.length, praise, improve };
+  return { all: props.records.length, praise, improve, neutral };
 });
 
 // 过滤后的列表
@@ -102,6 +110,16 @@ const groupedRecords = computed<DateGroup[]>(() => {
           @click="selectedPolarity = 'improve'"
         >
           ⚠️ 待改进 ({{ stats.improve }})
+        </button>
+        <button
+          v-if="stats.neutral > 0"
+          data-test="filter-neutral"
+          type="button"
+          class="rounded-full px-3 py-1 transition-colors font-medium"
+          :class="selectedPolarity === 'neutral' ? 'bg-[#f4f4f5] text-[#52525b] border border-[#d4d4d8]' : 'bg-parchment text-weak hover:text-ink'"
+          @click="selectedPolarity = 'neutral'"
+        >
+          ➖ 中立 ({{ stats.neutral }})
         </button>
       </div>
 
@@ -193,7 +211,7 @@ const groupedRecords = computed<DateGroup[]>(() => {
             <!-- 节点圆点锚定在时间线上 -->
             <div
               class="absolute -left-[19px] top-4.5 flex h-2.5 w-2.5 items-center justify-center rounded-full ring-4 ring-canvas"
-              :class="item.type === 'praise' ? 'bg-[#248a3d]' : 'bg-[#d97706]'"
+              :class="item.type === 'praise' ? 'bg-[#248a3d]' : item.type === 'improve' ? 'bg-[#d97706]' : 'bg-[#71717a]'"
             />
 
             <!-- 内容区 -->
@@ -206,9 +224,9 @@ const groupedRecords = computed<DateGroup[]>(() => {
                 <!-- 倾向徽章 -->
                 <span
                   class="rounded-full px-2 py-0.5 text-[11px] font-medium"
-                  :class="item.type === 'praise' ? 'bg-[#e8f5e9] text-[#248a3d]' : 'bg-[#fff3e0] text-[#d97706]'"
+                  :class="item.type === 'praise' ? 'bg-[#e8f5e9] text-[#248a3d]' : item.type === 'improve' ? 'bg-[#fff3e0] text-[#d97706]' : 'bg-[#f4f4f5] text-[#52525b]'"
                 >
-                  {{ item.type === "praise" ? "👍 表扬" : "⚠️ 待改进" }}
+                  {{ item.type === "praise" ? "👍 表扬" : item.type === "improve" ? "⚠️ 待改进" : "➖ 中立" }}
                 </span>
                 <!-- 时间戳 -->
                 <span class="ml-auto text-[11px] text-weak">

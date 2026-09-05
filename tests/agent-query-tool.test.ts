@@ -115,4 +115,46 @@ describe("query_data tool", () => {
     expect(data.length).toBeGreaterThanOrEqual(1);
     expect(data.every((d) => d.dimension_name_snap === "作业情况" && d.type === "improve")).toBe(true);
   });
+
+  it("queries and filters behavior records with neutral polarity", async () => {
+    const { addBehaviorRecord } = await import("../src/lib/db");
+    await addBehaviorRecord({
+      student_id: 2,
+      dimension_id: 2,
+      dimension_name_snap: "日常纪律",
+      category_snap: "behavior",
+      type: "neutral",
+      comment: "智能助手表现查询测试：常规午休考勤记录",
+      recorded_date: "2026-09-05",
+    });
+
+    const res = await tool.execute(
+      {
+        entity: "behaviors",
+        student_id: 2,
+        polarity: "neutral",
+      },
+      ctx
+    );
+
+    expect(res.ok).toBe(true);
+    expect(res.summary).toContain("日常表现查询：命中");
+    expect(res.summary).toContain("➖");
+    expect(res.summary).toContain("常规午休考勤记录");
+    const data = res.data as { comment: string; type: string }[];
+    expect(data.some((d) => d.type === "neutral" && d.comment.includes("常规午休考勤记录"))).toBe(true);
+  });
+
+  it("appends student id to summary line when student_id is omitted", async () => {
+    const res = await tool.execute(
+      {
+        entity: "behaviors",
+        limit: 5,
+      },
+      ctx
+    );
+
+    expect(res.ok).toBe(true);
+    expect(res.summary).toMatch(/\(学生ID: \d+\)/);
+  });
 });

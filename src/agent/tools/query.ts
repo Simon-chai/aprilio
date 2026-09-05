@@ -46,8 +46,8 @@ export default defineAgentTool({
       },
       polarity: {
         type: "string",
-        enum: ["praise", "improve"],
-        description: "按评价倾向过滤表现流水：praise（表扬）| improve（待改进），仅 behaviors 生效",
+        enum: ["praise", "improve", "neutral"],
+        description: "按评价倾向过滤表现流水：praise（表扬）| improve（待改进）| neutral（中立），仅 behaviors 生效",
       },
       dimension_name: {
         type: "string",
@@ -122,7 +122,11 @@ export default defineAgentTool({
 
       const rows = filtered.slice(0, limit);
       const rowsSummary = rows
-        .map((r) => `[${r.recorded_date}] ${r.dimension_name_snap} ${r.type === 'praise' ? '👍' : '⚠️'} ${r.comment}`)
+        .map((r) => {
+          const icon = r.type === "praise" ? "👍" : r.type === "neutral" ? "➖" : "⚠️";
+          const suffix = studentId === undefined ? ` (学生ID: ${r.student_id})` : "";
+          return `[${r.recorded_date}] ${r.dimension_name_snap} ${icon} ${r.comment}${suffix}`;
+        })
         .join("\n");
 
       return {

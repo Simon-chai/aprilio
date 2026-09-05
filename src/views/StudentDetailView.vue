@@ -337,6 +337,7 @@ function goBack() {
           <!-- Tab 内容：日常表现 -->
           <div v-if="activeTab === 'behaviors'">
             <StudentBehaviorTimeline
+              :key="student.id"
               :records="behaviors"
               :loading="loading"
               @add="openQuickBehavior"

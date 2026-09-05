@@ -78,6 +78,57 @@ describe("StudentBehaviorTimeline.vue", () => {
     expect(wrapper.text()).toContain("积极举手发言");
   });
 
+  it("renders and filters neutral polarity records", async () => {
+    const recordsWithNeutral: StudentBehaviorRecord[] = [
+      ...mockRecords,
+      {
+        id: 4,
+        student_id: 1,
+        dimension_id: 2,
+        dimension_name_snap: "日常纪律",
+        category_snap: "behavior",
+        type: "neutral",
+        comment: "今日到校时间正常，无特殊情况",
+        recorded_date: "2026-09-01",
+        created_at: "2026-09-01 08:00:00",
+      },
+    ];
+
+    const wrapper = mount(StudentBehaviorTimeline, {
+      props: { records: recordsWithNeutral },
+    });
+
+    const neutralBtn = wrapper.find("[data-test='filter-neutral']");
+    expect(neutralBtn.exists()).toBe(true);
+    expect(neutralBtn.text()).toContain("中立 (1)");
+
+    await neutralBtn.trigger("click");
+    const items = wrapper.findAll("[data-test='timeline-item']");
+    expect(items.length).toBe(1);
+    expect(items[0].text()).toContain("今日到校时间正常");
+    expect(items[0].text()).toContain("➖ 中立");
+  });
+
+  it("resets selected dimension to all when current dimension is no longer available", async () => {
+    const wrapper = mount(StudentBehaviorTimeline, {
+      props: { records: mockRecords },
+    });
+
+    const select = wrapper.get("[data-test='dimension-select']");
+    await select.setValue("劳动情况");
+    expect((select.element as HTMLSelectElement).value).toBe("劳动情况");
+
+    // 更新 records 为不再包含“劳动情况”的集合（保留至少两个维度以保证 select 渲染）
+    const newRecords: StudentBehaviorRecord[] = [
+      mockRecords[0], // 课堂表现
+      mockRecords[1], // 作业情况
+    ];
+    await wrapper.setProps({ records: newRecords });
+
+    const updatedSelect = wrapper.get("[data-test='dimension-select']");
+    expect((updatedSelect.element as HTMLSelectElement).value).toBe("all");
+  });
+
   it("filters records by dimension", async () => {
     const wrapper = mount(StudentBehaviorTimeline, {
       props: { records: mockRecords },
