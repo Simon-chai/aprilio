@@ -1,6 +1,6 @@
 import Database from "@tauri-apps/plugin-sql";
 import { DEFAULT_PROFILE } from "../types";
-import type { Photo, Profile, Stats, Student, StudentInput, StudentRow } from "../types";
+import type { ClassSummary, Photo, Profile, Stats, Student, StudentInput, StudentRow } from "../types";
 
 /** 是否在 Tauri 外壳里运行；浏览器里跑 dev 时走内存兜底，方便调样式。 */
 export const isTauri = (): boolean =>
@@ -53,7 +53,7 @@ function seedStore(): MemoryStore {
     name,
     gender,
     birth_date: birth,
-    student_no: `20240${String(301 + i)}`,
+    student_no: `2023000${String(1 + i)}`,
     grade_class: klass,
     enroll_date: "2024-09-01",
     guardian_name: `${name.slice(0, 1)}建国（父亲）`,
@@ -68,6 +68,17 @@ function seedStore(): MemoryStore {
   const captions = ["校园运动会", "科学课实验", "期中表彰", "课外阅读", "春游合影"];
   const photos: Photo[] = [];
   let pid = 1;
+
+  photos.push({
+    id: pid++,
+    student_id: null,
+    grade_class: "三年级二班",
+    file_name: "demo-class-32.jpg",
+    caption: "三年级二班开学集体合影",
+    taken_at: "2026-09-01",
+    created_at: base,
+  });
+
   for (const s of students) {
     const count = 3 + (s.id % 5);
     for (let i = 0; i < count; i++) {
@@ -95,12 +106,18 @@ function mem(): MemoryStore {
 /* 查询                                                                */
 /* ------------------------------------------------------------------ */
 
-export async function listStudents(keyword = ""): Promise<StudentRow[]> {
+export async function listStudents(keyword = "", gradeClass?: string): Promise<StudentRow[]> {
   const kw = keyword.trim();
   if (!isTauri()) {
     const store = mem();
     const k = kw.toLowerCase();
+    const byClass = (s: Student) => {
+      if (!gradeClass) return true;
+      if (gradeClass === "未分班") return !s.grade_class;
+      return s.grade_class === gradeClass;
+    };
     return store.students
+      .filter(byClass)
       .filter(
         (s) =>
           !k || s.name.toLowerCase().includes(k) || s.student_no.toLowerCase().includes(k)
@@ -113,13 +130,28 @@ export async function listStudents(keyword = ""): Promise<StudentRow[]> {
   }
 
   const db = await getDb();
+  const conditions: string[] = [];
+  const params: unknown[] = [];
+  if (kw) {
+    conditions.push("(s.name LIKE '%' || ? || '%' OR s.student_no LIKE '%' || ? || '%')");
+    params.push(kw, kw);
+  }
+  if (gradeClass) {
+    if (gradeClass === "未分班") {
+      conditions.push("(s.grade_class IS NULL OR s.grade_class = '')");
+    } else {
+      conditions.push("s.grade_class = ?");
+      params.push(gradeClass);
+    }
+  }
+  const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
   return db.select<StudentRow[]>(
     `SELECT s.*,
             (SELECT COUNT(*) FROM photos p WHERE p.student_id = s.id) AS photo_count
        FROM students s
-      WHERE (? = '' OR s.name LIKE '%' || ? || '%' OR s.student_no LIKE '%' || ? || '%')
+      ${whereClause}
       ORDER BY s.updated_at DESC, s.id DESC`,
-    [kw, kw, kw]
+    params
   );
 }
 
@@ -259,6 +291,160 @@ export async function deletePhoto(id: number): Promise<void> {
   }
   const db = await getDb();
   await db.execute("DELETE FROM photos WHERE id = ?", [id]);
+}
+
+export async function listClasses(): Promise<ClassSummary[]> {
+  let students: Student[];
+  let photos: Photo[];
+
+  if (!isTauri()) {
+    const store = mem();
+    students = store.students;
+    photos = store.photos;
+  } else {
+    const db = await getDb();
+    students = await db.select<Student[]>("SELECT * FROM students");
+    photos = await db.select<Photo[]>("SELECT * FROM photos");
+  }
+
+  const classNames = new Set<string>();
+  for (const s of students) {
+    classNames.add(s.grade_class || "未分班");
+  }
+  for (const p of photos) {
+    if (p.grade_class) classNames.add(p.grade_class);
+  }
+
+  const summaries: ClassSummary[] = [];
+  for (const name of classNames) {
+    const inClass = students.filter((s) =>
+      name === "未分班" ? !s.grade_class || s.grade_class === "未分班" : s.grade_class === name
+    );
+    const studentIds = new Set(inClass.map((s) => s.id));
+
+    const studentCount = inClass.length;
+    const maleCount = inClass.filter((s) => s.gender === "男" || s.gender === "male").length;
+    const femaleCount = inClass.filter((s) => s.gender === "女" || s.gender === "female").length;
+
+    const classPhotoCount = photos.filter(
+      (p) => p.grade_class === name && p.student_id === null
+    ).length;
+    const studentPhotoCount = photos.filter(
+      (p) => p.student_id !== null && studentIds.has(p.student_id)
+    ).length;
+
+    summaries.push({
+      name,
+      studentCount,
+      maleCount,
+      femaleCount,
+      photoCount: classPhotoCount + studentPhotoCount,
+      classPhotoCount,
+      studentPhotoCount,
+    });
+  }
+
+  return summaries.sort((a, b) => a.name.localeCompare(b.name, "zh"));
+}
+
+export async function getClassSummary(name: string): Promise<ClassSummary | null> {
+  const classes = await listClasses();
+  return classes.find((c) => c.name === name) ?? null;
+}
+
+export async function listPhotosByClass(
+  className: string,
+  filterType: "all" | "public" | "student" = "all"
+): Promise<Photo[]> {
+  if (!isTauri()) {
+    const store = mem();
+    const inClass = store.students.filter((s) =>
+      className === "未分班" ? !s.grade_class || s.grade_class === "未分班" : s.grade_class === className
+    );
+    const studentIds = new Set(inClass.map((s) => s.id));
+
+    const isPublic = (p: Photo) => p.grade_class === className && p.student_id === null;
+    const isStudent = (p: Photo) => p.student_id !== null && studentIds.has(p.student_id);
+
+    return store.photos
+      .filter((p) => {
+        if (filterType === "public") return isPublic(p);
+        if (filterType === "student") return isStudent(p);
+        return isPublic(p) || isStudent(p);
+      })
+      .sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+  }
+
+  const db = await getDb();
+  if (filterType === "public") {
+    return db.select<Photo[]>(
+      `SELECT * FROM photos
+        WHERE grade_class = ? AND student_id IS NULL
+        ORDER BY created_at DESC, id DESC`,
+      [className]
+    );
+  }
+  if (filterType === "student") {
+    if (className === "未分班") {
+      return db.select<Photo[]>(
+        `SELECT * FROM photos
+          WHERE student_id IN (SELECT id FROM students WHERE grade_class IS NULL OR grade_class = '' OR grade_class = '未分班')
+          ORDER BY created_at DESC, id DESC`
+      );
+    }
+    return db.select<Photo[]>(
+      `SELECT * FROM photos
+        WHERE student_id IN (SELECT id FROM students WHERE grade_class = ?)
+        ORDER BY created_at DESC, id DESC`,
+      [className]
+    );
+  }
+  // 'all'
+  if (className === "未分班") {
+    return db.select<Photo[]>(
+      `SELECT * FROM photos
+        WHERE (grade_class = ? AND student_id IS NULL)
+           OR student_id IN (SELECT id FROM students WHERE grade_class IS NULL OR grade_class = '' OR grade_class = '未分班')
+        ORDER BY created_at DESC, id DESC`,
+      [className]
+    );
+  }
+  return db.select<Photo[]>(
+    `SELECT * FROM photos
+      WHERE (grade_class = ? AND student_id IS NULL)
+         OR student_id IN (SELECT id FROM students WHERE grade_class = ?)
+      ORDER BY created_at DESC, id DESC`,
+    [className, className]
+  );
+}
+
+export async function addClassPhoto(
+  className: string,
+  fileName: string,
+  caption: string | null = null,
+  takenAt: string | null = null
+): Promise<number> {
+  if (!isTauri()) {
+    const store = mem();
+    const id = store.nextPhotoId++;
+    store.photos.push({
+      id,
+      student_id: null,
+      grade_class: className,
+      file_name: fileName,
+      caption,
+      taken_at: takenAt,
+      created_at: now(),
+    });
+    return id;
+  }
+
+  const db = await getDb();
+  const result = await db.execute(
+    "INSERT INTO photos (student_id, grade_class, file_name, caption, taken_at) VALUES (NULL, ?, ?, ?, ?)",
+    [className, fileName, caption, takenAt]
+  );
+  return Number(result.lastInsertId ?? 0);
 }
 
 export async function getStats(): Promise<Stats> {
