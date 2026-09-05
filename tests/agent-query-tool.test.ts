@@ -57,4 +57,62 @@ describe("query_data tool", () => {
     expect(result.ok).toBe(false);
     expect(result.error).toContain("未知查询实体");
   });
+
+  it("queries student behavior records with polarity and keyword filters", async () => {
+    // 预置表现记录
+    const { addBehaviorRecord } = await import("../src/lib/db");
+    await addBehaviorRecord({
+      student_id: 1,
+      dimension_id: 3,
+      dimension_name_snap: "课堂表现",
+      category_snap: "behavior",
+      type: "praise",
+      comment: "智能助手表现查询测试：数学课主动发言",
+      recorded_date: "2026-09-05",
+    });
+
+    const res = await tool.execute(
+      {
+        entity: "behaviors",
+        student_id: 1,
+        polarity: "praise",
+        keyword: "主动发言",
+      },
+      ctx
+    );
+
+    expect(res.ok).toBe(true);
+    expect(res.summary).toContain("日常表现查询：命中");
+    expect(res.summary).toContain("数学课主动发言");
+    const data = res.data as { comment: string }[];
+    expect(data.some((d) => d.comment.includes("主动发言"))).toBe(true);
+  });
+
+  it("filters behavior records by dimension_name and polarity", async () => {
+    const { addBehaviorRecord } = await import("../src/lib/db");
+    await addBehaviorRecord({
+      student_id: 1,
+      dimension_id: 1,
+      dimension_name_snap: "作业情况",
+      category_snap: "study",
+      type: "improve",
+      comment: "未按时交作业",
+      recorded_date: "2026-09-05",
+    });
+
+    const res = await tool.execute(
+      {
+        entity: "behaviors",
+        student_id: 1,
+        dimension_name: "作业情况",
+        polarity: "improve",
+      },
+      ctx
+    );
+
+    expect(res.ok).toBe(true);
+    const data = res.data as { comment: string; dimension_name_snap: string; type: string }[];
+    expect(data.length).toBeGreaterThanOrEqual(1);
+    expect(data.every((d) => d.dimension_name_snap === "作业情况" && d.type === "improve")).toBe(true);
+  });
 });
