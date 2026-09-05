@@ -7,20 +7,23 @@ const route = useRoute();
 interface NavItem {
   name: string;
   label: string;
-  icon: "home" | "users" | "image" | "sparkle" | "gear";
+  icon: "home" | "classes" | "users" | "image" | "sparkle" | "gear";
 }
 
 const items: NavItem[] = [
   { name: "home", label: "首页", icon: "home" },
+  { name: "classes", label: "班级管理", icon: "classes" },
   { name: "students", label: "学生档案", icon: "users" },
   { name: "photos", label: "图片记录", icon: "image" },
   { name: "design", label: "设计系统", icon: "sparkle" },
   { name: "settings", label: "数据与设置", icon: "gear" },
 ];
 
-const activeName = computed(() =>
-  route.name === "student-detail" ? "students" : String(route.name ?? "")
-);
+const activeName = computed(() => {
+  if (route.name === "student-detail") return "students";
+  if (route.name === "class-detail") return "classes";
+  return String(route.name ?? "");
+});
 </script>
 
 <template>
@@ -65,6 +68,37 @@ const activeName = computed(() =>
             stroke-width="1.4"
             stroke-linecap="round"
             stroke-linejoin="round"
+          />
+        </svg>
+        <svg
+          v-else-if="item.icon === 'classes'"
+          width="16"
+          height="16"
+          viewBox="0 0 16 16"
+          fill="none"
+          aria-hidden="true"
+        >
+          <rect
+            x="2"
+            y="2.5"
+            width="12"
+            height="9"
+            rx="1.5"
+            :stroke="activeName === item.name ? '#1d1d1f' : '#333333'"
+            stroke-width="1.4"
+          />
+          <path
+            d="M5 13.5l1.5-2h3l1.5 2"
+            :stroke="activeName === item.name ? '#1d1d1f' : '#333333'"
+            stroke-width="1.4"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+          <path
+            d="M5 6h4"
+            :stroke="activeName === item.name ? '#1d1d1f' : '#333333'"
+            stroke-width="1.4"
+            stroke-linecap="round"
           />
         </svg>
         <svg

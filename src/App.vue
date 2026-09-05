@@ -6,10 +6,8 @@ import AgentChat from "./components/agent/AgentChat.vue";
 
 const route = useRoute();
 
-// 首页与班级管理按新设计全宽呈现，不挂侧边栏
-const fullBleed = computed(
-  () => route.name === "home" || route.name === "classes"
-);
+// 仅首页全屏沉浸展示，其他页面均常驻侧边栏
+const fullBleed = computed(() => route.name === "home");
 </script>
 
 <template>
