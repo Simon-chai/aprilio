@@ -1,11 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import type {
-  BehaviorCategory,
-  BehaviorPolarity,
-  ClassBehaviorRecord,
-  StudentRow,
-} from "../types";
+import { BEHAVIOR_CATEGORY_LABEL } from "../types";
+import type { BehaviorCategory, BehaviorPolarity, ClassBehaviorRecord, StudentRow } from "../types";
 
 const props = defineProps<{
   records: ClassBehaviorRecord[];
@@ -151,7 +147,7 @@ const groupedRecords = computed<DateGroup[]>(() => {
           :class="selectedCategory === 'study' ? 'bg-primary text-white font-semibold shadow-xs' : 'bg-canvas border border-hairline text-weak hover:text-ink hover:border-ink'"
           @click="selectedCategory = 'study'"
         >
-          📚 学习表现 ({{ categoryCounts.study }})
+          📚 {{ BEHAVIOR_CATEGORY_LABEL.study }} ({{ categoryCounts.study }})
         </button>
         <button
           type="button"
@@ -159,16 +155,15 @@ const groupedRecords = computed<DateGroup[]>(() => {
           :class="selectedCategory === 'behavior' ? 'bg-[#059669] text-white font-semibold shadow-xs' : 'bg-canvas border border-hairline text-weak hover:text-ink hover:border-ink'"
           @click="selectedCategory = 'behavior'"
         >
-          🌱 行为习惯 ({{ categoryCounts.behavior }})
+          🌱 {{ BEHAVIOR_CATEGORY_LABEL.behavior }} ({{ categoryCounts.behavior }})
         </button>
         <button
-          v-if="categoryCounts.other > 0"
           type="button"
           class="rounded-full px-3.5 py-1 transition-colors font-medium cursor-pointer"
           :class="selectedCategory === 'other' ? 'bg-[#7c3aed] text-white font-semibold shadow-xs' : 'bg-canvas border border-hairline text-weak hover:text-ink hover:border-ink'"
           @click="selectedCategory = 'other'"
         >
-          ✨ 其他表现 ({{ categoryCounts.other }})
+          ✨ {{ BEHAVIOR_CATEGORY_LABEL.other }} ({{ categoryCounts.other }})
         </button>
       </div>
 
