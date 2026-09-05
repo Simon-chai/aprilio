@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import AppButton from "../components/ui/AppButton.vue";
@@ -64,6 +64,8 @@ async function onQuickSaved(payload: { studentName: string; dimensionName: strin
   toastTimer = setTimeout(() => (toast.value = ""), 2400);
   behaviors.value = await listBehaviorRecords(id.value);
 }
+
+onBeforeUnmount(() => clearTimeout(toastTimer));
 
 async function refresh() {
   loading.value = true;
