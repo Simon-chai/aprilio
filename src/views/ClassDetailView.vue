@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { RouterLink, useRouter } from "vue-router";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { useRouter } from "vue-router";
 import AppButton from "../components/ui/AppButton.vue";
 import AppIconButton from "../components/ui/AppIconButton.vue";
 import AppCard from "../components/ui/AppCard.vue";
 import AppInput from "../components/ui/AppInput.vue";
+import AppLink from "../components/ui/AppLink.vue";
 import EmptyState from "../components/ui/EmptyState.vue";
 import StudentTable from "../components/StudentTable.vue";
 import StudentFormDialog from "../components/StudentFormDialog.vue";
@@ -31,14 +32,16 @@ import {
   listExamsByClass,
   listPhotosByClass,
   listStudents,
+  listTimetableSlotsWithClass,
   renameClass,
+  saveTimetableMySubjects,
 } from "../lib/db";
-import { currentSemester, weekdayOf } from "../lib/timetable";
+import { currentSemester, resolveClassMySubjects, weekdayOf } from "../lib/timetable";
 import { ensureProfile, profile } from "../lib/profile";
 import { getPhotosDir, importPhoto, photoUrl } from "../lib/photos";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import type { RosterImportResult, RosterTable } from "../lib/roster";
-import type { BehaviorPolarity, ClassBehaviorRecord, ClassSummary, Photo, StudentInput, StudentRow, Timetable, TimetableSlot } from "../types";
+import type { BehaviorPolarity, ClassBehaviorRecord, ClassSummary, Photo, StudentInput, StudentRow, Timetable, TimetableSlot, TimetableSlotWithClass } from "../types";
 
 const props = defineProps<{ name: string }>();
 const router = useRouter();
@@ -64,6 +67,57 @@ const timetable = ref<(Timetable & { slots: TimetableSlot[] }) | null>(null);
 const timetableLoading = ref(false);
 const timetableError = ref("");
 const timetableView = ref<"calendar" | "grid">("grid");
+/** 跨班撞课检测素材：本学期全部班级格子（联班级名/我的科目标记），传给 TimetableGrid */
+const conflictRows = ref<TimetableSlotWithClass[]>([]);
+
+async function loadConflictRows(): Promise<void> {
+  conflictRows.value = await listTimetableSlotsWithClass(TIMETABLE_SEMESTER).catch(
+    () => [] as TimetableSlotWithClass[]
+  );
+}
+
+/* ---------------- 我的科目标记（班级 × 科目）：胶囊条点选即存 ---------------- */
+
+const markingSaving = ref(false);
+
+/** 本班课表出现过的科目（去重按中文序），作为胶囊候选 */
+const classSubjects = computed<string[]>(() => {
+  const set = new Set<string>();
+  for (const slot of timetable.value?.slots ?? []) {
+    const s = slot.subject.trim();
+    if (s) set.add(s);
+  }
+  return [...set].sort((a, b) => a.localeCompare(b, "zh"));
+});
+
+/** 该科目是否算「我的课」：按班级标记（null 回退个人任教学科） */
+function isMarkedMine(subject: string): boolean {
+  if (!timetable.value) return false;
+  const effective = resolveClassMySubjects(
+    timetable.value.my_subjects,
+    profile.value.my_subjects ?? [],
+  );
+  return effective.includes(subject);
+}
+
+/** 点胶囊切换标记：在「当前生效集合」上增减后落库 */
+async function toggleMySubject(subject: string): Promise<void> {
+  if (!timetable.value || markingSaving.value) return;
+  const effective = resolveClassMySubjects(
+    timetable.value.my_subjects,
+    profile.value.my_subjects ?? [],
+  );
+  const next = isMarkedMine(subject)
+    ? effective.filter((s) => s !== subject)
+    : [...effective, subject];
+  markingSaving.value = true;
+  try {
+    await saveTimetableMySubjects(timetable.value.id, next);
+    timetable.value = { ...timetable.value, my_subjects: [...next].sort((a, b) => a.localeCompare(b, "zh")) };
+  } finally {
+    markingSaving.value = false;
+  }
+}
 
 async function openTimetableTab() {
   activeTab.value = "timetable";
@@ -73,7 +127,11 @@ async function openTimetableTab() {
   try {
     await ensureProfile().catch(() => undefined);
     await findOrCreateTimetable(props.name, TIMETABLE_SEMESTER);
-    timetable.value = await getTimetableWithSlots(props.name, TIMETABLE_SEMESTER);
+    const [withSlots] = await Promise.all([
+      getTimetableWithSlots(props.name, TIMETABLE_SEMESTER),
+      loadConflictRows(),
+    ]);
+    timetable.value = withSlots;
   } catch (e) {
     timetableError.value = `课表加载失败：${e instanceof Error ? e.message : String(e)}`;
   } finally {
@@ -82,7 +140,11 @@ async function openTimetableTab() {
 }
 
 async function refreshTimetable() {
-  timetable.value = await getTimetableWithSlots(props.name, TIMETABLE_SEMESTER);
+  const [withSlots] = await Promise.all([
+    getTimetableWithSlots(props.name, TIMETABLE_SEMESTER),
+    loadConflictRows(),
+  ]);
+  timetable.value = withSlots;
 }
 
 const importOpen = ref(false);
@@ -182,16 +244,26 @@ function showToast(msg: string) {
   toastTimer = setTimeout(() => (toast.value = ""), 2400);
 }
 
+/** 仅重拉班级表现流水：局部更新概览卡与日常表现 Tab 的计数，不整页刷新 */
+async function refreshBehaviorRecords() {
+  behaviorRecords.value = await listBehaviorRecordsByClass(props.name);
+}
+
 async function onQuickSaved(payload: { studentName: string; dimensionName: string; polarity: BehaviorPolarity }) {
   showToast(`已记录 ${payload.studentName} ${payload.dimensionName}`);
-  behaviorRecords.value = await listBehaviorRecordsByClass(props.name);
+  await refreshBehaviorRecords();
+}
+
+/** 学生表格内快捷记表现：表格已自带 toast，这里只负责刷新表现数据 */
+async function onTableBehaviorSaved() {
+  await refreshBehaviorRecords();
 }
 
 /** 删除一条表现记录（含评语），并刷新时间轴 */
 async function handleRemoveBehavior(recordId: number) {
   await deleteBehaviorRecord(recordId);
   showToast("已删除该条表现记录");
-  behaviorRecords.value = await listBehaviorRecordsByClass(props.name);
+  await refreshBehaviorRecords();
 }
 
 function goStudentById(studentId: number) {
@@ -200,7 +272,13 @@ function goStudentById(studentId: number) {
 
 async function handleRenameClass(newName: string) {
   if (newName && newName !== props.name) {
-    await renameClass(props.name, newName);
+    try {
+      await renameClass(props.name, newName);
+    } catch (e) {
+      // 失败保持弹窗打开，错误上浮到 toast——不再静默只进日志
+      showToast(`重命名失败：${e instanceof Error ? e.message : String(e)}`);
+      return;
+    }
     renameDialogOpen.value = false;
     router.replace({ name: "class-detail", params: { name: newName } });
   } else {
@@ -215,7 +293,12 @@ async function onDeleteClass() {
     ? await confirm(message, { title: "删除班级", kind: "warning" })
     : window.confirm(message);
   if (!ok) return;
-  await deleteClass(props.name);
+  try {
+    await deleteClass(props.name);
+  } catch (e) {
+    showToast(`删除失败：${e instanceof Error ? e.message : String(e)}`);
+    return;
+  }
   router.push({ name: "classes" });
 }
 
@@ -309,12 +392,7 @@ function goStudentDetail(row: StudentRow) {
     <header class="border-b border-divider bg-canvas px-8 py-4 shrink-0">
       <div class="flex items-center justify-between gap-4">
         <div class="flex items-center gap-4 min-w-0">
-          <RouterLink
-            to="/classes"
-            class="flex items-center gap-1.5 text-caption font-medium text-primary hover:underline shrink-0 transition-transform active:scale-[0.98]"
-          >
-            ← 班级管理
-          </RouterLink>
+          <AppLink to="/classes" icon="back" class="font-medium shrink-0">班级管理</AppLink>
           <span class="text-hairline shrink-0">|</span>
           <div class="min-w-0">
             <div class="flex items-baseline gap-3 flex-wrap">
@@ -462,6 +540,7 @@ function goStudentDetail(row: StudentRow) {
           v-if="students.length"
           :rows="students"
           @open="goStudentDetail"
+          @saved="onTableBehaviorSaved"
         />
 
         <EmptyState
@@ -605,6 +684,34 @@ function goStudentDetail(row: StudentRow) {
               </AppButton>
             </div>
           </div>
+          <!-- 我的科目标记：点胶囊即存，勾选科目的格子高亮内描边 -->
+          <div
+            v-if="classSubjects.length"
+            class="flex flex-wrap items-center gap-2 rounded-md bg-parchment p-3"
+            data-test="my-subjects-strip"
+          >
+            <span class="text-caption text-ink">我的科目</span>
+            <button
+              v-for="s in classSubjects"
+              :key="s"
+              type="button"
+              data-test="my-subject-chip"
+              :disabled="markingSaving"
+              class="rounded-pill border px-2.5 py-0.5 text-fine transition-colors disabled:opacity-40"
+              :class="
+                isMarkedMine(s)
+                  ? 'border-primary bg-primary/10 text-primary font-medium'
+                  : 'border-hairline bg-canvas text-muted hover:border-ink'
+              "
+              :aria-pressed="isMarkedMine(s)"
+              @click="toggleMySubject(s)"
+            >
+              {{ s }}
+            </button>
+            <span class="min-w-0 flex-1 text-fine text-weak">
+              勾选的科目会高亮并汇入「我的课表」；从没标记过的班级按个人资料的任教学科自动匹配
+            </span>
+          </div>
           <TimetableCalendar
             v-if="timetableView === 'calendar'"
             :class-name="name"
@@ -617,6 +724,8 @@ function goStudentDetail(row: StudentRow) {
             :slots="timetable.slots"
             editable
             :my-subjects="profile.my_subjects ?? []"
+            :class-marked="timetable.my_subjects"
+            :conflict-rows="conflictRows"
             :today="TIMETABLE_TODAY"
             @changed="refreshTimetable"
           />

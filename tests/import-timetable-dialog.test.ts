@@ -1,11 +1,14 @@
 import { flushPromises, mount } from "@vue/test-utils";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import ImportTimetableDialog from "../src/components/ImportTimetableDialog.vue";
 import { currentSemester } from "../src/lib/timetable";
+import { profile } from "../src/lib/profile";
+import { DEFAULT_PROFILE } from "../src/types";
 import {
   clearTimetableSlots,
   findOrCreateTimetable,
   getTimetableWithSlots,
+  saveTimetableMySubjects,
   saveTimetableSlot,
 } from "../src/lib/db";
 
@@ -14,6 +17,9 @@ const CSV = [
   "第1节,数学,语文,,英语,",
   "第2节,语文,数学,数学（带教具）,语文,班会",
 ].join("\n");
+
+/** 用演示种子没有的第 4 节，避免与内置示例课表的撞课断言互相干扰 */
+const CSV_P4 = ["节次,周一,周二,周三,周四,周五", "第4节,语文,,,,"].join("\n");
 
 type Loader = { loadText: (text: string, label?: string) => Promise<void> };
 
@@ -127,6 +133,106 @@ describe("ImportTimetableDialog", () => {
       expect(wrapper.emitted("imported")).toHaveLength(1);
     } finally {
       await clearTimetableSlots(id);
+    }
+  });
+});
+
+describe("ImportTimetableDialog 预览撞课清单", () => {
+  afterEach(() => {
+    profile.value = { ...DEFAULT_PROFILE };
+  });
+
+  it("lists conflicts against other classes' my-subject slots and still imports", async () => {
+    profile.value = { ...DEFAULT_PROFILE, my_subjects: ["语文"] };
+    const className = "撞课目标班";
+    const id = await presetClass(className);
+    const otherId = await presetClass("撞课邻班A");
+    await saveTimetableSlot(otherId, 1, 4, "语文"); // 邻班周一第 4 节语文（我的科目）
+    try {
+      const wrapper = mount(ImportTimetableDialog, { props: { open: true, presetClass: className } });
+      await flushPromises();
+      await (wrapper.vm as unknown as Loader).loadText(CSV_P4, "课表.csv");
+
+      const warning = wrapper.get('[data-test="import-conflict-warning"]');
+      expect(warning.text()).toContain("周一 第4节 语文");
+      expect(warning.text()).toContain("撞课邻班A（语文）");
+      // 软警告：仍可导入
+      await importButton(wrapper).trigger("click");
+      await flushPromises();
+      expect(wrapper.emitted("imported")).toHaveLength(1);
+    } finally {
+      await clearTimetableSlots(id);
+      await clearTimetableSlots(otherId);
+    }
+  });
+
+  it("skips non-my subjects (P.E.) even at the same slot", async () => {
+    profile.value = { ...DEFAULT_PROFILE, my_subjects: ["语文"] };
+    const className = "撞课体育班";
+    const id = await presetClass(className);
+    const otherId = await presetClass("撞课体育邻班");
+    await saveTimetableSlot(otherId, 1, 4, "体育");
+    try {
+      const wrapper = mount(ImportTimetableDialog, { props: { open: true, presetClass: className } });
+      await flushPromises();
+      await (wrapper.vm as unknown as Loader).loadText(
+        ["节次,周一", "第4节,体育"].join("\n"),
+        "课表.csv"
+      );
+      expect(wrapper.find('[data-test="import-conflict-warning"]').exists()).toBe(false);
+    } finally {
+      await clearTimetableSlots(id);
+      await clearTimetableSlots(otherId);
+    }
+  });
+
+  it("excludes the target class's own existing slots", async () => {
+    profile.value = { ...DEFAULT_PROFILE, my_subjects: ["语文"] };
+    const className = "撞课自排班";
+    const id = await presetClass(className);
+    await saveTimetableSlot(id, 1, 4, "语文"); // 目标班自己已有的旧格子
+    try {
+      const wrapper = mount(ImportTimetableDialog, { props: { open: true, presetClass: className } });
+      await flushPromises();
+      await (wrapper.vm as unknown as Loader).loadText(CSV_P4, "课表.csv");
+      expect(wrapper.find('[data-test="import-conflict-warning"]').exists()).toBe(false);
+    } finally {
+      await clearTimetableSlots(id);
+    }
+  });
+
+  it("skips when the target class is marked as having none of my subjects", async () => {
+    profile.value = { ...DEFAULT_PROFILE, my_subjects: ["语文"] };
+    const className = "撞课标记班";
+    const id = await presetClass(className);
+    await saveTimetableMySubjects(id, []); // 明确标记「本班没有我的课」
+    const otherId = await presetClass("撞课标记邻班");
+    await saveTimetableSlot(otherId, 1, 4, "语文");
+    try {
+      const wrapper = mount(ImportTimetableDialog, { props: { open: true, presetClass: className } });
+      await flushPromises();
+      await (wrapper.vm as unknown as Loader).loadText(CSV_P4, "课表.csv");
+      expect(wrapper.find('[data-test="import-conflict-warning"]').exists()).toBe(false);
+    } finally {
+      await clearTimetableSlots(id);
+      await clearTimetableSlots(otherId);
+    }
+  });
+
+  it("skips when no teaching subjects are registered and no marks exist", async () => {
+    profile.value = { ...DEFAULT_PROFILE, my_subjects: [] };
+    const className = "撞课未登记班";
+    const id = await presetClass(className);
+    const otherId = await presetClass("撞课未登记邻班");
+    await saveTimetableSlot(otherId, 1, 4, "语文");
+    try {
+      const wrapper = mount(ImportTimetableDialog, { props: { open: true, presetClass: className } });
+      await flushPromises();
+      await (wrapper.vm as unknown as Loader).loadText(CSV_P4, "课表.csv");
+      expect(wrapper.find('[data-test="import-conflict-warning"]').exists()).toBe(false);
+    } finally {
+      await clearTimetableSlots(id);
+      await clearTimetableSlots(otherId);
     }
   });
 });

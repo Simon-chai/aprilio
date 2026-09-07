@@ -108,4 +108,52 @@ describe("ui_action tool", () => {
     off();
     expect(emitPageAction("students/create-student")).toBe(false);
   });
+
+  it("exposes the home pomodoro action and delivers it through the bus", async () => {
+    const container = buildCapabilityContainer();
+    let opened = false;
+    const off = onPageAction("home/open-pomodoro", () => {
+      opened = true;
+    });
+
+    const homeCtx: AgentToolContext = {
+      router: { push: async () => {}, currentRoute: { value: { name: "home" } } },
+    };
+    const result = await findUiAction(container).execute(
+      { page: "home", action: "open-pomodoro" },
+      homeCtx,
+    );
+    off();
+
+    expect(opened).toBe(true);
+    expect(result.ok).toBe(true);
+    expect(result.summary).toContain("番茄钟");
+  });
+
+  it("navigates back to home first when the pomodoro action fires from another page", async () => {
+    const container = buildCapabilityContainer();
+    let pushed = false;
+    let opened = false;
+    const off = onPageAction("home/open-pomodoro", () => {
+      opened = true;
+    });
+
+    const awayCtx: AgentToolContext = {
+      router: {
+        push: async () => {
+          pushed = true;
+        },
+        currentRoute: { value: { name: "students" } },
+      },
+    };
+    const result = await findUiAction(container).execute(
+      { page: "home", action: "open-pomodoro" },
+      awayCtx,
+    );
+    off();
+
+    expect(pushed).toBe(true);
+    expect(opened).toBe(true);
+    expect(result.ok).toBe(true);
+  });
 });

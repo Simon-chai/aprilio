@@ -21,7 +21,7 @@ const VARIANTS: Record<Variant, string> = {
   pearl: "h-8 px-3.5 rounded-md border border-hairline bg-pearl text-muted hover:bg-parchment",
   dark: "h-8 px-[15px] rounded-sm bg-ink text-white hover:bg-[#000000]",
   danger: "h-9 px-[18px] rounded-pill border border-danger text-danger hover:bg-[#fdeef0]",
-  link: "h-9 px-0 text-primary hover:underline",
+  link: "h-9 px-0 text-primary hover:text-primary-focus",
 };
 
 const cls = computed(() => [

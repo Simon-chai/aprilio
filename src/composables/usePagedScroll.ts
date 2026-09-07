@@ -1,4 +1,4 @@
-import { onBeforeUnmount, onMounted, ref, type Ref } from "vue";
+import { onBeforeUnmount, onMounted, ref, toValue, type MaybeRefOrGetter, type Ref } from "vue";
 
 /** 一次滚轮手势累计超过这个量才翻页，触控板的碎步不会误触 */
 const WHEEL_THRESHOLD = 26;
@@ -28,8 +28,14 @@ function isTypingTarget(target: EventTarget | null): boolean {
  *
  * @param pageCount 总页数
  * @param viewport  滚动容器（每页高度 = 容器高度）
+ * @param enabled   可选开关：为 false 时忽略滚轮/按键翻页（如番茄钟沉浸层打开时），goTo 仍可用
  */
-export function usePagedScroll(pageCount: number, viewport: Ref<HTMLElement | null>) {
+export function usePagedScroll(
+  pageCount: number,
+  viewport: Ref<HTMLElement | null>,
+  enabled?: MaybeRefOrGetter<boolean>,
+) {
+  const canPage = () => toValue(enabled ?? true);
   /** 当前页序号 */
   const index = ref(0);
   /** 连续进度：0 表示第 1 页顶部，1 表示第 2 页顶部，用于视差 */
@@ -85,6 +91,7 @@ export function usePagedScroll(pageCount: number, viewport: Ref<HTMLElement | nu
   };
 
   const onWheel = (e: WheelEvent) => {
+    if (!canPage()) return;
     if (innerCanScroll(e.deltaY)) return;
     e.preventDefault();
 
@@ -102,6 +109,7 @@ export function usePagedScroll(pageCount: number, viewport: Ref<HTMLElement | nu
   };
 
   const onKeydown = (e: KeyboardEvent) => {
+    if (!canPage()) return;
     if (e.metaKey || e.ctrlKey || e.altKey || isTypingTarget(e.target)) return;
 
     switch (e.key) {

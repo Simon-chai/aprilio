@@ -10,7 +10,7 @@ import {
 } from "./error-message";
 import { deletePhotoFile, getPhotosDir, importPhoto, photoUrl } from "./photos";
 
-export type ProfileImageKind = "avatar" | "hero";
+export type ProfileImageKind = "avatar" | "hero" | "timetable_bg";
 
 export interface ProfileImageSelection {
   value: string;
@@ -150,12 +150,17 @@ function resolve(value: string): string {
 }
 
 export function profileImageSrc(value: string, kind: ProfileImageKind): string {
+  /* 课表背景无默认图：未设置返回空串，调用方自行决定降级样式 */
+  if (kind === "timetable_bg") return resolve(value);
   const fallback = kind === "avatar" ? defaultAvatar : defaultHero;
   return resolve(value) || fallback;
 }
 
 export const avatarSrc = computed(() => profileImageSrc(profile.value.avatar, "avatar"));
 export const heroSrc = computed(() => profileImageSrc(profile.value.hero, "hero"));
+
+/** 首页课表面板背景图：没有默认图，未设置时为空串（面板退回纯毛玻璃） */
+export const timetableBgSrc = computed(() => resolve(profile.value.timetable_bg));
 
 /** 是否用了自定义图片（决定编辑页要不要显示"恢复默认"） */
 export const hasCustomAvatar = computed(() => profile.value.avatar !== "");

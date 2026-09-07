@@ -11,10 +11,23 @@ import {
   isTauri,
   listClasses,
   listTimetablePeriodsByClass,
+  listTimetableSlotsWithClass,
+  saveTimetableMySubjects,
   saveTimetablePeriods,
   saveTimetableSlot,
 } from "../lib/db";
-import { WEEKDAY_LABELS, currentSemester, defaultPeriods, subjectChipClass } from "../lib/timetable";
+import { profile } from "../lib/profile";
+import {
+  WEEKDAY_LABELS,
+  crossClassConflictsAt,
+  currentSemester,
+  defaultPeriods,
+  isMySubject,
+  mineOfClassResolver,
+  resolveClassMySubjects,
+  subjectChipClass,
+} from "../lib/timetable";
+import type { CrossClassConflict } from "../lib/timetable";
 import {
   detectTimetableLayout,
   downloadTimetableTemplate,
@@ -25,7 +38,7 @@ import {
 } from "../lib/timetable-import";
 import { decodeRosterBytes, parseRosterTable, pickRosterFile, type RosterTable } from "../lib/roster";
 import { logError, logInfo } from "../lib/logger";
-import type { Timetable } from "../types";
+import type { Timetable, TimetableSlotWithClass } from "../types";
 
 const props = defineProps<{ open: boolean; presetClass?: string }>();
 const emit = defineEmits<{
@@ -46,6 +59,61 @@ const clearing = ref(false);
 const importing = ref(false);
 const result = ref<{ imported: number; failed: string[] } | null>(null);
 const error = ref("");
+/** 跨班撞课检测素材：本学期全部班级格子（联班级名/我的科目标记） */
+const conflictRows = ref<TimetableSlotWithClass[]>([]);
+/** 各班「我的科目」标记（三态），取自 listTimetablePeriodsByClass（覆盖零格子但已标记的班） */
+const marksByClass = ref<Map<string, string[] | null>>(new Map());
+
+/* ---------------- 收尾步骤：标记「本班我的科目」 ---------------- */
+
+const markingOpen = ref(false);
+const markingSaving = ref(false);
+const markingSaved = ref(false);
+/** 草稿：勾选的科目集合；空数组 = 明确标记「本班没有我的课」 */
+const markedDraft = ref<string[]>([]);
+/** 本次导入落库的课表 ID（标记要写到这张表） */
+let importedTimetableId: number | null = null;
+/** 本次导入的科目全集（候选 = 导入科目 ∪ 个人任教学科） */
+const importedSubjects = ref<string[]>([]);
+
+const markingCandidates = computed(() => {
+  const list: string[] = [];
+  for (const s of [...importedSubjects.value, ...(profile.value.my_subjects ?? [])]) {
+    if (s.trim() && !list.includes(s)) list.push(s);
+  }
+  return list;
+});
+
+function toggleMarked(subject: string): void {
+  markedDraft.value = markedDraft.value.includes(subject)
+    ? markedDraft.value.filter((s) => s !== subject)
+    : [...markedDraft.value, subject];
+}
+
+/** 智能预选：个人任教学科 ∩ 本次导入出现的科目 */
+function smartPreselect(subjects: string[]): string[] {
+  const mine = profile.value.my_subjects ?? [];
+  if (!mine.length) return [];
+  return mine.filter((m) => isMySubject(m, subjects));
+}
+
+async function saveMarking(): Promise<void> {
+  if (importedTimetableId === null || markingSaving.value) return;
+  markingSaving.value = true;
+  error.value = "";
+  try {
+    await saveTimetableMySubjects(importedTimetableId, markedDraft.value);
+    markingSaved.value = true;
+    markingOpen.value = false;
+    logInfo(
+      `课表我的科目标记：班级=${props.presetClass || selectedClass.value} 科目=[${markedDraft.value.join("、")}]`,
+    );
+  } catch (e) {
+    error.value = `保存标记失败：${e instanceof Error ? e.message : String(e)}`;
+  } finally {
+    markingSaving.value = false;
+  }
+}
 
 watch(
   () => props.open,
@@ -64,14 +132,25 @@ watch(
     importing.value = false;
     result.value = null;
     error.value = "";
+    markingOpen.value = false;
+    markingSaved.value = false;
+    markedDraft.value = [];
+    importedTimetableId = null;
+    importedSubjects.value = [];
+    conflictRows.value = [];
+    marksByClass.value = new Map();
     try {
-      // 班级列表 = 有学生的班级 ∪ 已建课表的班级（支持先建空课表再导入）
-      const [summaries, timetables] = await Promise.all([
+      // 班级列表 = 有学生的班级 ∪ 已建课表的班级（支持先建空课表再导入）；
+      // 同时拉撞课检测素材（全部班级格子 + 各班我的科目标记）
+      const [summaries, timetableInfos, rows] = await Promise.all([
         listClasses().catch(() => []),
         listTimetablePeriodsByClass(currentSemester()).catch(() => []),
+        listTimetableSlotsWithClass(currentSemester()).catch(() => []),
       ]);
-      const names = new Set<string>([...summaries.map((c) => c.name), ...timetables.map((t) => t.class_name)]);
+      const names = new Set<string>([...summaries.map((c) => c.name), ...timetableInfos.map((t) => t.class_name)]);
       classes.value = [...names].sort((a, b) => a.localeCompare(b, "zh"));
+      marksByClass.value = new Map(timetableInfos.map((t) => [t.class_name, t.my_subjects]));
+      conflictRows.value = rows;
     } catch {
       classes.value = [];
     }
@@ -83,6 +162,46 @@ const mapping = computed(() =>
   table.value && layout.value ? mapTimetableCells(table.value, layout.value) : null,
 );
 const previewRows = computed(() => (mapping.value ? previewPeriods(mapping.value.cells) : []));
+
+/* ---------------- 预览撞课清单（软提示，不阻断导入） ---------------- */
+
+interface ImportConflictItem {
+  day_of_week: number;
+  period: number;
+  subject: string;
+  conflicts: CrossClassConflict[];
+}
+
+const importClassName = computed(() => props.presetClass || selectedClass.value);
+
+/** 目标班生效「我的科目」：标记过（含空数组）按标记，未标记回退全局任教学科 */
+const targetMine = computed(() =>
+  resolveClassMySubjects(
+    marksByClass.value.get(importClassName.value) ?? null,
+    profile.value.my_subjects ?? []
+  )
+);
+
+/** 预览阶段将产生的跨班撞课清单：只评估「我的科目」命中的格子，排除目标班自身 */
+const importConflicts = computed<ImportConflictItem[]>(() => {
+  const m = mapping.value;
+  const className = importClassName.value;
+  if (!m || !className || !conflictRows.value.length) return [];
+  const mineOf = mineOfClassResolver(conflictRows.value, profile.value.my_subjects ?? []);
+  const otherRows = conflictRows.value.filter((r) => r.class_name !== className);
+  const items: ImportConflictItem[] = [];
+  for (const cell of m.cells) {
+    if (!isMySubject(cell.subject, targetMine.value)) continue;
+    const conflicts = crossClassConflictsAt(otherRows, mineOf, {
+      day_of_week: cell.day_of_week,
+      period: cell.period,
+    });
+    if (conflicts.length) {
+      items.push({ day_of_week: cell.day_of_week, period: cell.period, subject: cell.subject.trim(), conflicts });
+    }
+  }
+  return items.sort((a, b) => a.day_of_week - b.day_of_week || a.period - b.period);
+});
 const canImport = computed(
   () =>
     !!(props.presetClass || selectedClass.value) &&
@@ -236,6 +355,12 @@ async function doImport() {
     result.value = { imported: m.cells.length - failed.length, failed };
     logInfo(`课表导入完成：班级=${className} 成功 ${result.value.imported} 格，失败 ${failed.length} 格`);
     if (result.value.imported > 0) {
+      // 收尾步骤：智能预选我的科目标记（任教学科 ∩ 导入科目），可手动调整
+      importedTimetableId = timetable.id;
+      importedSubjects.value = [...new Set(m.cells.map((c) => c.subject.trim()).filter(Boolean))];
+      markedDraft.value = smartPreselect(importedSubjects.value);
+      markingSaved.value = false;
+      markingOpen.value = true;
       emit("imported", { className, count: result.value.imported });
     }
   } catch (e) {
@@ -391,6 +516,23 @@ defineExpose({ loadText, loadTable });
             共识别 {{ mapping.cells.length }} 格有内容的课；空格子不会写入。
           </p>
 
+          <!-- 预览撞课清单：与其他班「我的课」同时段的警告（仍可导入） -->
+          <div
+            v-if="importConflicts.length"
+            data-test="import-conflict-warning"
+            class="mt-3 rounded-md border border-danger/40 bg-danger-soft p-3"
+          >
+            <p class="text-caption font-medium text-danger">
+              以下课节与其他班级的「我的课」同时段撞车（仍可导入）：
+            </p>
+            <ul class="mt-1 space-y-0.5 text-fine text-danger">
+              <li v-for="item in importConflicts" :key="`${item.day_of_week}-${item.period}`" data-test="import-conflict-item">
+                {{ WEEKDAY_LABELS[item.day_of_week - 1] }} 第{{ item.period }}节 {{ item.subject }}
+                与 {{ item.conflicts.map((c) => `${c.class_name}（${c.subject}）`).join("、") }} 撞课
+              </li>
+            </ul>
+          </div>
+
           <!-- 导入选项与结果 -->
           <label class="mt-3 flex items-center gap-2 text-caption text-muted">
             <input v-model="clearing" type="checkbox" data-test="clear-before-import" />
@@ -405,6 +547,46 @@ defineExpose({ loadText, loadTable });
               <li v-for="(f, i) in result.failed" :key="i">{{ f }}</li>
             </ul>
           </div>
+
+          <!-- 收尾：标记本班「我的科目」（智能预选，可手动调整） -->
+          <div v-if="markingOpen" class="mt-4 rounded-md border border-hairline bg-parchment p-3" data-test="mark-subjects">
+            <p class="text-caption font-medium text-ink">这是你教的班吗？勾选你任教的科目</p>
+            <p class="mt-1 text-fine text-weak">
+              已按个人资料的任教学科智能预选；标记后「我的课表」与首页只显示勾选科目，其余班级保持按任教学科自动匹配
+            </p>
+            <div class="mt-2 flex flex-wrap gap-2">
+              <button
+                v-for="s in markingCandidates"
+                :key="s"
+                type="button"
+                data-test="mark-subject-chip"
+                :disabled="markingSaving"
+                class="rounded-pill border px-3 py-1 text-fine transition-colors disabled:opacity-40"
+                :class="
+                  markedDraft.includes(s)
+                    ? 'border-ink bg-ink text-canvas font-medium'
+                    : 'border-hairline bg-canvas text-muted hover:border-ink'
+                "
+                @click="toggleMarked(s)"
+              >
+                {{ s }}
+              </button>
+            </div>
+            <p v-if="!markedDraft.length" class="mt-2 text-fine text-weak">
+              一个都不勾 = 标记「本班没有我的课」；要跳过就点下方「先不标记」
+            </p>
+            <div class="mt-3 flex items-center gap-2">
+              <AppButton data-test="mark-save" :disabled="markingSaving" @click="saveMarking">
+                {{ markingSaving ? "保存中…" : markedDraft.length ? `标记 ${markedDraft.length} 科` : "标记本班没有我的课" }}
+              </AppButton>
+              <AppButton variant="pearl" :disabled="markingSaving" @click="markingOpen = false">
+                先不标记
+              </AppButton>
+            </div>
+          </div>
+          <p v-else-if="markingSaved" class="mt-3 text-fine text-primary">
+            ✓ 已保存我的科目标记
+          </p>
         </template>
       </div>
 

@@ -14,10 +14,11 @@
  * 数据经 lib/timetable 从班级课表推导，本页不落课表；日程事件写 calendar_events。
  */
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
-import { RouterLink, useRouter } from "vue-router";
+import { useRouter } from "vue-router";
 import ImportTimetableDialog from "../components/ImportTimetableDialog.vue";
 import AppButton from "../components/ui/AppButton.vue";
 import AppCard from "../components/ui/AppCard.vue";
+import AppLink from "../components/ui/AppLink.vue";
 import EventTypeSelect from "../components/EventTypeSelect.vue";
 import MemoTitle from "../components/MemoTitle.vue";
 import {
@@ -30,7 +31,7 @@ import {
   setCalendarEventDone,
   setCalendarEventTitle,
 } from "../lib/db";
-import { fromDateStr, toDateStr } from "../lib/calendar";
+import { fromDateStr, mondayOf, toDateStr } from "../lib/calendar";
 import { summarizeMemoTitle } from "../lib/memo-ai";
 import { ensureProfile, profile } from "../lib/profile";
 import {
@@ -42,6 +43,7 @@ import {
   buildMySchedule,
   currentSemester,
   defaultPeriods,
+  mineOfClassResolver,
   periodsUnion,
   semesterLabel,
   subjectChipClass,
@@ -66,13 +68,6 @@ function weekdayToday(): number | null {
   return day >= 1 && day <= 5 ? day : null;
 }
 
-/** 本周一（YYYY-MM-DD）；周日起算仍归本周 */
-function mondayOfThisWeek(): string {
-  const d = new Date();
-  const weekday = ((d.getDay() + 6) % 7) + 1;
-  return toDateStr(new Date(d.getFullYear(), d.getMonth(), d.getDate() - (weekday - 1)));
-}
-
 const loading = ref(true);
 const rows = ref<TimetableSlotWithClass[]>([]);
 const exceptions = ref<TimetableExceptionWithClass[]>([]);
@@ -82,23 +77,25 @@ const importOpen = ref(false);
 const allPeriods = ref<TimetablePeriod[]>(defaultPeriods());
 
 const mySubjects = computed(() => profile.value.my_subjects ?? []);
-const schedule = computed(() => buildMySchedule(rows.value, mySubjects.value));
+/** 每班生效的「我的科目」判定器：班级标记过按标记，未标记回退全局任教学科 */
+const mineOf = computed(() => mineOfClassResolver(rows.value, mySubjects.value));
+const schedule = computed(() => buildMySchedule(rows.value, mineOf.value));
 const showGuide = computed(
   () => !loading.value && (!mySubjects.value.length || !schedule.value.weekly_total),
 );
 
 /** 本周周一~周五的实际日期（列头带 M/D） */
 const weekDates = computed<string[]>(() => {
-  const monday = fromDateStr(mondayOfThisWeek());
+  const monday = mondayOf();
   return Array.from({ length: 5 }, (_, i) => {
     const d = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i);
     return toDateStr(d);
   });
 });
 
-/** 本周逐日实际行程（周课表 + 调课例外，按任教学科过滤） */
+/** 本周逐日实际行程（周课表 + 调课例外，按每班生效的我的科目过滤） */
 const myDays = computed<Map<string, MyDaySession[]>>(() =>
-  buildMyDays(rows.value, exceptions.value, mySubjects.value, weekDates.value)
+  buildMyDays(rows.value, exceptions.value, mineOf.value, weekDates.value)
 );
 
 function sessionsAt(date: string, period: number): MyDaySession[] {
@@ -283,12 +280,7 @@ onBeforeUnmount(() => {
     <header class="border-b border-divider bg-canvas px-8 py-4 shrink-0">
       <div class="flex items-center justify-between gap-4">
         <div class="flex items-center gap-3 min-w-0">
-          <RouterLink
-            to="/home"
-            class="flex items-center gap-1.5 text-caption font-medium text-primary hover:underline shrink-0"
-          >
-            ← 首页
-          </RouterLink>
+          <AppLink to="/home" icon="back" class="font-medium shrink-0">首页</AppLink>
           <span class="text-hairline shrink-0">|</span>
           <h1 class="text-display font-semibold text-ink truncate">我的课表</h1>
           <span class="rounded-pill bg-primary-soft px-2.5 py-1 text-fine text-primary shrink-0">
@@ -337,9 +329,7 @@ onBeforeUnmount(() => {
           </span>
         </template>
         <span v-else class="text-caption text-weak">未登记</span>
-        <RouterLink to="/profile" class="text-fine text-primary hover:underline">
-          去个人资料调整
-        </RouterLink>
+        <AppLink to="/profile" size="sm">去个人资料调整</AppLink>
         <span class="ml-auto text-fine text-weak">
           每周共 {{ schedule.weekly_total }} 节 · 来自各班课表的自动聚合
         </span>
@@ -352,7 +342,7 @@ onBeforeUnmount(() => {
         class="rounded-md border border-primary/30 bg-primary-soft px-4 py-3 text-caption text-muted"
       >
         未登记任教学科，暂时无法确定「你的课」。
-        <RouterLink to="/profile" class="font-medium text-primary hover:underline">去个人资料登记</RouterLink>
+        <AppLink to="/profile" size="sm" class="font-medium">去个人资料登记</AppLink>
         ；周课表与日程管理不受影响。
       </div>
 
@@ -366,15 +356,15 @@ onBeforeUnmount(() => {
         <p v-for="c in schedule.conflicts" :key="`${c.day_of_week}:${c.period}`" class="mt-1">
           {{ WEEKDAY_LABELS[c.day_of_week - 1] }} 第{{ c.period }}节：
           {{ c.entries.map((e) => `${e.subject}在${e.class_name}`).join(" 与 ") }}
-          <button
+          <AppLink
             v-for="(e, i) in [...new Set(c.entries.map((x) => x.class_name))]"
             :key="i"
-            type="button"
-            class="ml-2 text-fine text-primary hover:underline"
+            size="sm"
+            class="ml-1"
             @click="goClass(e)"
           >
             去{{ e }}
-          </button>
+          </AppLink>
         </p>
       </div>
 
@@ -388,24 +378,22 @@ onBeforeUnmount(() => {
           <li class="flex flex-wrap items-center gap-2">
             <span class="rounded-pill bg-pearl px-2 text-fine">1</span>
             登记任教学科，确定「哪些课是你的」
-            <RouterLink to="/profile" class="text-primary hover:underline">去登记 →</RouterLink>
+            <AppLink to="/profile">去登记</AppLink>
           </li>
           <li class="flex flex-wrap items-center gap-2">
             <span class="rounded-pill bg-pearl px-2 text-fine">2</span>
             导入 Excel / CSV 课表，自动识别星期与节次
-            <button
-              type="button"
+            <AppLink
               data-test="guide-import"
-              class="text-primary hover:underline"
               @click="importOpen = true"
             >
-              导入课表 →
-            </button>
+              导入课表
+            </AppLink>
           </li>
           <li class="flex flex-wrap items-center gap-2">
             <span class="rounded-pill bg-pearl px-2 text-fine">3</span>
             或到班级里手工排课
-            <RouterLink to="/classes" class="text-primary hover:underline">去班级排课 →</RouterLink>
+            <AppLink to="/classes">去班级排课</AppLink>
           </li>
         </ol>
       </div>
@@ -632,7 +620,7 @@ onBeforeUnmount(() => {
                   </span>
                   <span class="truncate text-fine opacity-75">{{ s.class_name }}</span>
                 </div>
-                <!-- 绑定到该格子的备忘（日期 × 节次）：快速浏览标题 + 类型筛选置灰 -->
+                <!-- 绑定到该格子的备忘（日期 × 节次）：快速浏览标题 + 类型筛选置灰；班级事件附班级名 -->
                 <span
                   v-for="e in eventsAt(date, p.period)"
                   :key="e.id"
@@ -646,6 +634,7 @@ onBeforeUnmount(() => {
                     :title="CALENDAR_EVENT_META[e.type]?.label ?? e.type"
                   />
                   <MemoTitle :event="e" :align="ci >= 3 ? 'right' : 'left'" class="min-w-0" />
+                  <span v-if="e.class_name" class="shrink-0 text-fine text-faint">{{ e.class_name }}</span>
                 </span>
                 <div
                   v-if="!sessionsAt(date, p.period).length && !eventsAt(date, p.period).length"
@@ -682,13 +671,13 @@ onBeforeUnmount(() => {
                     class="flex items-center gap-1 text-fine text-muted"
                   >
                     <span class="min-w-0 truncate">{{ s.subject }} · {{ s.class_name }}</span>
-                    <button
-                      type="button"
-                      class="ml-auto shrink-0 text-fine text-primary hover:underline"
+                    <AppLink
+                      size="sm"
+                      class="ml-auto shrink-0"
                       @click="goClass(s.class_name)"
                     >
-                      去班级 →
-                    </button>
+                      去班级
+                    </AppLink>
                   </p>
                   <p v-if="!eventsAt(date, p.period).length" class="text-fine text-faint">这格还没有备忘</p>
                   <ul v-else class="space-y-px">

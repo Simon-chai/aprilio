@@ -1,6 +1,6 @@
 import Database from "@tauri-apps/plugin-sql";
 import { localDateStr } from "./format";
-import { currentSemester, parsePeriodsJson } from "./timetable";
+import { currentSemester, normalizeMySubjects, parseMySubjectsJson, parsePeriodsJson } from "./timetable";
 import { DEFAULT_PROFILE } from "../types";
 import type {
   BehaviorDimension,
@@ -256,9 +256,28 @@ async function ensureSchema(db: Database): Promise<void> {
     await db.execute(sql);
   }
   try {
+    // 旧代库 students 表没有 id_card（v1 收敛建表对已存在的表不生效）：幂等补列，
+    // 否则 listStudents / createStudent / updateStudent 全部报 "no column named id_card"
+    await db.execute("ALTER TABLE students ADD COLUMN id_card TEXT");
+  } catch {
+    /* 列已存在 */
+  }
+  try {
     await db.execute("ALTER TABLE profile ADD COLUMN my_subjects TEXT");
   } catch {
     /* 列已存在：迁移或上次启动已补齐 */
+  }
+  try {
+    // 班级「我的科目」标记（2026-09-08）：旧库幂等补列；NULL = 未标记回退全局任教学科
+    await db.execute("ALTER TABLE timetables ADD COLUMN my_subjects TEXT");
+  } catch {
+    /* 列已存在 */
+  }
+  try {
+    // 首页课表面板背景图（2026-09-08）：文件名 / dataURL；空串 = 无图
+    await db.execute("ALTER TABLE profile ADD COLUMN timetable_bg TEXT");
+  } catch {
+    /* 列已存在 */
   }
   try {
     // 日程事件绑定节次（2026-09-07）：旧库幂等补列；period 为 NULL = 全天/日报事件
@@ -507,6 +526,7 @@ function seedStore(): MemoryStore {
       semester,
       note: null,
       periods: null,
+      my_subjects: null,
       created_at: base,
       updated_at: base,
     });
@@ -1772,9 +1792,14 @@ export async function getProfile(): Promise<Profile> {
 
   const db = await getDb();
   const rows = await db.select<(Profile & { my_subjects: unknown })[]>(
-    "SELECT name, title, motto, avatar, hero, my_subjects FROM profile WHERE id = 1"
+    "SELECT name, title, motto, avatar, hero, my_subjects, timetable_bg FROM profile WHERE id = 1"
   );
-  return { ...DEFAULT_PROFILE, ...(rows[0] ?? {}), my_subjects: parseTags(rows[0]?.my_subjects) };
+  return {
+    ...DEFAULT_PROFILE,
+    ...(rows[0] ?? {}),
+    my_subjects: parseTags(rows[0]?.my_subjects),
+    timetable_bg: rows[0]?.timetable_bg ?? "",
+  };
 }
 
 export async function saveProfile(p: Profile): Promise<void> {
@@ -1785,17 +1810,18 @@ export async function saveProfile(p: Profile): Promise<void> {
 
   const db = await getDb();
   await db.execute(
-    `INSERT INTO profile (id, name, title, motto, avatar, hero, my_subjects, updated_at)
-          VALUES (1, ?, ?, ?, ?, ?, ?, datetime('now','localtime'))
+    `INSERT INTO profile (id, name, title, motto, avatar, hero, my_subjects, timetable_bg, updated_at)
+          VALUES (1, ?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'))
      ON CONFLICT(id) DO UPDATE SET
-          name        = excluded.name,
-          title       = excluded.title,
-          motto       = excluded.motto,
-          avatar      = excluded.avatar,
-          hero        = excluded.hero,
-          my_subjects = excluded.my_subjects,
-          updated_at  = excluded.updated_at`,
-    [p.name, p.title, p.motto, p.avatar, p.hero, JSON.stringify(p.my_subjects ?? [])]
+          name          = excluded.name,
+          title         = excluded.title,
+          motto         = excluded.motto,
+          avatar        = excluded.avatar,
+          hero          = excluded.hero,
+          my_subjects   = excluded.my_subjects,
+          timetable_bg  = excluded.timetable_bg,
+          updated_at    = excluded.updated_at`,
+    [p.name, p.title, p.motto, p.avatar, p.hero, JSON.stringify(p.my_subjects ?? []), p.timetable_bg]
   );
 }
 
@@ -2459,12 +2485,19 @@ export async function getClassScoreOverview(
 /* 课程表：一班一学期一张，格子（天 × 节）幂等 upsert                      */
 /* ------------------------------------------------------------------ */
 
-/** SQLite 行：periods 以 JSON 字符串落库，取出时解析 */
-type TimetableRaw = Omit<Timetable, "periods"> & { periods_json: string | null };
+/** SQLite 行：periods / my_subjects 以 JSON 字符串落库，取出时解析 */
+type TimetableRaw = Omit<Timetable, "periods" | "my_subjects"> & {
+  periods_json: string | null;
+  my_subjects: string | null;
+};
 
 function toTimetable(raw: TimetableRaw): Timetable {
-  const { periods_json, ...rest } = raw;
-  return { ...rest, periods: parsePeriodsJson(periods_json) };
+  const { periods_json, my_subjects, ...rest } = raw;
+  return {
+    ...rest,
+    periods: parsePeriodsJson(periods_json),
+    my_subjects: parseMySubjectsJson(my_subjects),
+  };
 }
 
 function assertSlotPosition(dayOfWeek: number, period: number): void {
@@ -2531,6 +2564,7 @@ export async function findOrCreateTimetable(
       semester,
       note: null,
       periods: null,
+      my_subjects: null,
       created_at: now(),
       updated_at: now(),
     };
@@ -2644,7 +2678,34 @@ export async function saveTimetablePeriods(
   );
 }
 
-/** 我的课表素材：某学期全部班级的课表格子（联班级名与节次配置） */
+/**
+ * 写班级「我的科目」标记：subjects 传 null = 清除标记（该班回退按全局任教学科匹配）；
+ * 传数组（含空数组）= 明确标记，空数组即「本班没有我的课」。trim / 去空 / 去重后落库。
+ */
+export async function saveTimetableMySubjects(
+  timetableId: number,
+  subjects: string[] | null
+): Promise<void> {
+  const normalized = subjects === null ? null : normalizeMySubjects(subjects);
+  const json = normalized === null ? null : JSON.stringify(normalized);
+
+  if (!isTauri()) {
+    const store = mem();
+    const t = store.timetables.find((x) => x.id === timetableId);
+    if (!t) throw new Error("课表不存在");
+    t.my_subjects = normalized;
+    t.updated_at = now();
+    return;
+  }
+
+  const db = await getDb();
+  await db.execute(
+    "UPDATE timetables SET my_subjects = ?, updated_at = datetime('now','localtime') WHERE id = ?",
+    [json, timetableId]
+  );
+}
+
+/** 我的课表素材：某学期全部班级的课表格子（联班级名、节次配置与我的科目标记） */
 export async function listTimetableSlotsWithClass(semester: string): Promise<TimetableSlotWithClass[]> {
   if (!isTauri()) {
     const store = mem();
@@ -2654,38 +2715,60 @@ export async function listTimetableSlotsWithClass(semester: string): Promise<Tim
         .flatMap((s) => {
           const t = byId.get(s.timetable_id);
           if (!t || t.semester !== semester) return [];
-          return [{ ...s, class_name: t.class_name, periods: t.periods }];
+          return [
+            {
+              ...s,
+              class_name: t.class_name,
+              periods: t.periods,
+              my_subjects: t.my_subjects,
+            },
+          ];
         })
     );
   }
   const db = await getDb();
-  const rows = await db.select<(TimetableSlot & { class_name: string; periods_json: string | null })[]>(
-    `SELECT s.*, t.class_name, t.periods_json
+  const rows = await db.select<
+    (TimetableSlot & { class_name: string; periods_json: string | null; my_subjects: string | null })[]
+  >(
+    `SELECT s.*, t.class_name, t.periods_json, t.my_subjects
        FROM timetable_slots s
        INNER JOIN timetables t ON s.timetable_id = t.id
       WHERE t.semester = ?`,
     [semester]
   );
-  return sortSlots(rows.map(({ periods_json, ...s }) => ({ ...s, periods: parsePeriodsJson(periods_json) })));
+  return sortSlots(
+    rows.map(({ periods_json, my_subjects, ...s }) => ({
+      ...s,
+      periods: parsePeriodsJson(periods_json),
+      my_subjects: parseMySubjectsJson(my_subjects),
+    }))
+  );
 }
 
-/** 学期内各班节次配置（含没排过课的班）；「我的课表」整表行数的数据来源 */
+/** 学期内各班节次配置与「我的科目」标记（含没排过课的班）；「我的课表」行数与导入撞课预览的数据来源 */
 export async function listTimetablePeriodsByClass(
   semester: string
-): Promise<{ class_name: string; periods: TimetablePeriod[] | null }[]> {
+): Promise<{ class_name: string; periods: TimetablePeriod[] | null; my_subjects: string[] | null }[]> {
   if (!isTauri()) {
     return mem()
       .timetables.filter((t) => t.semester === semester)
-      .map((t) => ({ class_name: t.class_name, periods: t.periods }))
+      .map((t) => ({ class_name: t.class_name, periods: t.periods, my_subjects: t.my_subjects }))
       .sort((a, b) => a.class_name.localeCompare(b.class_name, "zh"));
   }
   const db = await getDb();
-  const rows = await db.select<{ class_name: string; periods_json: string | null }[]>(
-    "SELECT class_name, periods_json FROM timetables WHERE semester = ?",
-    [semester]
-  );
+  const rows = await db.select<{
+    class_name: string;
+    periods_json: string | null;
+    my_subjects: string | null;
+  }[]>("SELECT class_name, periods_json, my_subjects FROM timetables WHERE semester = ?", [
+    semester,
+  ]);
   return rows
-    .map(({ class_name, periods_json }) => ({ class_name, periods: parsePeriodsJson(periods_json) }))
+    .map(({ class_name, periods_json, my_subjects }) => ({
+      class_name,
+      periods: parsePeriodsJson(periods_json),
+      my_subjects: parseMySubjectsJson(my_subjects),
+    }))
     .sort((a, b) => a.class_name.localeCompare(b.class_name, "zh"));
 }
 

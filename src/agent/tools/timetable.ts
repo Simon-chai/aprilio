@@ -21,6 +21,8 @@ import {
   buildMySchedule,
   calendarEventLabel,
   currentSemester,
+  isMySubject,
+  mineOfClassResolver,
   mySessionsOnDay,
   weekdayOf,
 } from "../../lib/timetable";
@@ -86,20 +88,20 @@ export default defineAgentTool({
       };
     }
 
-    // mode=mine：任教学科聚合
+    // mode=mine：「我的科目」聚合——每班按标记（timetables.my_subjects）判定，未标记回退全局任教学科
     await ensureProfile().catch(() => undefined);
     const mySubjects = profile.value.my_subjects ?? [];
-    if (!mySubjects.length) {
+    const rows = await listTimetableSlotsWithClass(semester);
+    const mineOf = mineOfClassResolver(rows, mySubjects);
+    if (!rows.some((r) => isMySubject(r.subject, mineOf(r.class_name)))) {
       return {
         ok: true,
         summary:
-          "还没有登记任教学科，无法确定「我的课表」。请引导用户到「个人资料」登记任教学科，或在班级详情的「课程表」里先排课。",
-        data: { my_subjects: [] },
+          "还无法确定「我的课表」：请引导用户到「个人资料」登记任教学科，或在班级详情的「课程表」里标记本班「我的科目」。",
+        data: { my_subjects: mySubjects },
       };
     }
-
-    const rows = await listTimetableSlotsWithClass(semester);
-    const schedule = buildMySchedule(rows, mySubjects);
+    const schedule = buildMySchedule(rows, mineOf);
 
     // 撞课信息对回答行程类问题很重要，命中时在摘要尾部显式提示
     const conflictNote = schedule.conflicts.length
@@ -138,7 +140,7 @@ export default defineAgentTool({
     const todayStr = toDateStr(new Date());
     if (weekday === weekdayOf()) {
       const exceptions = await listTimetableExceptionsWithClass(semester, todayStr, todayStr);
-      const dayMap = buildMyDays(rows, exceptions, mySubjects, [todayStr]);
+      const dayMap = buildMyDays(rows, exceptions, mineOf, [todayStr]);
       const sessions = dayMap.get(todayStr) ?? [];
 
       if (!sessions.length) {

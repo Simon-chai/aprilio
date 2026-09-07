@@ -53,6 +53,9 @@ describe("MyTimetableView.vue", () => {
     expect(cells[17]?.text()).toContain("布置语文第 3…");
     // 演示事件 id4 绑定周五第 6 节 → (6-1)*5+4（8 字内不截断）
     expect(cells[29]?.text()).toContain("数学第一单元测验");
+    // 班级事件在格子备忘里带班级名标签；个人事件（id5）不带
+    expect(cells[29]!.get('[data-test="week-cell-memo"]').text()).toContain("三年级二班");
+    expect(cells[17]!.get('[data-test="week-cell-memo"]').text()).not.toContain("三年级");
     // 演示事件 id6 不绑节次 → 出现在周三列头
     const headers = wrapper.findAll('[data-test="week-day-header"]');
     expect(headers[2]?.text()).toContain("下午教研组会议");

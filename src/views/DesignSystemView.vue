@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import AppButton from "../components/ui/AppButton.vue";
 import AppInput from "../components/ui/AppInput.vue";
+import AppLink from "../components/ui/AppLink.vue";
 import { ref } from "vue";
 
 const swatches = [
@@ -75,6 +76,15 @@ const search = ref("");
           <AppButton variant="link">查看全部图片</AppButton>
         </div>
         <AppInput v-model="search" placeholder="搜索姓名或学号" />
+        <!-- 跳转 = chip 胶囊按钮（悬浮底色浮出、箭头平移）；原地动作 = action 轻文字 -->
+        <div class="flex flex-wrap items-center gap-3">
+          <AppLink to="/home" class="font-medium">查看全部图片</AppLink>
+          <AppLink to="/home" icon="back" size="sm">返回</AppLink>
+          <AppLink tone="onDark" to="/home">深色底</AppLink>
+          <AppLink tone="onDarkSolid" to="/home" class="font-medium">深色底主按钮</AppLink>
+          <AppLink tone="danger" variant="action" class="text-fine">清空</AppLink>
+          <AppLink variant="action" class="text-fine">＋ 添加节次</AppLink>
+        </div>
       </section>
 
       <!-- 圆角与阴影 -->

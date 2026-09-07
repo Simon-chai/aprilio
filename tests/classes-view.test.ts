@@ -97,7 +97,7 @@ describe("ClassesView.vue", () => {
     expect(text).toContain("男");
     expect(text).toContain("女");
     expect(text).toMatch(/照片 \d+ 张 \(公共 \d+ · 个人 \d+\)/);
-    expect(text).toContain("进入班级 →");
+    expect(text).toContain("进入班级");
   });
 
   it("renders class rename button right after class name with hover opacity classes", async () => {

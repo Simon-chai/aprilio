@@ -5,7 +5,11 @@ import { formatShort } from "../lib/format";
 import QuickBehaviorPopover from "./QuickBehaviorPopover.vue";
 
 defineProps<{ rows: StudentRow[] }>();
-const emit = defineEmits<{ open: [row: StudentRow] }>();
+const emit = defineEmits<{
+  open: [row: StudentRow];
+  /** 表格内快捷记表现保存成功，供父组件局部刷新表现数据 */
+  saved: [payload: { studentName: string; dimensionName: string; polarity: BehaviorPolarity }];
+}>();
 
 const COLS = "180px 140px 160px 170px 120px 160px 120px 1fr";
 
@@ -25,6 +29,8 @@ function onQuickSaved(payload: { studentName: string; dimensionName: string; pol
   toast.value = `已记录 ${payload.studentName} ${payload.dimensionName}`;
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => (toast.value = ""), 2400);
+  // 上抛给父组件刷新表现计数/时间轴（不整页刷新）
+  emit("saved", payload);
 }
 
 function closeQuick() {

@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   buildGrid,
   buildMySchedule,
+  crossClassConflictsAt,
   currentPeriod,
   currentSemester,
   defaultPeriods,
   isMySubject,
+  mineOfClassResolver,
   mySessionsOnDay,
   parsePeriodsJson,
   periodsUnion,
@@ -19,7 +21,8 @@ function slot(
   day: number,
   period: number,
   subject: string,
-  class_name = "三年级二班"
+  class_name = "三年级二班",
+  my_subjects: string[] | null = null
 ): TimetableSlotWithClass {
   return {
     id: day * 100 + period,
@@ -31,6 +34,7 @@ function slot(
     updated_at: "",
     class_name,
     periods: null,
+    my_subjects,
   };
 }
 
@@ -124,7 +128,7 @@ describe("buildMySchedule", () => {
       slot(2, 3, "数学", "三年级一班"),
       slot(4, 5, "音乐"), // 非任教学科，不进我的课表
     ];
-    const schedule = buildMySchedule(rows, ["语文", "数学"]);
+    const schedule = buildMySchedule(rows, mineOfClassResolver(rows, ["语文", "数学"]));
 
     expect(schedule.weekly_total).toBe(5);
     expect(schedule.bySubject.map((b) => b.subject)).toEqual(["语文", "数学"]);
@@ -144,7 +148,7 @@ describe("buildMySchedule", () => {
       slot(1, 2, "语文", "三年级一班"),
       slot(2, 3, "语文", "三年级一班"),
     ];
-    const schedule = buildMySchedule(rows, ["语文"]);
+    const schedule = buildMySchedule(rows, mineOfClassResolver(rows, ["语文"]));
     expect(schedule.conflicts).toEqual([
       {
         day_of_week: 1,
@@ -165,7 +169,7 @@ describe("buildMySchedule", () => {
     expect(isMySubject("  ", ["语文"])).toBe(false);
 
     const rows = [slot(1, 1, " 语文 "), slot(2, 1, "", "三年级一班")];
-    const schedule = buildMySchedule(rows, ["语文"]);
+    const schedule = buildMySchedule(rows, mineOfClassResolver(rows, ["语文"]));
     expect(schedule.weekly_total).toBe(1);
     expect(schedule.conflicts).toEqual([]);
   });
@@ -177,7 +181,7 @@ describe("buildMySchedule", () => {
       slot(1, 6, "语文", "三年级一班"),
       slot(2, 1, "语文"),
     ];
-    const schedule = buildMySchedule(rows, ["语文", "数学"]);
+    const schedule = buildMySchedule(rows, mineOfClassResolver(rows, ["语文", "数学"]));
     expect(mySessionsOnDay(schedule, 1)).toEqual([
       { class_name: "三年级二班", day_of_week: 1, period: 1, note: null, subject: "数学", start: "08:00", end: "08:40" },
       { class_name: "三年级二班", day_of_week: 1, period: 2, note: null, subject: "语文", start: "08:50", end: "09:30" },
@@ -278,7 +282,7 @@ describe("buildMyDays (我的课表带日期投影)", () => {
     const map = buildMyDays(
       rows,
       [exc("2026-09-07", 2, "数学"), exc("2026-09-07", 2, "", "三年级一班")],
-      ["语文"],
+      mineOfClassResolver(rows, ["语文"]),
       ["2026-09-07"]
     );
     expect(map.get("2026-09-07")).toEqual([
@@ -297,10 +301,114 @@ describe("buildMyDays (我的课表带日期投影)", () => {
 
   it("picks up classes moved onto empty periods and sorts by period", () => {
     const rows = [slot(1, 1, "数学")];
-    const map = buildMyDays(rows, [exc("2026-09-07", 7, "语文")], ["语文", "数学"], ["2026-09-07"]);
+    const map = buildMyDays(
+      rows,
+      [exc("2026-09-07", 7, "语文")],
+      mineOfClassResolver(rows, ["语文", "数学"]),
+      ["2026-09-07"]
+    );
     expect(map.get("2026-09-07")!.map((s) => `${s.period}-${s.subject}-${s.state}`)).toEqual([
       "1-数学-normal",
       "7-语文-added",
+    ]);
+  });
+
+  it("honors per-class my_subjects marks with global fallback", () => {
+    // 三(1) 标记了 [美术]（覆盖全局），三(2) 未标记（回退全局 [语文]）
+    const rows = [
+      slot(1, 1, "语文", "三年级二班", null),
+      slot(1, 1, "美术", "三年级一班", ["美术"]),
+      slot(1, 2, "美术", "三年级二班", null), // 三(2) 未标记美术 → 全局 [语文] 不含美术，不进
+      slot(1, 2, "语文", "三年级一班", ["美术"]), // 三(1) 标记不含语文 → 不进
+    ];
+    const schedule = buildMySchedule(rows, mineOfClassResolver(rows, ["语文"]));
+    expect(schedule.weekly_total).toBe(2);
+    expect(schedule.bySubject.map((b) => b.subject)).toEqual(["美术", "语文"]);
+    expect(schedule.bySubject[0].sessions[0].class_name).toBe("三年级一班");
+    expect(schedule.bySubject[1].sessions[0].class_name).toBe("三年级二班");
+  });
+});
+
+describe("crossClassConflictsAt (跨班撞课检测)", () => {
+  /** 与 slot() 同构，但可指定 timetable_id（排除本班用） */
+  function slotAt(
+    timetableId: number,
+    day: number,
+    period: number,
+    subject: string,
+    class_name: string,
+    my_subjects: string[] | null = null
+  ): TimetableSlotWithClass {
+    return {
+      id: timetableId * 100 + day * 10 + period,
+      timetable_id: timetableId,
+      day_of_week: day,
+      period,
+      subject,
+      note: null,
+      updated_at: "",
+      class_name,
+      periods: null,
+      my_subjects,
+    };
+  }
+
+  it("returns other classes' my-subject slots at the same (day, period)", () => {
+    const rows = [
+      slotAt(1, 1, 2, "语文", "三年级二班"),
+      slotAt(2, 1, 2, "语文", "三年级一班"),
+      slotAt(2, 1, 3, "语文", "三年级一班"), // 不同节
+    ];
+    const mineOf = mineOfClassResolver(rows, ["语文"]);
+    expect(crossClassConflictsAt(rows, mineOf, { day_of_week: 1, period: 2, excludeTimetableId: 1 })).toEqual([
+      { class_name: "三年级一班", subject: "语文" },
+    ]);
+  });
+
+  it("excludes the current class by excludeTimetableId", () => {
+    const rows = [slotAt(1, 1, 2, "语文", "三年级二班")];
+    const mineOf = mineOfClassResolver(rows, ["语文"]);
+    expect(crossClassConflictsAt(rows, mineOf, { day_of_week: 1, period: 2, excludeTimetableId: 1 })).toEqual([]);
+    expect(crossClassConflictsAt(rows, mineOf, { day_of_week: 1, period: 2, excludeTimetableId: 7 })).toEqual([
+      { class_name: "三年级二班", subject: "语文" },
+    ]);
+  });
+
+  it("honors per-class marks: empty array opts out, null falls back to global", () => {
+    const rows = [
+      slotAt(2, 1, 2, "语文", "三年级一班", []), // 明确标记「本班没有我的课」
+      slotAt(3, 1, 2, "语文", "三年级三班", null), // 未标记 → 回退全局
+      slotAt(4, 1, 2, "语文", "三年级四班", ["数学"]), // 标记集合不含语文
+    ];
+    const mineOf = mineOfClassResolver(rows, ["语文"]);
+    expect(crossClassConflictsAt(rows, mineOf, { day_of_week: 1, period: 2 })).toEqual([
+      { class_name: "三年级三班", subject: "语文" },
+    ]);
+  });
+
+  it("ignores non-my subjects and other days/periods, sorts by class name", () => {
+    const rows = [
+      slotAt(2, 1, 2, "体育", "三年级一班"), // 非我的科目（帮别的老师录的课）
+      slotAt(3, 2, 2, "语文", "三年级三班"),
+      slotAt(4, 1, 3, "语文", "三年级四班"),
+      slotAt(5, 1, 2, "语文", "三年级二班"),
+    ];
+    const mineOf = mineOfClassResolver(rows, ["语文"]);
+    // 周一第 2 节只有三年级二班命中（体育非我的科目、三班在周二、四班在第 3 节）
+    expect(crossClassConflictsAt(rows, mineOf, { day_of_week: 1, period: 2 })).toEqual([
+      { class_name: "三年级二班", subject: "语文" },
+    ]);
+    // 周二第 2 节命中三年级三班
+    expect(crossClassConflictsAt(rows, mineOf, { day_of_week: 2, period: 2 })).toEqual([
+      { class_name: "三年级三班", subject: "语文" },
+    ]);
+  });
+
+  it("trims subject in results and matches marked subjects after trimming", () => {
+    const rows = [slotAt(2, 1, 2, " 语文 ", "三年级一班", ["语文 "])];
+    const mineOf = mineOfClassResolver(rows, ["语文"]);
+    expect(crossClassConflictsAt(rows, mineOf, { day_of_week: 1, period: 2 })).toEqual([
+      { class_name: "三年级一班", subject: "语文" },
     ]);
   });
 });

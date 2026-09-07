@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue"
 import { onBeforeRouteLeave, useRouter } from "vue-router";
 import AppButton from "../components/ui/AppButton.vue";
 import AppCard from "../components/ui/AppCard.vue";
+import AppLink from "../components/ui/AppLink.vue";
 import { useClock } from "../composables/useClock";
 import {
   discardSelectedProfileImage,
@@ -21,8 +22,8 @@ import { PROFILE_TITLES } from "../types";
 
 const router = useRouter();
 const { hhmm, greeting } = useClock();
-const imageKinds: ProfileImageKind[] = ["avatar", "hero"];
-const profileKeys: Array<keyof Profile> = ["name", "title", "motto", "avatar", "hero"];
+const imageKinds: ProfileImageKind[] = ["avatar", "hero", "timetable_bg"];
+const profileKeys: Array<keyof Profile> = ["name", "title", "motto", "avatar", "hero", "timetable_bg"];
 
 const draft = reactive<Profile>({ ...profile.value });
 const savedSnapshot = ref<Profile>({ ...profile.value });
@@ -100,6 +101,9 @@ const isDirty = computed(
 );
 const avatarPreview = computed(() => profileImageSrc(draft.avatar, "avatar"));
 const heroPreview = computed(() => profileImageSrc(draft.hero, "hero"));
+/* 课表面板背景：无默认图，空串表示未设置（预览区域显示占位） */
+const timetableBgPreview = computed(() => profileImageSrc(draft.timetable_bg, "timetable_bg"));
+const hasTimetableBg = computed(() => draft.timetable_bg !== "");
 /* 历史数据可能存有枚举外的旧身份文案，追加为额外选项避免丢失 */
 const titleOptions = computed(() => {
   const options: string[] = [...PROFILE_TITLES];
@@ -287,6 +291,7 @@ async function saveChanges(): Promise<void> {
     motto: draft.motto.trim(),
     avatar: draft.avatar,
     hero: draft.hero,
+    timetable_bg: draft.timetable_bg,
     my_subjects: normalizeSubjects(draft.my_subjects),
   };
 
@@ -527,15 +532,15 @@ onBeforeUnmount(() => {
                 &#x66F4;&#x6362;
               </AppButton>
             </div>
-              <button
+              <AppLink
                 v-if="draft.avatar"
-                type="button"
+                variant="action"
                 :disabled="loading || saving || leaving || selectionCount > 0"
-              class="text-fine text-primary hover:underline"
-              @click="restoreImage('avatar')"
-            >
-              &#x6062;&#x590D;&#x9ED8;&#x8BA4;&#x5934;&#x50CF;
-            </button>
+                class="text-fine"
+                @click="restoreImage('avatar')"
+              >
+                恢复默认头像
+              </AppLink>
             <div class="border-t border-divider pt-5">
               <img
                 :src="heroPreview"
@@ -557,15 +562,51 @@ onBeforeUnmount(() => {
                   &#x66F4;&#x6362;
                 </AppButton>
               </div>
-              <button
+              <AppLink
                 v-if="draft.hero"
-                type="button"
+                variant="action"
                 :disabled="loading || saving || leaving || selectionCount > 0"
-                class="mt-2 text-fine text-primary hover:underline"
+                class="mt-2 text-fine"
                 @click="restoreImage('hero')"
               >
-                &#x6062;&#x590D;&#x9ED8;&#x8BA4;&#x9996;&#x9875;&#x5927;&#x56FE;
-              </button>
+                恢复默认首页大图
+              </AppLink>
+            </div>
+            <div class="border-t border-divider pt-5">
+              <div
+                data-test="timetable-bg-preview"
+                class="aspect-[16/6] w-full rounded-sm border border-hairline bg-pearl bg-cover bg-center"
+                :style="hasTimetableBg ? { backgroundImage: `url(${timetableBgPreview})` } : undefined"
+              >
+                <div
+                  v-if="!hasTimetableBg"
+                  class="flex h-full items-center justify-center text-fine text-weak"
+                >
+                  未设置，首页课表面板使用默认毛玻璃
+                </div>
+              </div>
+              <div class="mt-3 flex items-center justify-between gap-3">
+                <div>
+                  <p class="text-caption font-semibold text-ink">课表背景图</p>
+                  <p class="mt-1 text-fine text-weak">铺在首页课表面板底部，深色遮罩自动保证可读</p>
+                </div>
+                <AppButton
+                  variant="pearl"
+                  :disabled="loading || saving || leaving || selectionCount > 0"
+                  @click="chooseImage('timetable_bg')"
+                >
+                  {{ hasTimetableBg ? "更换" : "选择图片" }}
+                </AppButton>
+              </div>
+              <AppLink
+                v-if="hasTimetableBg"
+                variant="action"
+                :disabled="loading || saving || leaving || selectionCount > 0"
+                class="mt-2 text-fine"
+                @click="restoreImage('timetable_bg')"
+              >
+                移除背景图
+              </AppLink>
             </div>
           </div>
         </AppCard>

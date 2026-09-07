@@ -240,7 +240,14 @@ async function handleDeleteClass(recreate: boolean) {
               <span class="text-caption text-weak">
                 照片 {{ g.photoCount }} 张 (公共 {{ g.classPhotoCount }} · 个人 {{ g.studentPhotoCount }})
               </span>
-              <span class="text-caption text-primary">进入班级 →</span>
+              <span
+                class="flex items-center gap-1 text-caption text-primary transition-transform duration-150 group-hover:translate-x-0.5"
+              >
+                进入班级
+                <svg width="11" height="11" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <path d="M6 3.5l4.5 4.5L6 12.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+              </span>
             </div>
           </RouterLink>
         </div>

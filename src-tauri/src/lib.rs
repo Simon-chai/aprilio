@@ -383,6 +383,19 @@ fn migrations() -> Vec<Migration> {
       ALTER TABLE calendar_events ADD COLUMN title TEXT;
     "#,
     kind: MigrationKind::Up,
+  },
+  Migration {
+    version: 6,
+    description: "add_timetables_my_subjects_profile_timetable_bg",
+    // 班级「我的科目」标记（JSON 数组；NULL = 未标记回退全局任教学科，[] = 明确标记本班没有我的课）
+    // + 首页课表面板背景图（文件名 / dataURL，空为无图）。
+    // 注意：students.id_card 这类「v1 建表已含、旧代库缺失」的列不能走迁移补列
+    // （新库重放会 duplicate column），由前端 ensureSchema 幂等兜底。
+    sql: r#"
+      ALTER TABLE timetables ADD COLUMN my_subjects TEXT;
+      ALTER TABLE profile ADD COLUMN timetable_bg TEXT;
+    "#,
+    kind: MigrationKind::Up,
   }]
 }
 

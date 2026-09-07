@@ -72,10 +72,11 @@ function handleSubmit() {
 </script>
 
 <template>
+  <!-- 遮罩用 mousedown 关闭：拖选班级名时若松开在遮罩上，click 会派发到公共祖先（遮罩）导致误关 -->
   <div
     v-if="open"
     class="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-8"
-    @click.self="emit('close')"
+    @mousedown.self="emit('close')"
   >
     <div class="w-[460px] max-w-full rounded-lg bg-canvas p-6 shadow-window">
       <div class="mb-5 flex items-center justify-between">

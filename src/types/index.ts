@@ -49,6 +49,8 @@ export interface Profile {
   hero: string;
   /** 任教学科：我的课表的判定条件（subject ∈ my_subjects），如 ["语文"] */
   my_subjects: string[];
+  /** 首页课表面板背景图：文件名（桌面端）或 dataURL（浏览器演示态），空串 = 默认无图 */
+  timetable_bg: string;
 }
 
 /** 身份枚举：个人资料页下拉选择 */
@@ -62,6 +64,7 @@ export const DEFAULT_PROFILE: Profile = {
   avatar: "",
   hero: "",
   my_subjects: [],
+  timetable_bg: "",
 };
 
 export interface Photo {
@@ -281,6 +284,11 @@ export interface Timetable {
   note: string | null;
   /** 节次配置；null = 用默认节次 */
   periods: TimetablePeriod[] | null;
+  /**
+   * 本班「我的科目」标记：null = 未标记（该班回退按 profile.my_subjects 全局匹配）；
+   * [] = 明确标记过「本班没有我的课」；非空 = 本班我的科目集合（班级 × 科目）
+   */
+  my_subjects: string[] | null;
   created_at: string;
   updated_at: string;
 }
@@ -302,6 +310,8 @@ export interface TimetableSlot {
 export interface TimetableSlotWithClass extends TimetableSlot {
   class_name: string;
   periods: TimetablePeriod[] | null;
+  /** 所属班级的「我的科目」标记（null = 未标记回退全局任教学科，语义同 Timetable） */
+  my_subjects: string[] | null;
 }
 
 /**

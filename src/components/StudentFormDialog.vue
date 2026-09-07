@@ -2,6 +2,7 @@
 import { reactive, ref, watch } from "vue";
 import AppButton from "./ui/AppButton.vue";
 import AppInput from "./ui/AppInput.vue";
+import AppLink from "./ui/AppLink.vue";
 import { GUARDIAN_TAG_PRESETS, STATUS_LABEL } from "../types";
 import type { Gender, StudentInput } from "../types";
 
@@ -273,14 +274,14 @@ function submit() {
               <span class="text-caption font-semibold text-ink">监护人信息</span>
               <span class="text-fine text-weak">（支持添加多位监护人）</span>
             </div>
-            <button
-              type="button"
+            <AppLink
               data-test="add-guardian-btn"
-              class="inline-flex items-center gap-1 text-fine font-medium text-primary hover:underline"
+              variant="action"
+              class="text-fine font-medium"
               @click="addGuardian"
             >
-              + 添加监护人
-            </button>
+              ＋ 添加监护人
+            </AppLink>
           </div>
 
           <div class="space-y-3">

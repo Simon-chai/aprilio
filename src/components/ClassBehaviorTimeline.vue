@@ -353,7 +353,7 @@ const groupedRecords = computed<DateGroup[]>(() => {
               <button
                 data-test="student-badge"
                 type="button"
-                class="inline-flex items-center gap-1 rounded bg-blue-50 px-2 py-0.5 text-fine font-semibold text-primary hover:bg-blue-100 hover:underline transition-colors cursor-pointer"
+                class="inline-flex items-center gap-1 rounded bg-blue-50 px-2 py-0.5 text-fine font-semibold text-primary transition-colors hover:bg-blue-100 cursor-pointer"
                 title="点击查看该学生成长档案"
                 @click="emit('selectStudent', item.student_id)"
               >

@@ -103,6 +103,32 @@ export function periodsUnion(lists: (TimetablePeriod[] | null)[]): TimetablePeri
   return merged.length ? merged : defaultPeriods();
 }
 
+/**
+ * 课表行 my_subjects JSON 解析：NULL / 空串 / 脏数据 → null（未标记，回退全局任教学科）；
+ * JSON 数组取非空字符串去重（空数组原样返回 = 明确标记「本班没有我的课」）。
+ */
+export function parseMySubjectsJson(raw: unknown): string[] | null {
+  if (raw == null || raw === "") return null;
+  let arr: unknown;
+  if (typeof raw === "string") {
+    try {
+      arr = JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  } else {
+    arr = raw;
+  }
+  if (!Array.isArray(arr)) return null;
+  const seen: string[] = [];
+  for (const item of arr) {
+    if (typeof item !== "string") continue;
+    const s = item.trim();
+    if (s && !seen.includes(s)) seen.push(s);
+  }
+  return seen;
+}
+
 /** 课表行 periods_json 解析：脏数据 → null（退回默认节次） */
 export function parsePeriodsJson(raw: unknown): TimetablePeriod[] | null {
   if (raw == null || raw === "") return null;
@@ -181,6 +207,55 @@ export function buildGrid(
 }
 
 /* ------------------------------------------------------------------ */
+/* 连堂合并（纯渲染层，数据模型不动）                                       */
+/* ------------------------------------------------------------------ */
+
+/** 一列（某天）的渲染块：content = 单课 / 同节多课（撞课原样数组）/ null（空格） */
+export interface MergedColumnBlock<T> {
+  content: T | T[] | null;
+  /** 跨越的节次行数（≥1） */
+  span: number;
+  /** 被上方的跨行块覆盖，渲染时跳过 */
+  covered: boolean;
+}
+
+/**
+ * 把一列按节次顺序的格子合并成渲染块：连续格子都是「单课且键相同」→ 并成一个跨行块。
+ * 同节多课（撞课）与空格不参与合并；合并键由调用方给（科目+备注 / 班级+科目+状态）。
+ * 返回数组与输入一一对应，渲染时跳过 covered 项即可。
+ */
+export function mergeColumnBlocks<T>(
+  cells: (T | T[] | null)[],
+  keyOf: (item: T) => string
+): MergedColumnBlock<T>[] {
+  const result: MergedColumnBlock<T>[] = [];
+  let i = 0;
+  while (i < cells.length) {
+    const cell = cells[i];
+    if (cell === null || Array.isArray(cell)) {
+      result.push({ content: cell, span: 1, covered: false });
+      i += 1;
+      continue;
+    }
+    let span = 1;
+    while (
+      i + span < cells.length &&
+      cells[i + span] !== null &&
+      !Array.isArray(cells[i + span]) &&
+      keyOf(cells[i + span] as T) === keyOf(cell)
+    ) {
+      span += 1;
+    }
+    result.push({ content: cell, span, covered: false });
+    for (let k = 1; k < span; k += 1) {
+      result.push({ content: cells[i + k], span: 1, covered: true });
+    }
+    i += span;
+  }
+  return result;
+}
+
+/* ------------------------------------------------------------------ */
 /* 我的课表聚合（纯投影，不落库）                                          */
 /* ------------------------------------------------------------------ */
 
@@ -223,16 +298,85 @@ export function isMySubject(subject: string, mySubjects: string[]): boolean {
   return mySubjects.some((m) => m.trim() === s && s !== "");
 }
 
-/** 从全部班级课表格子聚合出「我的课表」 */
-export function buildMySchedule(
+/** 跨班撞课条目：同一 (天, 节) 上其他班级的「我的课」 */
+export interface CrossClassConflict {
+  class_name: string;
+  subject: string;
+}
+
+/**
+ * 某个 (天, 节) 上其他班级的「我的课」列表——跨班撞课检测（网格编辑 / 导入预览）共用口径，
+ * 与 buildMySchedule 的 conflicts 一致：只统计 subject ∈ 该班生效「我的科目」（mineOf 三态）的格子。
+ * excludeTimetableId 排除本班自身（网格编辑场景）；导入场景由调用方先按 class_name 过滤掉目标班。
+ * 「待保存科目是否我的科目」的门不在本函数——由调用方判定（网格用本班 effectiveMine，导入用目标班标记）。
+ */
+export function crossClassConflictsAt(
   rows: TimetableSlotWithClass[],
-  mySubjects: string[]
-): MySchedule {
+  mineOf: MineOfClass,
+  at: { day_of_week: number; period: number; excludeTimetableId?: number }
+): CrossClassConflict[] {
+  const hits: CrossClassConflict[] = [];
+  for (const row of rows) {
+    if (row.day_of_week !== at.day_of_week || row.period !== at.period) continue;
+    if (at.excludeTimetableId !== undefined && row.timetable_id === at.excludeTimetableId) continue;
+    if (!isMySubject(row.subject, mineOf(row.class_name))) continue;
+    hits.push({ class_name: row.class_name, subject: row.subject.trim() });
+  }
+  return hits.sort((a, b) => a.class_name.localeCompare(b.class_name, "zh"));
+}
+
+/* ---------------- 我的科目：班级 × 科目 标记 ---------------- */
+
+/** 标记集合归一化：trim、去空、去重；顺序按中文 locale 稳定排序 */
+export function normalizeMySubjects(subjects: string[]): string[] {
+  const seen: string[] = [];
+  for (const raw of subjects) {
+    if (typeof raw !== "string") continue;
+    const s = raw.trim();
+    if (s && !seen.includes(s)) seen.push(s);
+  }
+  return seen.sort((a, b) => a.localeCompare(b, "zh"));
+}
+
+/**
+ * 单班「我的科目」判定：标记过（含空数组）按标记，未标记（null）回退全局任教学科。
+ * 与 db.saveTimetableMySubjects 的存值语义一一对应。
+ */
+export function resolveClassMySubjects(
+  marked: string[] | null,
+  profileMySubjects: string[]
+): string[] {
+  return marked === null ? profileMySubjects : marked;
+}
+
+/** 「我的科目」判定器：输入班级名返回该班生效的我的科目 */
+export type MineOfClass = (className: string) => string[];
+
+/**
+ * 从联表格子行构造判定器：每班取一次 my_subjects 标记，
+ * 标记过（含空数组）按标记，未标记回退全局任教学科。
+ */
+export function mineOfClassResolver(
+  rows: Pick<TimetableSlotWithClass, "class_name" | "my_subjects">[],
+  profileMySubjects: string[]
+): MineOfClass {
+  const markedByClass = new Map<string, string[] | null>();
+  for (const row of rows) {
+    if (!markedByClass.has(row.class_name)) {
+      markedByClass.set(row.class_name, row.my_subjects);
+    }
+  }
+  return (className: string) =>
+    resolveClassMySubjects(markedByClass.get(className) ?? null, profileMySubjects);
+}
+
+/** 从全部班级课表格子聚合出「我的课表」（口径：每班按 mineOf 判定） */
+export function buildMySchedule(rows: TimetableSlotWithClass[], mineOf: MineOfClass): MySchedule {
   const bySubject = new Map<string, MyScheduleSession[]>();
   const matched: (TimetableSlotWithClass & { subject: string })[] = [];
 
   for (const row of rows) {
-    if (!isMySubject(row.subject, mySubjects)) continue;
+    if (!isMySubject(row.subject, mineOf(row.class_name))) continue;
     const subject = row.subject.trim();
     matched.push({ ...row, subject });
     // 节次时间：该班自己的节次配置，未配置则退回默认节次
@@ -300,6 +444,22 @@ export function sessionIsNow(
   if (start === null || end === null) return false;
   const nowMin = date.getHours() * 60 + date.getMinutes();
   return nowMin >= start && nowMin < end;
+}
+
+/**
+ * 会话进行中的进度（0~1），用于进度条；未配置时间或不在进行中返回 null。
+ * 进度按当前时刻在 start~end 区间内的位置线性推导。
+ */
+export function sessionProgress(
+  session: Pick<MyScheduleSession, "start" | "end">,
+  date = new Date()
+): number | null {
+  const start = minutesOf(session.start);
+  const end = minutesOf(session.end);
+  if (start === null || end === null || end <= start) return null;
+  const nowMin = date.getHours() * 60 + date.getMinutes() + date.getSeconds() / 60;
+  if (nowMin < start || nowMin >= end) return null;
+  return (nowMin - start) / (end - start);
 }
 
 /* ------------------------------------------------------------------ */
@@ -391,7 +551,7 @@ export interface MyDaySession {
 export function buildMyDays(
   rows: TimetableSlotWithClass[],
   exceptions: TimetableExceptionWithClass[],
-  mySubjects: string[],
+  mineOf: MineOfClass,
   dates: string[]
 ): Map<string, MyDaySession[]> {
   const weekdayOfDate = (dateStr: string): number => {
@@ -429,7 +589,7 @@ export function buildMyDays(
         dayExc
       );
       for (const slot of effective) {
-        if (!isMySubject(slot.subject, mySubjects)) continue;
+        if (!isMySubject(slot.subject, mineOf(className))) continue;
         const time = (periodsByClass.get(className) ?? defaultPeriods()).find(
           (p) => p.period === slot.period
         );
@@ -555,6 +715,31 @@ export function subjectChipClass(subject: string): string {
   return subject.trim()
     ? SUBJECT_CHIP_CLASSES[subjectColorName(subject)]
     : "bg-pearl text-muted border-hairline";
+}
+
+/** 深色毛玻璃面板的课程块：半饱和彩底 + 近白字 + 同色内描边（玻璃上叠彩色玻璃） */
+const SUBJECT_GLASS_CLASSES: Record<SubjectColorName, string> = {
+  rose: "bg-rose-500/30 text-rose-50 inset-ring-1 inset-ring-rose-300/40",
+  sky: "bg-sky-500/30 text-sky-50 inset-ring-1 inset-ring-sky-300/40",
+  emerald: "bg-emerald-500/30 text-emerald-50 inset-ring-1 inset-ring-emerald-300/40",
+  amber: "bg-amber-500/30 text-amber-50 inset-ring-1 inset-ring-amber-300/40",
+  violet: "bg-violet-500/30 text-violet-50 inset-ring-1 inset-ring-violet-300/40",
+  green: "bg-green-500/30 text-green-50 inset-ring-1 inset-ring-green-300/40",
+  pink: "bg-pink-500/30 text-pink-50 inset-ring-1 inset-ring-pink-300/40",
+  orange: "bg-orange-500/30 text-orange-50 inset-ring-1 inset-ring-orange-300/40",
+  cyan: "bg-cyan-500/30 text-cyan-50 inset-ring-1 inset-ring-cyan-300/40",
+  slate: "bg-slate-400/30 text-slate-50 inset-ring-1 inset-ring-slate-300/40",
+  teal: "bg-teal-500/30 text-teal-50 inset-ring-1 inset-ring-teal-300/40",
+  fuchsia: "bg-fuchsia-500/30 text-fuchsia-50 inset-ring-1 inset-ring-fuchsia-300/40",
+  lime: "bg-lime-500/30 text-lime-50 inset-ring-1 inset-ring-lime-300/40",
+  stone: "bg-stone-400/30 text-stone-50 inset-ring-1 inset-ring-stone-300/40",
+};
+
+/** 深色毛玻璃底（首页课表面板）的科目块类；空科目退回中性玻璃 */
+export function subjectGlassBlockClass(subject: string): string {
+  return subject.trim()
+    ? SUBJECT_GLASS_CLASSES[subjectColorName(subject)]
+    : "bg-white/5 text-white/70 inset-ring-1 inset-ring-white/15";
 }
 
 /** 科目色点类，空科目退回中性灰 */

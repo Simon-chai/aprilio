@@ -47,6 +47,12 @@ export function weekdayIndexOf(date: Date): number {
   return ((date.getDay() + 6) % 7) + 1;
 }
 
+/** 所在周的周一（本地当天零点）；周日起算仍归本周——周课表列头日期与备忘挂载共用 */
+export function mondayOf(date = new Date()): Date {
+  const offset = weekdayIndexOf(date) - 1;
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate() - offset);
+}
+
 /** 月份天数 */
 export function daysInMonth(year: number, month: number): number {
   return new Date(year, month, 0).getDate();

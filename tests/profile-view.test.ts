@@ -187,6 +187,7 @@ describe("profile editor", () => {
       motto: "Stay curious",
       avatar: "",
       hero: "",
+      timetable_bg: "",
       my_subjects: [],
     };
     expect(profileMocks.saveProfileChanges).toHaveBeenCalledWith(expected);
@@ -513,6 +514,7 @@ describe("profile editor", () => {
       motto: DEFAULT_PROFILE.motto,
       avatar: "selected-avatar.png",
       hero: DEFAULT_PROFILE.hero,
+      timetable_bg: "",
       my_subjects: [],
     });
   });
@@ -550,6 +552,7 @@ describe("profile editor", () => {
       motto: DEFAULT_PROFILE.motto,
       avatar: "new-avatar.png",
       hero: DEFAULT_PROFILE.hero,
+      timetable_bg: "",
       my_subjects: [],
     });
     expect(profileMocks.discardSelectedProfileImage).not.toHaveBeenCalledWith("new-avatar.png");
@@ -666,6 +669,7 @@ describe("profile editor", () => {
       motto: DEFAULT_PROFILE.motto,
       avatar: "pending-avatar.png",
       hero: DEFAULT_PROFILE.hero,
+      timetable_bg: "",
       my_subjects: [],
     });
     expect(profileMocks.discardSelectedProfileImage).not.toHaveBeenCalled();

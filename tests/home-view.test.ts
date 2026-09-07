@@ -31,6 +31,7 @@ vi.mock("../src/lib/db", async (importOriginal) => {
 });
 
 import HomeView from "../src/views/HomeView.vue";
+import { emitPageAction } from "../src/agent/page-action-bus";
 import { profile } from "../src/lib/profile";
 import { DEFAULT_PROFILE } from "../src/types";
 import type { TimetableSlotWithClass } from "../src/types";
@@ -154,7 +155,7 @@ describe("HomeView today panel", () => {
     dbMocks.listTimetableSlotsWithClass.mockResolvedValue(mondayRows);
     dbMocks.listTimetableExceptionsWithClass.mockResolvedValue([]);
     dbMocks.listTeacherEventsInRange.mockResolvedValue([
-      { id: 5, class_name: null, event_date: "2026-09-07", type: "homework", period: 4, content: "布置语文第 3 课抄写", done: 0, created_at: "", updated_at: "" },
+      { id: 5, class_name: null, event_date: "2026-09-07", type: "memo", period: null, content: "布置语文第 3 课抄写", done: 0, created_at: "", updated_at: "" },
       { id: 6, class_name: null, event_date: "2026-09-07", type: "todo", period: null, content: "下午教研组会议", done: 0, created_at: "", updated_at: "" },
     ]);
     const wrapper = mountHome();
@@ -187,7 +188,10 @@ describe("HomeView today panel", () => {
     expect(grid.text()).toContain("周一");
     expect(wrapper.findAll('[data-test="panel-period-cell"]')).toHaveLength(8);
     expect(wrapper.findAll('[data-test="panel-grid-session"]')).toHaveLength(2);
-    expect(panel.text()).toContain("三年级一班");
+    // 格子只显示科目，不展示班级名
+    expect(panel.text()).toContain("语文");
+    expect(panel.text()).not.toContain("三年级一班");
+    // 底部只读展示当天全部日程，其他类型不提供编辑入口
     expect(panel.text()).toContain("今日日程");
     expect(panel.text()).toContain("布置语文第 3 课抄写");
     expect(panel.text()).toContain("下午教研组会议");
@@ -223,31 +227,36 @@ describe("HomeView today panel", () => {
     await wrapper.get('[data-test="timetable-toggle"]').trigger("click");
     const sessions = wrapper.findAll('[data-test="panel-grid-session"]');
     expect(sessions).toHaveLength(2); // 停课保留展示（划线），另一班照常
-    const cancelled = sessions.find((s) => s.text().includes("三年级二班"))!;
+    const cancelled = sessions.find((s) => s.text().includes("停"))!;
     expect(cancelled.html()).toContain("line-through");
     expect(cancelled.text()).toContain("停");
     wrapper.unmount();
   });
 
-  it("adds and toggles personal events inline in the panel", async () => {
+  it("filters today events with type pills in the read-only panel", async () => {
     const wrapper = await mountWithMondayLessons();
     await wrapper.get('[data-test="timetable-toggle"]').trigger("click");
 
-    // 选类型「考试」再录入 → 个人事件（class_name = null）
-    const examPill = wrapper.findAll("button").find((b) => b.text().includes("考试"))!;
-    await examPill.trigger("click");
-    await wrapper.get('[data-test="panel-event-input"]').setValue("下周一单元测验");
-    await wrapper.get('[data-test="panel-event-input"]').trigger("keydown.enter");
-    expect(dbMocks.addCalendarEvent).toHaveBeenCalledWith(null, "2026-09-07", "下周一单元测验", "exam");
+    // 只读：没有速记输入、勾选、删除等编辑入口
+    expect(wrapper.find('[data-test="panel-event-input"]').exists()).toBe(false);
+    expect(wrapper.find('button[aria-label="删除备忘"]').exists()).toBe(false);
 
-    // 勾选完成
-    const item = wrapper.get('[data-test="panel-event"]');
-    await item.find('button[aria-label="标记为已完成"]').trigger("click");
-    expect(dbMocks.setCalendarEventDone).toHaveBeenCalledWith(5, true);
+    // 点「待办」胶囊 → 选中高亮，非待办条目置灰
+    const pill = wrapper.findAll('[data-test="event-type-pill"]').find((b) => b.text().includes("待办"))!;
+    expect(pill.attributes("aria-pressed")).toBe("false");
+    await pill.trigger("click");
+    expect(pill.attributes("aria-pressed")).toBe("true");
 
-    // 删除
-    await item.find('button[aria-label="删除日程"]').trigger("click");
-    expect(dbMocks.deleteCalendarEvent).toHaveBeenCalledWith(5);
+    const items = wrapper.findAll('[data-test="panel-event"]');
+    expect(items).toHaveLength(2); // 置灰不隐藏
+    const dimmed = items.filter((it) => it.classes().includes("opacity-40"));
+    expect(dimmed).toHaveLength(1);
+    expect(dimmed[0].text()).toContain("布置语文第 3 课抄写"); // memo 被置灰
+
+    // 再点取消筛选，恢复全部正常展示
+    await pill.trigger("click");
+    expect(pill.attributes("aria-pressed")).toBe("false");
+    expect(wrapper.findAll('[data-test="panel-event"].opacity-40')).toHaveLength(0);
     wrapper.unmount();
   });
 
@@ -263,7 +272,7 @@ describe("HomeView today panel", () => {
     await toggle.trigger("click");
     const panel = wrapper.get('[data-test="today-panel"]');
     expect(wrapper.find('[data-test="panel-week-grid"]').exists()).toBe(true);
-    expect(panel.text()).toContain("登记任教学科后");
+    expect(panel.text()).toContain("登记任教学科");
     expect(panel.text()).toContain("今日日程");
     wrapper.unmount();
   });
@@ -295,6 +304,149 @@ describe("HomeView weekend fallback", () => {
 
     await toggle.trigger("click");
     expect(wrapper.find('[data-test="today-panel"]').exists()).toBe(true);
+    wrapper.unmount();
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* 番茄时钟沉浸层（冻结到 2026-09-07 周一 10:00，计时可控）               */
+/* ------------------------------------------------------------------ */
+
+describe("HomeView pomodoro", () => {
+  beforeAll(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 8, 7, 10, 0)); // 周一
+  });
+  afterAll(() => {
+    vi.useRealTimers();
+  });
+
+  afterEach(() => {
+    localStorage.clear();
+    profile.value = { ...DEFAULT_PROFILE };
+  });
+
+  function mountHome() {
+    const router = makeRouter();
+    return mount(HomeView, { global: { plugins: [router] } });
+  }
+
+  it("opens a fullscreen overlay that hides hero texts and closes the timetable panel", async () => {
+    const wrapper = mountHome();
+    await flushPromises();
+
+    // 先展开课表面板，进入番茄钟应把它一并收起
+    await wrapper.get('[data-test="timetable-toggle"]').trigger("click");
+    expect(wrapper.find('[data-test="today-panel"]').exists()).toBe(true);
+
+    await wrapper.get('[data-test="pomodoro-toggle"]').trigger("click");
+    expect(wrapper.find('[data-test="today-panel"]').exists()).toBe(false);
+    expect(wrapper.get('[data-test="timetable-toggle"]').attributes("aria-expanded")).toBe("false");
+
+    const overlay = wrapper.get('[data-test="pomodoro-overlay"]');
+    expect(overlay.text()).toContain("25:00");
+    expect(overlay.text()).toContain("专注");
+
+    // 背景只剩图：顶栏、问候区、课表入口、向下提示全部隐藏
+    expect(wrapper.get("header").isVisible()).toBe(false);
+    expect(wrapper.get('section[data-page="0"] > div:nth-of-type(3)').isVisible()).toBe(false);
+    expect(wrapper.get('[data-test="timetable-toggle"]').isVisible()).toBe(false);
+    expect(wrapper.get('button[aria-label="向下滚动到功能页"]').isVisible()).toBe(false);
+
+    // 退出后文字层恢复（jsdom 的 computed style 在移除 display 后有缓存滞后，
+    // 这里直接断言内联样式不再带 display: none）
+    await wrapper.get('[data-test="pomodoro-close"]').trigger("click");
+    expect(wrapper.find('[data-test="pomodoro-overlay"]').exists()).toBe(false);
+    expect(wrapper.get("header").attributes("style")).not.toContain("display: none");
+    wrapper.unmount();
+  });
+
+  it("counts down while running, pauses and continues", async () => {
+    const wrapper = mountHome();
+    await flushPromises();
+    await wrapper.get('[data-test="pomodoro-toggle"]').trigger("click");
+
+    const primary = () => wrapper.get('[data-test="pomodoro-primary"]');
+    expect(primary().text()).toBe("开始");
+    await primary().trigger("click");
+    expect(primary().text()).toBe("暂停");
+
+    vi.advanceTimersByTime(3000);
+    await nextTick();
+    expect(wrapper.get('[data-test="pomodoro-overlay"]').text()).toContain("24:57");
+
+    // 暂停后时间冻结
+    await primary().trigger("click");
+    expect(primary().text()).toBe("继续");
+    vi.advanceTimersByTime(5000);
+    await nextTick();
+    expect(wrapper.get('[data-test="pomodoro-overlay"]').text()).toContain("24:57");
+
+    // 继续走表
+    await primary().trigger("click");
+    vi.advanceTimersByTime(2000);
+    await nextTick();
+    expect(wrapper.get('[data-test="pomodoro-overlay"]').text()).toContain("24:55");
+    wrapper.unmount();
+  });
+
+  it("switches modes and resets the countdown to the mode duration", async () => {
+    const wrapper = mountHome();
+    await flushPromises();
+    await wrapper.get('[data-test="pomodoro-toggle"]').trigger("click");
+
+    const modePill = (label: string) =>
+      wrapper.findAll('[data-test="pomodoro-mode"]').find((b) => b.text() === label)!;
+    const overlayText = () => wrapper.get('[data-test="pomodoro-overlay"]').text();
+
+    await modePill("短休息").trigger("click");
+    expect(overlayText()).toContain("05:00");
+    expect(overlayText()).toContain("短休息");
+
+    await modePill("长休息").trigger("click");
+    expect(overlayText()).toContain("15:00");
+
+    await modePill("专注").trigger("click");
+    expect(overlayText()).toContain("25:00");
+    wrapper.unmount();
+  });
+
+  it("toggles run with Space, closes with Escape and keeps the paused countdown", async () => {
+    const wrapper = mountHome();
+    await flushPromises();
+    await wrapper.get('[data-test="pomodoro-toggle"]').trigger("click");
+
+    // 空格 = 开始/暂停
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: " " }));
+    await nextTick();
+    expect(wrapper.get('[data-test="pomodoro-primary"]').text()).toBe("暂停");
+
+    vi.advanceTimersByTime(3000);
+    // Esc = 退出，且退出即暂停
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    await nextTick();
+    expect(wrapper.find('[data-test="pomodoro-overlay"]').exists()).toBe(false);
+
+    // 重新进入：倒计时停在退出时刻，可继续
+    await wrapper.get('[data-test="pomodoro-toggle"]').trigger("click");
+    expect(wrapper.get('[data-test="pomodoro-overlay"]').text()).toContain("24:57");
+    expect(wrapper.get('[data-test="pomodoro-primary"]').text()).toBe("继续");
+    wrapper.unmount();
+  });
+
+  it("enters the immersive overlay when the Agent ui_action broadcast arrives", async () => {
+    const wrapper = mountHome();
+    await flushPromises();
+
+    // Agent 经 ui_action → 页面动作总线广播（src/agent/page-actions/home.ts）
+    emitPageAction("home/open-pomodoro");
+    await nextTick();
+    const overlay = wrapper.get('[data-test="pomodoro-overlay"]');
+    expect(overlay.text()).toContain("25:00");
+
+    // 进入的是同一个状态机：正常退出路径可用
+    await wrapper.get('[data-test="pomodoro-close"]').trigger("click");
+    expect(wrapper.find('[data-test="pomodoro-overlay"]').exists()).toBe(false);
     wrapper.unmount();
   });
 });

@@ -4,6 +4,7 @@ import {
   daysInMonth,
   fromDateStr,
   gridRange,
+  mondayOf,
   monthTitle,
   shiftMonth,
   toDateStr,
@@ -21,6 +22,13 @@ describe("calendar pure functions", () => {
     expect(weekdayIndexOf(new Date(2026, 8, 7))).toBe(1); // 周一
     expect(weekdayIndexOf(new Date(2026, 8, 12))).toBe(6); // 周六
     expect(weekdayIndexOf(new Date(2026, 8, 6))).toBe(7); // 周日
+  });
+
+  it("finds the Monday of the week, with Sunday still in the previous week's block", () => {
+    expect(toDateStr(mondayOf(new Date(2026, 8, 7)))).toBe("2026-09-07"); // 周一 → 当天
+    expect(toDateStr(mondayOf(new Date(2026, 8, 9)))).toBe("2026-09-07"); // 周三 → 本周一
+    expect(toDateStr(mondayOf(new Date(2026, 8, 13)))).toBe("2026-09-07"); // 周日 → 仍归本周
+    expect(toDateStr(mondayOf(new Date(2026, 8, 6)))).toBe("2026-08-31"); // 周日 → 上月末尾的周一
   });
 
   it("knows month lengths including leap years", () => {

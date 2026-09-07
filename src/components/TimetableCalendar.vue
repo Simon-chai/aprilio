@@ -11,6 +11,7 @@
  */
 import { computed, onMounted, ref, watch } from "vue";
 import AppButton from "./ui/AppButton.vue";
+import AppLink from "./ui/AppLink.vue";
 import {
   addCalendarEvent,
   clearTimetableException,
@@ -307,13 +308,13 @@ const MAX_CELL_ITEMS = 3;
           </button>
         </div>
         <div class="flex items-center gap-3">
-          <button
-            type="button"
-            class="text-caption text-primary hover:underline"
+          <AppLink
+            variant="action"
+            class="text-caption"
             @click="backToToday"
           >
             回到今天
-          </button>
+          </AppLink>
           <button
             type="button"
             data-test="edit-timetable-btn"
@@ -482,32 +483,34 @@ const MAX_CELL_ITEMS = 3;
             <!-- 调课操作：悬浮出现；有例外时可恢复默认 -->
             <span class="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover/course:opacity-100">
               <template v-if="!hasException(c)">
-                <button
-                  type="button"
+                <AppLink
                   data-test="course-swap-btn"
-                  class="text-fine text-primary hover:underline"
+                  variant="action"
+                  class="text-fine"
                   @click="openSwap(c)"
                 >
                   换课
-                </button>
-                <button
-                  type="button"
+                </AppLink>
+                <AppLink
                   data-test="course-cancel-btn"
-                  class="text-fine text-danger hover:underline"
+                  tone="danger"
+                  variant="action"
+                  class="text-fine"
                   @click="cancelCourse(c)"
                 >
                   停课
-                </button>
+                </AppLink>
               </template>
-              <button
+              <AppLink
                 v-else
-                type="button"
                 data-test="course-restore-btn"
-                class="text-fine text-muted hover:text-ink hover:underline"
+                tone="muted"
+                variant="action"
+                class="text-fine"
                 @click="restoreCourse(c)"
               >
                 恢复默认
-              </button>
+              </AppLink>
             </span>
           </li>
           <!-- 换课内联编辑器 -->
@@ -539,14 +542,14 @@ const MAX_CELL_ITEMS = 3;
           </li>
           <!-- 加课 -->
           <li v-if="!addPeriodOpen && props.timetable" class="pt-0.5">
-            <button
-              type="button"
+            <AppLink
               data-test="add-course-btn"
-              class="text-fine text-primary hover:underline"
+              variant="action"
+              class="text-fine"
               @click="openAddPeriod"
             >
               ＋ 加一节
-            </button>
+            </AppLink>
           </li>
           <li v-if="addPeriodOpen" data-test="add-course-editor" class="rounded-sm border border-hairline bg-canvas p-2">
             <div class="flex items-center gap-2">
