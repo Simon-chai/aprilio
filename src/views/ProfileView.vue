@@ -14,7 +14,10 @@ import {
   type ProfileImageKind,
 } from "../lib/profile";
 import { profileSaveErrorMessage } from "../lib/error-message";
+import { listTimetableSubjects } from "../lib/db";
+import { SUBJECT_PRESETS } from "../lib/timetable";
 import type { Profile } from "../types";
+import { PROFILE_TITLES } from "../types";
 
 const router = useRouter();
 const { hhmm, greeting } = useClock();
@@ -33,15 +36,76 @@ const selectionCount = ref(0);
 const leaving = ref(false);
 let ready = false;
 let unmounted = false;
-let activeSave: Promise<void> | null = null;
+let activeSave: Promise<boolean> | null = null;
 let imageOperation: Promise<void> | null = null;
 let cleanupInFlight: Promise<void> | null = null;
 
-const isDirty = computed(() =>
-  profileKeys.some((key) => draft[key] !== savedSnapshot.value[key]),
+/* 任教学科：我的课表的判定条件，主录入入口在个人资料页 */
+const subjectCandidates = ref<string[]>([...SUBJECT_PRESETS]);
+const newSubject = ref("");
+
+const subjectChips = computed(() => {
+  const chips = [...subjectCandidates.value];
+  for (const s of draft.my_subjects ?? []) {
+    if (!chips.includes(s)) chips.push(s);
+  }
+  return chips;
+});
+
+function isSelected(subject: string): boolean {
+  return (draft.my_subjects ?? []).includes(subject);
+}
+
+function toggleSubject(subject: string): void {
+  draft.my_subjects = isSelected(subject)
+    ? (draft.my_subjects ?? []).filter((s) => s !== subject)
+    : [...(draft.my_subjects ?? []), subject];
+}
+
+function addCustomSubject(): void {
+  const s = newSubject.value.trim();
+  if (!s) return;
+  if (!subjectCandidates.value.includes(s)) {
+    subjectCandidates.value = [...subjectCandidates.value, s];
+  }
+  if (!isSelected(s)) draft.my_subjects = [...(draft.my_subjects ?? []), s];
+  newSubject.value = "";
+}
+
+async function loadSubjectCandidates(): Promise<void> {
+  try {
+    const merged = [...SUBJECT_PRESETS];
+    for (const s of await listTimetableSubjects()) {
+      if (!merged.includes(s)) merged.push(s);
+    }
+    subjectCandidates.value = merged;
+  } catch {
+    /* 候选加载失败不影响编辑，退回预设 */
+  }
+}
+
+function normalizeSubjects(list: string[] | undefined): string[] {
+  const out: string[] = [];
+  for (const raw of list ?? []) {
+    const s = raw.trim();
+    if (s && !out.includes(s)) out.push(s);
+  }
+  return out;
+}
+
+const isDirty = computed(
+  () =>
+    profileKeys.some((key) => draft[key] !== savedSnapshot.value[key]) ||
+    JSON.stringify(draft.my_subjects ?? []) !== JSON.stringify(savedSnapshot.value.my_subjects ?? []),
 );
 const avatarPreview = computed(() => profileImageSrc(draft.avatar, "avatar"));
 const heroPreview = computed(() => profileImageSrc(draft.hero, "hero"));
+/* 历史数据可能存有枚举外的旧身份文案，追加为额外选项避免丢失 */
+const titleOptions = computed(() => {
+  const options: string[] = [...PROFILE_TITLES];
+  if (draft.title && !options.includes(draft.title)) options.push(draft.title);
+  return options;
+});
 const saveStatus = computed(() => {
   if (saving.value) return "\u4FDD\u5B58\u4E2D";
   if (saved.value && !isDirty.value) return "\u5DF2\u4FDD\u5B58";
@@ -55,10 +119,11 @@ onMounted(async () => {
   savedSnapshot.value = { ...profile.value };
   loading.value = false;
   ready = true;
+  void loadSubjectCandidates();
 });
 
 watch(
-  () => profileKeys.map((key) => draft[key]),
+  () => [profileKeys.map((key) => draft[key]), JSON.stringify(draft.my_subjects ?? [])],
   () => {
     if (ready && isDirty.value) {
       saved.value = false;
@@ -222,16 +287,19 @@ async function saveChanges(): Promise<void> {
     motto: draft.motto.trim(),
     avatar: draft.avatar,
     hero: draft.hero,
+    my_subjects: normalizeSubjects(draft.my_subjects),
   };
 
   const saveOperation = (async () => {
+    let succeeded = false;
     try {
       await saveProfileChanges(next);
       imageKinds.forEach((kind) => untrackPending(kind, next[kind]));
-      if (unmounted) return;
+      if (unmounted) return false;
       Object.assign(draft, next);
       savedSnapshot.value = { ...next };
       saved.value = true;
+      succeeded = true;
     } catch (cause) {
       if (!unmounted) {
         error.value = profileSaveErrorMessage(cause);
@@ -240,11 +308,15 @@ async function saveChanges(): Promise<void> {
     } finally {
       saving.value = false;
     }
+    return succeeded;
   })();
   activeSave = saveOperation;
 
   try {
-    await saveOperation;
+    const succeeded = await saveOperation;
+    if (succeeded && !unmounted) {
+      void router.push({ name: "home" }).catch(() => undefined);
+    }
   } finally {
     if (activeSave === saveOperation) activeSave = null;
   }
@@ -380,7 +452,6 @@ onBeforeUnmount(() => {
             <p v-if="draft.motto" class="mt-1 text-caption text-white/70">
               {{ draft.motto }}
             </p>
-            <p v-if="draft.title" class="mt-2 text-fine text-white/55">{{ draft.title }}</p>
           </div>
         </div>
       </AppCard>
@@ -405,13 +476,15 @@ onBeforeUnmount(() => {
               <label for="profile-title" class="mb-1.5 block text-caption text-weak">
                 &#x8EAB;&#x4EFD;
               </label>
-              <input
+              <select
                 id="profile-title"
                 v-model="draft.title"
                 :disabled="loading || saving || leaving || selectionCount > 0"
-                class="h-9 w-full rounded-sm border border-hairline bg-canvas px-3 text-caption text-ink outline-none transition-colors focus:border-primary-focus"
-                placeholder="&#x4F8B;&#x5982;&#xFF1A;&#x73ED;&#x4E3B;&#x4EFB;"
-              />
+                class="h-9 w-full rounded-sm border border-hairline bg-canvas px-2 text-caption text-ink outline-none transition-colors focus:border-primary-focus"
+              >
+                <option value="">&#x672A;&#x8BBE;&#x7F6E;</option>
+                <option v-for="t in titleOptions" :key="t" :value="t">{{ t }}</option>
+              </select>
             </div>
             <div>
               <label for="profile-motto" class="mb-1.5 block text-caption text-weak">
@@ -494,6 +567,48 @@ onBeforeUnmount(() => {
                 &#x6062;&#x590D;&#x9ED8;&#x8BA4;&#x9996;&#x9875;&#x5927;&#x56FE;
               </button>
             </div>
+          </div>
+        </AppCard>
+
+        <AppCard>
+          <h2 class="mb-1 text-body font-semibold text-ink">任教学科</h2>
+          <p class="mb-4 text-fine text-weak">
+            用于「我的课表」与首页今日课程：勾选你教的科目，跨班的课会自动聚合成你的行程
+          </p>
+          <div class="flex flex-wrap gap-2">
+            <button
+              v-for="s in subjectChips"
+              :key="s"
+              type="button"
+              data-test="subject-chip"
+              :disabled="loading || saving || leaving || selectionCount > 0"
+              class="rounded-pill border px-3 py-1 text-fine transition-colors disabled:opacity-40"
+              :class="
+                isSelected(s)
+                  ? 'border-ink bg-ink text-canvas font-medium'
+                  : 'border-hairline bg-canvas text-muted hover:border-ink'
+              "
+              @click="toggleSubject(s)"
+            >
+              {{ s }}
+            </button>
+          </div>
+          <div class="mt-4 flex items-center gap-2">
+            <input
+              id="profile-new-subject"
+              v-model="newSubject"
+              :disabled="loading || saving || leaving || selectionCount > 0"
+              placeholder="自定义科目，如：写字"
+              class="h-9 flex-1 rounded-sm border border-hairline bg-canvas px-3 text-caption text-ink outline-none transition-colors focus:border-primary-focus"
+              @keydown.enter.prevent="addCustomSubject"
+            />
+            <AppButton
+              variant="pearl"
+              :disabled="loading || saving || leaving || selectionCount > 0 || !newSubject.trim()"
+              @click="addCustomSubject"
+            >
+              添加
+            </AppButton>
           </div>
         </AppCard>
 

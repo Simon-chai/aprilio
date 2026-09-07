@@ -7,7 +7,8 @@ import ImportRosterDialog from "../src/components/ImportRosterDialog.vue";
 import StudentFormDialog from "../src/components/StudentFormDialog.vue";
 import QuickBehaviorPopover from "../src/components/QuickBehaviorPopover.vue";
 import AppButton from "../src/components/ui/AppButton.vue";
-import { deleteStudent, listStudents } from "../src/lib/db";
+import { deleteStudent, listBehaviorDimensions, addBehaviorRecord, listBehaviorRecordsByClass, listStudents } from "../src/lib/db";
+import { localDateStr } from "../src/lib/format";
 
 describe("ClassDetailView.vue", () => {
   function createTestRouter() {
@@ -36,7 +37,7 @@ describe("ClassDetailView.vue", () => {
     });
   }
 
-  it("header renders class name, breadcrumb link to 班级管理, and all action buttons use AppButton", async () => {
+  it("header keeps only 新建学生 AppButton; import and photo actions become icon buttons on tab tops", async () => {
     const router = createTestRouter();
     await router.push("/classes/三年级二班");
     await router.isReady();
@@ -64,21 +65,27 @@ describe("ClassDetailView.vue", () => {
       expect(to.name === "classes" || to.path === "/classes").toBe(true);
     }
 
-    // Check action buttons in header all use AppButton
+    // Header 只保留「新建学生」主按钮
     const appButtons = header.findAllComponents(AppButton);
-    expect(appButtons.length).toBeGreaterThanOrEqual(3);
+    expect(appButtons.length).toBe(1);
+    expect(appButtons[0].text()).toContain("新建学生");
+    expect(appButtons[0].props("variant")).toBe("primary");
 
-    const importBtn = appButtons.find((btn) => btn.text().includes("导入本班花名册"));
-    const photoBtn = appButtons.find((btn) => btn.text().includes("添加班级照片"));
-    const createBtn = appButtons.find((btn) => btn.text().includes("新建学生"));
+    // 学生条目 tab 顶部：导入花名册语义图标按钮紧贴搜索栏右侧，且不在 header 内
+    const importIconBtn = wrapper.find("button[aria-label='导入本班花名册']");
+    expect(importIconBtn.exists()).toBe(true);
+    expect(importIconBtn.element.closest("header")).toBeNull();
+    // 悬浮说明文案（自绘 tooltip，WebView 中原生 title 不可靠）
+    expect(importIconBtn.find("span[role='tooltip']").text()).toContain("导入本班花名册");
 
-    expect(importBtn).toBeDefined();
-    expect(photoBtn).toBeDefined();
-    expect(createBtn).toBeDefined();
-
-    expect(importBtn?.props("variant")).toBe("secondary");
-    expect(photoBtn?.props("variant")).toBe("secondary");
-    expect(createBtn?.props("variant")).toBe("primary");
+    // 班级相册 tab 顶部：添加照片语义图标按钮紧贴筛选胶囊右侧
+    const photosTab = wrapper.findAll("button").find((b) => b.text().includes("班级相册"));
+    await photosTab!.trigger("click");
+    await flushPromises();
+    const addPhotoIconBtn = wrapper.find("button[aria-label='添加班级照片']");
+    expect(addPhotoIconBtn.exists()).toBe(true);
+    expect(addPhotoIconBtn.element.closest("header")).toBeNull();
+    expect(addPhotoIconBtn.find("span[role='tooltip']").text()).toContain("添加班级照片");
   });
 
   it("displays students belonging to 三年级二班 and excludes students from other classes", async () => {
@@ -183,9 +190,10 @@ describe("ClassDetailView.vue", () => {
     expect(studentDialog.props("initial")).toEqual({ grade_class: "三年级二班" });
     expect(studentDialog.props("open")).toBe(false);
 
-    // Open roster dialog
-    const importBtn = wrapper.findAllComponents(AppButton).find((b) => b.text().includes("导入本班花名册"));
-    await importBtn?.trigger("click");
+    // Open roster dialog via the icon button on the students tab top
+    const importBtn = wrapper.find("button[aria-label='导入本班花名册']");
+    expect(importBtn.exists()).toBe(true);
+    await importBtn.trigger("click");
     expect(rosterDialog.props("open")).toBe(true);
 
     // Open student dialog
@@ -271,6 +279,41 @@ describe("ClassDetailView.vue", () => {
     expect(router.currentRoute.value.path).toBe("/students/1");
   });
 
+  it("removes a behavior record via timeline delete event", async () => {
+    const dims = await listBehaviorDimensions();
+    const recId = await addBehaviorRecord({
+      student_id: 1,
+      dimension_id: dims[0].id,
+      dimension_name_snap: dims[0].name,
+      category_snap: dims[0].category,
+      type: "praise",
+      comment: "视图集成删除评语测试",
+      recorded_date: localDateStr(),
+    });
+
+    const router = createTestRouter();
+    await router.push("/classes/三年级二班");
+    await router.isReady();
+
+    const wrapper = mount(ClassDetailView, {
+      props: { name: "三年级二班" },
+      global: { plugins: [router] },
+    });
+    await flushPromises();
+
+    const behaviorsTab = wrapper.findAll("button").find((b) => b.text().includes("日常表现"));
+    await behaviorsTab!.trigger("click");
+    await flushPromises();
+
+    const timeline = wrapper.findComponent({ name: "ClassBehaviorTimeline" });
+    expect(timeline.exists()).toBe(true);
+    timeline.vm.$emit("remove", recId);
+    await flushPromises();
+
+    const records = await listBehaviorRecordsByClass("三年级二班");
+    expect(records.some((r) => r.id === recId)).toBe(false);
+  });
+
   it("opens quick behavior popover with the first student in the class", async () => {
     const router = createTestRouter();
     await router.push("/classes/三年级二班");
@@ -294,5 +337,33 @@ describe("ClassDetailView.vue", () => {
     expect(popover.props("open")).toBe(true);
     expect((popover.props("student") as StudentRow).grade_class).toBe("三年级二班");
     expect((popover.props("students") as StudentRow[]).length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("opens the timetable tab on the editable week grid and toggles to the calendar", async () => {
+    const router = createTestRouter();
+    await router.push("/classes/三年级二班");
+    await router.isReady();
+
+    const wrapper = mount(ClassDetailView, {
+      props: { name: "三年级二班" },
+      global: { plugins: [router] },
+    });
+    await flushPromises();
+
+    await wrapper.get('[data-test="tab-timetable"]').trigger("click");
+    await flushPromises();
+
+    expect(wrapper.findAll('button[data-test="timetable-cell"]').length).toBeGreaterThan(0);
+    expect(wrapper.get('[data-test="timetable-import-btn"]').text()).toContain("导入课表");
+    expect(wrapper.text()).toContain("换课 / 停课 / 日程在日历视图维护");
+
+    await wrapper.get('[data-test="timetable-view-calendar"]').trigger("click");
+    await flushPromises();
+    expect(wrapper.find('[data-test="calendar-title"]').exists()).toBe(true);
+    expect(wrapper.find('button[data-test="edit-timetable-btn"]').exists()).toBe(true);
+
+    await wrapper.get('[data-test="timetable-view-grid"]').trigger("click");
+    await flushPromises();
+    expect(wrapper.findAll('button[data-test="timetable-cell"]').length).toBeGreaterThan(0);
   });
 });

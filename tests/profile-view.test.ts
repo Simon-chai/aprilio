@@ -26,7 +26,7 @@ const profileMocks = vi.hoisted(() => {
 vi.mock("../src/lib/profile", () => profileMocks);
 
 import ProfileView from "../src/views/ProfileView.vue";
-import { DEFAULT_PROFILE, type Profile } from "../src/types";
+import { DEFAULT_PROFILE, PROFILE_TITLES, type Profile } from "../src/types";
 
 const mountedHosts: VueWrapper[] = [];
 
@@ -64,6 +64,7 @@ async function mountEditor() {
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
+      { path: "/", name: "home", component: { template: "<div>home</div>" } },
       { path: "/profile", component: ProfileView },
       { path: "/other", component: { template: "<div>other</div>" } },
       {
@@ -131,22 +132,48 @@ describe("profile editor", () => {
     const { wrapper } = await mountEditor();
 
     await wrapper.get("#profile-name").setValue("Draft Name");
-    await wrapper.get("#profile-title").setValue("Draft Title");
+    await wrapper.get("#profile-title").setValue("家长");
     await wrapper.get("#profile-motto").setValue("Draft motto");
     await flushPromises();
 
     expect(wrapper.text()).toContain("Draft Name");
-    expect(wrapper.text()).toContain("Draft Title");
+    expect(wrapper.find('[data-test="preview-title"]').exists()).toBe(false);
     expect(wrapper.text()).toContain("Draft motto");
     expect(profileMocks.profile.value).toEqual(DEFAULT_PROFILE);
     expect(profileMocks.saveProfileChanges).not.toHaveBeenCalled();
+  });
+
+  it("navigates to home after a successful save", async () => {
+    const { router, wrapper } = await mountEditor();
+    await wrapper.get("#profile-name").setValue("Saved Name");
+
+    await saveButtonOf(wrapper).trigger("click");
+    await flushPromises();
+
+    expect(profileMocks.saveProfileChanges).toHaveBeenCalledOnce();
+    expect(router.currentRoute.value.name).toBe("home");
+    expect(router.currentRoute.value.path).toBe("/");
+  });
+
+  it("stays on the profile page when the save fails", async () => {
+    const { router, wrapper } = await mountEditor();
+    profileMocks.saveProfileChanges.mockRejectedValueOnce(new Error("database unavailable"));
+    await wrapper.get("#profile-name").setValue("Unsaved Name");
+
+    await saveButtonOf(wrapper).trigger("click");
+    await flushPromises();
+
+    expect(router.currentRoute.value.path).toBe("/profile");
+    expect(wrapper.get('[role="alert"]').text()).toBe(
+      "保存失败：本地资料暂时无法保存，请重试。",
+    );
   });
 
   it("saves trimmed fields and publishes the saved profile to the shared source", async () => {
     const { wrapper } = await mountEditor();
 
     await wrapper.get("#profile-name").setValue("  Teacher  ");
-    await wrapper.get("#profile-title").setValue("  Science  ");
+    await wrapper.get("#profile-title").setValue("学校管理");
     await wrapper.get("#profile-motto").setValue("  Stay curious  ");
 
     expect(wrapper.findAll("header button")).toHaveLength(2);
@@ -156,14 +183,28 @@ describe("profile editor", () => {
 
     const expected: Profile = {
       name: "Teacher",
-      title: "Science",
+      title: "学校管理",
       motto: "Stay curious",
       avatar: "",
       hero: "",
+      my_subjects: [],
     };
     expect(profileMocks.saveProfileChanges).toHaveBeenCalledWith(expected);
     expect(profileMocks.profile.value).toEqual(expected);
     expect(saveButtonOf(wrapper).attributes("disabled")).toBeDefined();
+  });
+
+  it("offers the identity enum in a dropdown and keeps legacy values selectable", async () => {
+    profileMocks.profile.value = { ...DEFAULT_PROFILE, title: "班主任" };
+    const { wrapper } = await mountEditor();
+
+    const select = wrapper.get("#profile-title");
+    const values = select.findAll("option").map((option) => option.element.value);
+
+    expect(values).toContain("");
+    for (const title of PROFILE_TITLES) expect(values).toContain(title);
+    expect(values).toContain("班主任");
+    expect((select.element as HTMLSelectElement).value).toBe("班主任");
   });
 
   it("disables every editor control while a save is pending", async () => {
@@ -472,6 +513,7 @@ describe("profile editor", () => {
       motto: DEFAULT_PROFILE.motto,
       avatar: "selected-avatar.png",
       hero: DEFAULT_PROFILE.hero,
+      my_subjects: [],
     });
   });
 
@@ -508,6 +550,7 @@ describe("profile editor", () => {
       motto: DEFAULT_PROFILE.motto,
       avatar: "new-avatar.png",
       hero: DEFAULT_PROFILE.hero,
+      my_subjects: [],
     });
     expect(profileMocks.discardSelectedProfileImage).not.toHaveBeenCalledWith("new-avatar.png");
   });
@@ -623,6 +666,7 @@ describe("profile editor", () => {
       motto: DEFAULT_PROFILE.motto,
       avatar: "pending-avatar.png",
       hero: DEFAULT_PROFILE.hero,
+      my_subjects: [],
     });
     expect(profileMocks.discardSelectedProfileImage).not.toHaveBeenCalled();
   });
@@ -769,5 +813,58 @@ describe("profile editor", () => {
     await flushPromises();
 
     expect(draftOf(wrapper).name).toBe(DEFAULT_PROFILE.name);
+  });
+});
+
+describe("profile subject editor (任教学科)", () => {
+  afterEach(() => {
+    for (const host of mountedHosts.splice(0)) {
+      const element = host.element;
+      host.unmount();
+      element?.remove();
+    }
+    vi.restoreAllMocks();
+  });
+
+  function chipOf(wrapper: VueWrapper, label: string) {
+    return wrapper.findAll('button[data-test="subject-chip"]').find((b) => b.text() === label);
+  }
+
+  it("toggles a subject chip and saves it into my_subjects", async () => {
+    const { wrapper } = await mountEditor();
+    const chip = chipOf(wrapper, "语文")!;
+
+    await chip.trigger("click");
+    expect(chip.classes()).toContain("bg-ink");
+    expect(saveButtonOf(wrapper).attributes("disabled")).toBeUndefined();
+
+    await saveButtonOf(wrapper).trigger("click");
+    await flushPromises();
+
+    expect(profileMocks.saveProfileChanges).toHaveBeenCalledWith(
+      expect.objectContaining({ my_subjects: ["语文"] }),
+    );
+    expect(profileMocks.profile.value.my_subjects).toEqual(["语文"]);
+    expect(saveButtonOf(wrapper).attributes("disabled")).toBeDefined();
+  });
+
+  it("adds a custom subject as a selected chip without duplicating it", async () => {
+    const { wrapper } = await mountEditor();
+    const input = wrapper.get("#profile-new-subject");
+    await input.setValue("  写字 ");
+    const addBtn = wrapper.findAll("button").find((b) => b.text() === "添加")!;
+    await addBtn.trigger("click");
+
+    const chip = chipOf(wrapper, "写字")!;
+    expect(chip).toBeDefined();
+    expect(chip.classes()).toContain("bg-ink");
+    expect((input.element as HTMLInputElement).value).toBe("");
+
+    // 重复添加只保留一份；再点一次 chip 可取消选择
+    await input.setValue("写字");
+    await addBtn.trigger("click");
+    expect(wrapper.findAll('button[data-test="subject-chip"]').filter((b) => b.text() === "写字")).toHaveLength(1);
+    await chip.trigger("click");
+    expect(chip.classes()).not.toContain("bg-ink");
   });
 });

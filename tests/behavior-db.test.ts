@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   addBehaviorRecord,
   createBehaviorDimension,
+  deleteBehaviorRecord,
   deleteStudent,
   listBehaviorDimensions,
   listBehaviorRecords,
@@ -94,6 +95,32 @@ describe("behavior records + comment preset self-learning loop", () => {
     const presets = await listCommentPresets(classroom.id, "praise");
     expect(presets[0].content).toBe("积极举手发言");
     expect(presets[0].use_count).toBe(2);
+  });
+
+  it("deletes a record and rolls back its history preset", async () => {
+    const classroom = await dimByCode("classroom");
+    const comment = "删除回退专用评语";
+    const id = await addBehaviorRecord(
+      buildInput({
+        student_id: 5,
+        dimension_id: classroom.id,
+        dimension_name_snap: classroom.name,
+        category_snap: classroom.category,
+        comment,
+      })
+    );
+    expect((await listBehaviorRecords(5)).some((r) => r.id === id)).toBe(true);
+    expect(
+      (await listCommentPresets(classroom.id, "praise")).find((p) => p.content === comment)?.use_count
+    ).toBe(1);
+
+    await deleteBehaviorRecord(id);
+
+    expect((await listBehaviorRecords(5)).some((r) => r.id === id)).toBe(false);
+    // history 来源的沉淀词条随记录删除而移除
+    expect(
+      (await listCommentPresets(classroom.id, "praise")).find((p) => p.content === comment)
+    ).toBeUndefined();
   });
 
   it("exposes per-dimension seeded presets (exam + improve)", async () => {

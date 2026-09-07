@@ -24,27 +24,41 @@ src/
 │   ├── photos.ts          # 图片导入 / 删除 / convertFileSrc
 │   ├── format.ts          # 日期格式化
 │   ├── markdown.ts        # 助手回复的 markdown 渲染（marked + DOMPurify 消毒）
-│   └── roster.ts          # 花名册导入（解析 / 姓名列智能识别 / 批量落库）
+│   ├── roster.ts          # 花名册导入（解析 / 姓名列智能识别 / 批量落库）
+│   ├── scores.ts          # 成绩导入（成绩单识别 / 科目列映射 / 考试批次落库）
+│   └── timetable.ts       # 课程表纯函数（学期推导 / 网格构建 / 我的课表聚合）
 ├── components/
 │   ├── AppSidebar.vue
 │   ├── StudentTable.vue
 │   ├── PhotoGrid.vue
 │   ├── StudentFormDialog.vue
+│   ├── ImportRosterDialog.vue / ImportScoreDialog.vue
+│   ├── ExamScorePanel.vue / StudentScorePanel.vue
 │   └── ui/                # AppButton / AppInput / AppCard / StatusChip / EmptyState
-└── views/                 # StudentsView · StudentDetailView · PhotosView · DesignSystemView · SettingsView
+└── views/                 # StudentsView · StudentDetailView · PhotosView · RecycleBinView · DesignSystemView · SettingsView
 
 src-tauri/
-├── src/db.rs              # 两张表的迁移
+├── src/db.rs              # SQLite 直连（MCP 子进程只读 / RAG 读写）
 ├── src/photos.rs          # photos_dir / import_photo / delete_photo_file
-├── src/roster.rs          # 花名册读取（CSV/TSV 文本 + xlsx/xls calamine 解码）
-└── src/lib.rs             # 插件与命令注册
+├── src/roster.rs          # 花名册/成绩单读取（CSV/TSV 文本 + xlsx/xls calamine 解码）
+└── src/lib.rs             # 插件与命令注册、SQLite 初始建表迁移（表结构一步到位）
 ```
 
 ## 数据模型
 
-`students` — 姓名 / 性别 / 出生日期 / 学号（唯一）/ 年级班级 / 入学日期 / 监护人 / 联系电话 / 住址 / 状态 / 备注 / 时间戳
+`students` — 姓名 / 性别 / 出生日期 / 学号（唯一）/ 年级班级 / 身份证号 / 监护人 / 联系电话 / 住址 / 状态 / 备注 / 时间戳
+
+`guardians` — 学生 ID / 姓名 / 电话 / 关系 / 主联系人 / 职业 / 风格标签（JSON）
 
 `photos` — 学生 ID / 文件名 / 说明 / 拍摄日期 / 时间戳
+
+`exams` + `exam_scores` — 考试批次（班级 / 考试名 / 考试时间）与学生 × 科目成绩（数字分或等级文字），
+（考试, 学生, 科目）唯一保证导入幂等，成绩自动关联学生档案与班级总览
+
+`timetables` + `timetable_slots` — 班级全科课表（一班一学期一张，格子 = 天 × 节 × 自由文本科目），以万年历为主视图展示；
+`calendar_memos` — 班级维度的日历备忘；「我的课表」按 `profile.my_subjects`（任教学科）从各班课表聚合，不落库（见 [docs/TIMETABLE.md](docs/TIMETABLE.md)）
+
+`recycle_bin` — 回收站：删除的班级 / 学生整体快照（JSON），保留 7 天内可恢复，过期在应用启动或打开回收站时彻底删除（含落盘图片）
 
 ## 开发
 

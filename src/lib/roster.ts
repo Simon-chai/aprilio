@@ -11,7 +11,7 @@
 import { createLlm } from "../agent/providers";
 import type { AgentLlm } from "../agent/types";
 import { isAiConfigured, loadAiConfig, type AiConfig } from "./ai";
-import { createStudent, isTauri, listStudents } from "./db";
+import { createStudent, isTauri, listStudents, updateStudent } from "./db";
 import type { Gender, Guardian, StudentInput } from "../types";
 
 /* ------------------------------------------------------------------ */
@@ -29,6 +29,8 @@ export interface RosterTable {
   delimiter: string;
   /** 表头前被剔除的标题行数（跨列合并标题等），用于行号换算 */
   titleRows?: number;
+  /** 被剔除标题行的合并文本（每行一条），供成绩单提取考试名/考试时间 */
+  titleText?: string[];
 }
 
 export type NameConfidence = "high" | "medium" | "low";
@@ -61,7 +63,7 @@ export type RosterField =
   | "gender"
   | "birth_date"
   | "grade_class"
-  | "enroll_date"
+  | "id_card"
   | "guardian_name"
   | "guardian_phone"
   | "address"
@@ -72,7 +74,7 @@ export const ROSTER_FIELD_LABELS: Record<RosterField, string> = {
   gender: "性别",
   birth_date: "出生日期",
   grade_class: "年级班级",
-  enroll_date: "入学日期",
+  id_card: "身份证号",
   guardian_name: "监护人",
   guardian_phone: "联系电话",
   address: "家庭住址",
@@ -99,6 +101,8 @@ export interface RosterPrepareResult {
 
 export interface RosterImportResult {
   imported: number;
+  /** 命中「姓名+学号」相同而用新数据覆盖更新的记录数 */
+  updated: number;
   skipped: { name: string; reason: string }[];
   failed: RosterRowIssue[];
 }
@@ -319,7 +323,14 @@ function looksLikeHeaderRow(row: string[], totalWidth: number): boolean {
 export function rosterTableFromGrid(records: string[][]): RosterTable {
   if (!records.length) throw new Error("表格内容为空");
   const width = Math.max(...records.map((r) => r.length));
-  
+
+  // 标题行的合并文本（每行一条），供成绩单提取考试名/考试时间
+  const titleTextOf = (upTo: number): string[] =>
+    records
+      .slice(0, upTo)
+      .map((row) => row.map((c) => (c ?? "").trim()).filter(Boolean).join(" "))
+      .filter(Boolean);
+
   // 只在前 10 行内寻找表头行，避免把后续数据行中的备注文字误当成表头
   const maxSearch = Math.min(records.length, 10);
   let headerIndex = -1;
@@ -332,7 +343,7 @@ export function rosterTableFromGrid(records: string[][]): RosterTable {
 
   if (headerIndex === 0) {
     const headers = Array.from({ length: width }, (_, i) => (records[0][i] ?? "").trim());
-    return { headers, rows: records.slice(1), hasHeader: true, delimiter: "," };
+    return { headers, rows: records.slice(1), hasHeader: true, delimiter: ",", titleText: [] };
   }
 
   if (headerIndex > 0) {
@@ -343,6 +354,7 @@ export function rosterTableFromGrid(records: string[][]): RosterTable {
       hasHeader: true,
       delimiter: ",",
       titleRows: headerIndex,
+      titleText: titleTextOf(headerIndex),
     };
   }
 
@@ -351,6 +363,7 @@ export function rosterTableFromGrid(records: string[][]): RosterTable {
     rows: records,
     hasHeader: false,
     delimiter: ",",
+    titleText: [],
   };
 }
 
@@ -543,7 +556,7 @@ const FIELD_HEADER_PATTERNS: [RosterField, string[]][] = [
   ["gender", ["性别", "gender"]],
   ["birth_date", ["出生", "生日", "birth"]],
   ["grade_class", ["班级", "年级", "class"]],
-  ["enroll_date", ["入学", "enroll"]],
+  ["id_card", ["身份证", "证件", "idcard", "id card"]],
   ["guardian_phone", ["电话", "手机", "联系方式", "phone", "mobile"]],
   [
     "guardian_name",
@@ -617,6 +630,15 @@ export function detectFieldMapping(table: RosterTable, nameColumn: number): Rost
         continue;
       }
     }
+
+    // 身份证特征：15 位纯数字或 18 位（末位可为 X）
+    if (fields.id_card === undefined) {
+      const idHits = values.filter((v) => /^(?:\d{15}|\d{17}[\dXx])$/.test(v)).length;
+      if (idHits / values.length >= 0.6) {
+        fields.id_card = index;
+        claimed.add(index);
+      }
+    }
   }
 
   return { nameColumn, fields };
@@ -643,6 +665,11 @@ function normalizeDate(value: string): string {
     }
   }
   return value.trim();
+}
+
+/** 身份证号归一：去空白，末位 x 转大写 */
+function normalizeIdCard(value: string): string {
+  return value.replace(/\s+/g, "").toUpperCase();
 }
 
 /**
@@ -693,7 +720,7 @@ export function prepareRosterRows(table: RosterTable, mapping: RosterMapping): R
       birth_date: normalizeDate(cellOf(cells, mapping.fields.birth_date)) || null,
       student_no: studentNo,
       grade_class: cellOf(cells, mapping.fields.grade_class),
-      enroll_date: normalizeDate(cellOf(cells, mapping.fields.enroll_date)) || null,
+      id_card: normalizeIdCard(cellOf(cells, mapping.fields.id_card)) || null,
       address: cellOf(cells, mapping.fields.address) || null,
       status: "active",
       note: cellOf(cells, mapping.fields.note) || null,
@@ -709,24 +736,51 @@ export function prepareRosterRows(table: RosterTable, mapping: RosterMapping): R
 /* ------------------------------------------------------------------ */
 
 /**
- * 批量导入学生：学号已存在（或无学号但同名同生日）→ 跳过；
- * 无学号时生成 R 前缀临时学号。重复导入同一文件天然幂等。
+ * 批量导入学生：学号已存在且姓名相同 → 用新上传的数据覆盖该记录
+ * （保留原记录 id，照片、表现记录等关联不受影响）；学号已存在但姓名不同
+ * → 跳过并提示，避免把新学生覆盖到他人档案上；无学号时按「姓名+出生日期」
+ * 兜底跳过，并生成 R 前缀临时学号。
  */
 export async function importRosterStudents(prep: RosterPrepareResult): Promise<RosterImportResult> {
   const existing = await listStudents();
-  const existingNos = new Set(existing.map((s) => s.student_no).filter(Boolean));
+  const existingByNo = new Map<string, { id: number; name: string }>(
+    existing.filter((s) => s.student_no).map((s) => [s.student_no, { id: s.id, name: s.name }]),
+  );
   const existingNameBirth = new Set(
     existing.filter((s) => s.birth_date).map((s) => `${s.name}|${s.birth_date}`),
   );
 
-  const result: RosterImportResult = { imported: 0, skipped: [], failed: [...prep.issues] };
+  const result: RosterImportResult = {
+    imported: 0,
+    updated: 0,
+    skipped: [],
+    failed: [...prep.issues],
+  };
   const stamp = Date.now().toString().slice(-8);
   let seq = 0;
 
   for (const row of prep.rows) {
     if (row.student_no) {
-      if (existingNos.has(row.student_no)) {
-        result.skipped.push({ name: row.name, reason: `学号 ${row.student_no} 已存在` });
+      const hit = existingByNo.get(row.student_no);
+      if (hit) {
+        if (hit.name === row.name) {
+          try {
+            await updateStudent(hit.id, row);
+            if (row.birth_date) existingNameBirth.add(`${row.name}|${row.birth_date}`);
+            result.updated++;
+          } catch (e) {
+            result.failed.push({
+              row: 0,
+              name: row.name,
+              reason: e instanceof Error ? e.message : String(e),
+            });
+          }
+        } else {
+          result.skipped.push({
+            name: row.name,
+            reason: `学号 ${row.student_no} 已对应学生「${hit.name}」，姓名不一致未覆盖`,
+          });
+        }
         continue;
       }
     } else if (row.birth_date && existingNameBirth.has(`${row.name}|${row.birth_date}`)) {
@@ -738,12 +792,12 @@ export async function importRosterStudents(prep: RosterPrepareResult): Promise<R
     if (!studentNo) {
       do {
         studentNo = `R${stamp}${String(++seq).padStart(3, "0")}`;
-      } while (existingNos.has(studentNo));
+      } while (existingByNo.has(studentNo));
     }
 
     try {
-      await createStudent({ ...row, student_no: studentNo });
-      existingNos.add(studentNo);
+      const newId = await createStudent({ ...row, student_no: studentNo });
+      existingByNo.set(studentNo, { id: newId, name: row.name });
       if (row.birth_date) existingNameBirth.add(`${row.name}|${row.birth_date}`);
       result.imported++;
     } catch (e) {
@@ -784,7 +838,8 @@ export type SmartImportOutcome =
   | { status: "need-column"; detection: NameDetection; message: string }
   | { status: "error"; message: string };
 
-function resolveColumn(table: RosterTable, spec: string | number): number {
+/** 列说明（列名文本或从 1 起列号）→ 0 起列号；找不到返回 -1。成绩导入管道复用 */
+export function resolveColumn(table: RosterTable, spec: string | number): number {
   if (typeof spec === "number" || /^\d+$/.test(String(spec).trim())) {
     const index = Number(spec) - 1;
     return index >= 0 && index < table.headers.length ? index : -1;
@@ -875,15 +930,15 @@ export async function runSmartImport(
 
 export const ROSTER_TEMPLATE_HEADERS = [
   "姓名", "性别", "学号", "出生日期", "年级班级",
-  "入学日期", "监护人", "联系电话", "家庭住址", "备注",
+  "身份证号", "监护人", "联系电话", "家庭住址", "备注",
 ];
 
 /** 模板 CSV（带 BOM，Excel 双击打开不乱码） */
 export function rosterTemplateCsv(): string {
   const rows: string[][] = [
     ROSTER_TEMPLATE_HEADERS,
-    ["张小三", "男", "20240001", "2017-05-12", "三年级二班", "2024-09-01", "张建国", "13800128846", "杭州市西湖区文三路128号", ""],
-    ["李小红", "女", "20240002", "2017-08-03", "三年级二班", "2024-09-01", "李大红", "13988772310", "", "转学生"],
+    ["张小三", "男", "20240001", "2017-05-12", "三年级二班", "330106201705120011", "张建国", "13800128846", "杭州市西湖区文三路128号", ""],
+    ["李小红", "女", "20240002", "2017-08-03", "三年级二班", "330106201708030022", "李大红", "13988772310", "", "转学生"],
   ];
   const escape = (cell: string) =>
     /[",\n\r]/.test(cell) ? `"${cell.replace(/"/g, '""')}"` : cell;

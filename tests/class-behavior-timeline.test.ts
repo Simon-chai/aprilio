@@ -120,6 +120,58 @@ describe("ClassBehaviorTimeline.vue", () => {
     expect(wrapper.emitted("selectStudent")?.[0]).toEqual([101]);
   });
 
+  it("renders comment inside hover tooltip instead of inline text", async () => {
+    const wrapper = mount(ClassBehaviorTimeline, {
+      props: { records: mockRecords },
+    });
+
+    const items = wrapper.findAll("[data-test='timeline-item']");
+    expect(items.length).toBe(3);
+
+    // 每个条目有评语语义图标，具体评语收进悬浮说明
+    // （组内按 id 倒序，items[0] 为苏晚的课堂表现记录）
+    const commentBtn = items[0].find("button[aria-label='查看评语']");
+    expect(commentBtn.exists()).toBe(true);
+    const tooltip = items[0].find("span[role='tooltip']");
+    expect(tooltip.exists()).toBe(true);
+    expect(tooltip.text()).toContain("课堂注意力需更集中");
+    expect(items[1].find("span[role='tooltip']").text()).toContain("作业规范工整");
+    // 默认隐藏，悬浮/聚焦时显示
+    expect(tooltip.classes()).toContain("opacity-0");
+  });
+
+  it("emits remove after two-step confirm inside comment tooltip", async () => {
+    const wrapper = mount(ClassBehaviorTimeline, {
+      props: { records: mockRecords },
+    });
+
+    // 组内按 id 倒序，items[0] 为 id 2
+    const items = wrapper.findAll("[data-test='timeline-item']");
+    const delBtn = () => items[0].find("[data-test='comment-delete-btn']");
+    expect(delBtn().text()).toBe("删除");
+
+    // 第一次点击：进入待确认态，不触发 remove
+    await delBtn().trigger("click");
+    expect(wrapper.emitted("remove")).toBeFalsy();
+    expect(delBtn().text()).toBe("确认删除");
+
+    // 第二次点击：触发 remove 并复位
+    await delBtn().trigger("click");
+    expect(wrapper.emitted("remove")?.[0]).toEqual([2]);
+    expect(delBtn().text()).toBe("删除");
+  });
+
+  it("hides comment icon when comment is empty", async () => {
+    const wrapper = mount(ClassBehaviorTimeline, {
+      props: { records: [{ ...mockRecords[0], comment: "" }] },
+    });
+
+    const items = wrapper.findAll("[data-test='timeline-item']");
+    expect(items.length).toBe(1);
+    expect(items[0].find("button[aria-label='查看评语']").exists()).toBe(false);
+    expect(items[0].find("span[role='tooltip']").exists()).toBe(false);
+  });
+
   it("renders empty state and responds to add event", async () => {
     const wrapper = mount(ClassBehaviorTimeline, {
       props: { records: [] },

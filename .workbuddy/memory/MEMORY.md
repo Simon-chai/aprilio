@@ -12,6 +12,10 @@
 
 - TS：`npm run typecheck && npm test`；Rust：`cargo test --manifest-path src-tauri/Cargo.toml`（27 用例基线）
 - MCP 冒烟：`bash scripts/test-mcp.sh`（build + initialize/tools/list/tools/call 握手）
+- **vitest 4.1.11 + Windows 小写盘符坑**（vitest#10692）：Git Bash 会话 cwd 是 `d:\...` 时全量测试必挂
+  （每个文件都在首个 describe 抛 `Cannot read properties of undefined (reading 'config')`）。
+  跑测试必须先 `cd D:/myspace/job/aprilio`（大写盘符）且与 `npm test` 同一条命令；
+  4.x 无修复版，升 vitest 5.0.0 可根治。
 
 ## 架构要点
 

@@ -119,4 +119,38 @@ describe("StudentDetailView behavior tab integration", () => {
 
     wrapper.unmount();
   });
+
+  it("removes a behavior record via timeline delete event and shows toast", async () => {
+    const recId = await addBehaviorRecord({
+      student_id: 1,
+      dimension_id: 3,
+      dimension_name_snap: "课堂表现",
+      category_snap: "behavior",
+      type: "praise",
+      comment: "待删除的学生档案评语",
+      recorded_date: "2026-09-05",
+    });
+
+    const router = createTestRouter();
+    await router.push("/students/1");
+    await router.isReady();
+
+    const wrapper = mount(StudentDetailView, {
+      global: { plugins: [router] },
+    });
+    await flushPromises();
+
+    const timeline = wrapper.findComponent({ name: "StudentBehaviorTimeline" });
+    expect(timeline.exists()).toBe(true);
+    timeline.vm.$emit("remove", recId);
+    await flushPromises();
+
+    // 记录已被删除：界面不再展示该评语，且出现删除 toast
+    expect(wrapper.text()).not.toContain("待删除的学生档案评语");
+    const toast = wrapper.find("[data-test='quick-toast']");
+    expect(toast.exists()).toBe(true);
+    expect(toast.text()).toContain("已删除该条表现记录");
+
+    wrapper.unmount();
+  });
 });

@@ -4,6 +4,8 @@ import ClassesView from "../views/ClassesView.vue";
 import ClassDetailView from "../views/ClassDetailView.vue";
 import StudentsView from "../views/StudentsView.vue";
 import PhotosView from "../views/PhotosView.vue";
+import RecycleBinView from "../views/RecycleBinView.vue";
+import MyTimetableView from "../views/MyTimetableView.vue";
 import DesignSystemView from "../views/DesignSystemView.vue";
 import SettingsView from "../views/SettingsView.vue";
 import StudentDetailView from "../views/StudentDetailView.vue";
@@ -31,6 +33,8 @@ export const router = createRouter({
       props: true,
     },
     { path: "/photos", name: "photos", component: PhotosView },
+    { path: "/timetable", name: "timetable", component: MyTimetableView },
+    { path: "/recycle-bin", name: "recycle-bin", component: RecycleBinView },
     { path: "/profile", name: "profile", component: ProfileView },
     { path: "/design", name: "design", component: DesignSystemView },
     { path: "/settings", name: "settings", component: SettingsView },

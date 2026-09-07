@@ -7,7 +7,7 @@ const route = useRoute();
 interface NavItem {
   name: string;
   label: string;
-  icon: "home" | "classes" | "users" | "image" | "sparkle" | "gear";
+  icon: "home" | "classes" | "users" | "image" | "trash" | "sparkle" | "gear";
 }
 
 const items: NavItem[] = [
@@ -15,6 +15,7 @@ const items: NavItem[] = [
   { name: "classes", label: "班级管理", icon: "classes" },
   { name: "students", label: "学生档案", icon: "users" },
   { name: "photos", label: "图片记录", icon: "image" },
+  { name: "recycle-bin", label: "回收站", icon: "trash" },
   { name: "design", label: "设计系统", icon: "sparkle" },
   { name: "settings", label: "数据与设置", icon: "gear" },
 ];
@@ -146,6 +147,28 @@ const activeName = computed(() => {
             stroke-width="1.4"
             stroke-linecap="round"
             stroke-linejoin="round"
+          />
+        </svg>
+        <svg
+          v-else-if="item.icon === 'trash'"
+          width="16"
+          height="16"
+          viewBox="0 0 16 16"
+          fill="none"
+          aria-hidden="true"
+        >
+          <path
+            d="M2.5 4.5h11M6.5 4.5V3h3v1.5M4 4.5l.7 8.2a1 1 0 0 0 1 .8h4.6a1 1 0 0 0 1-.8l.7-8.2"
+            :stroke="activeName === item.name ? '#1d1d1f' : '#333333'"
+            stroke-width="1.4"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+          <path
+            d="M6.7 7.2v3.6M9.3 7.2v3.6"
+            :stroke="activeName === item.name ? '#1d1d1f' : '#333333'"
+            stroke-width="1.4"
+            stroke-linecap="round"
           />
         </svg>
         <svg

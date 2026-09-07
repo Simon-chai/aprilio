@@ -140,6 +140,27 @@ describe("StudentBehaviorTimeline.vue", () => {
     expect(wrapper.text()).toContain("主动协助打扫卫生角");
   });
 
+  it("emits remove after two-step confirm inside comment tooltip", async () => {
+    const wrapper = mount(StudentBehaviorTimeline, {
+      props: { records: mockRecords },
+    });
+
+    // 组内按 id 倒序，items[0] 为 id 2
+    const items = wrapper.findAll("[data-test='timeline-item']");
+    const delBtn = () => items[0].find("[data-test='comment-delete-btn']");
+    expect(delBtn().text()).toBe("删除");
+
+    // 第一次点击：进入待确认态，不触发 remove
+    await delBtn().trigger("click");
+    expect(wrapper.emitted("remove")).toBeFalsy();
+    expect(delBtn().text()).toBe("确认删除");
+
+    // 第二次点击：触发 remove 并复位
+    await delBtn().trigger("click");
+    expect(wrapper.emitted("remove")?.[0]).toEqual([2]);
+    expect(delBtn().text()).toBe("删除");
+  });
+
   it("emits add event when clicking empty add button", async () => {
     const wrapper = mount(StudentBehaviorTimeline, {
       props: { records: [] },

@@ -9,7 +9,20 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   add: [];
+  remove: [recordId: number];
 }>();
+
+// 评语删除的两步确认：第一次点击进入待确认态，移出悬浮区后自动复位
+const armedRemoveId = ref<number | null>(null);
+
+function onRemoveClick(recordId: number) {
+  if (armedRemoveId.value === recordId) {
+    armedRemoveId.value = null;
+    emit("remove", recordId);
+  } else {
+    armedRemoveId.value = recordId;
+  }
+}
 
 const selectedPolarity = ref<"all" | BehaviorPolarity>("all");
 const selectedDimension = ref<string>("all");
@@ -210,34 +223,65 @@ const groupedRecords = computed<DateGroup[]>(() => {
           >
             <!-- 节点圆点锚定在时间线上 -->
             <div
-              class="absolute -left-[19px] top-4.5 flex h-2.5 w-2.5 items-center justify-center rounded-full ring-4 ring-canvas"
+              class="absolute -left-[19px] top-5 flex h-2.5 w-2.5 items-center justify-center rounded-full ring-4 ring-canvas"
               :class="item.type === 'praise' ? 'bg-[#248a3d]' : item.type === 'improve' ? 'bg-[#d97706]' : 'bg-[#71717a]'"
             />
 
-            <!-- 内容区 -->
-            <div class="min-w-0 flex-1 space-y-1.5">
-              <div class="flex items-center gap-2">
-                <!-- 维度微胶囊 -->
-                <span class="rounded bg-parchment px-2 py-0.5 text-fine font-medium text-ink">
-                  {{ item.dimension_name_snap }}
-                </span>
-                <!-- 倾向徽章 -->
-                <span
-                  class="rounded-full px-2 py-0.5 text-[11px] font-medium"
-                  :class="item.type === 'praise' ? 'bg-[#e8f5e9] text-[#248a3d]' : item.type === 'improve' ? 'bg-[#fff3e0] text-[#d97706]' : 'bg-[#f4f4f5] text-[#52525b]'"
-                >
-                  {{ item.type === "praise" ? "👍 表扬" : item.type === "improve" ? "⚠️ 待改进" : "➖ 中立" }}
-                </span>
-                <!-- 时间戳 -->
-                <span class="ml-auto text-[11px] text-weak">
-                  {{ item.created_at.slice(11, 16) || "" }}
-                </span>
-              </div>
+            <!-- 内容区：单行布局，具体评语收进语义图标的悬浮说明 -->
+            <div class="flex min-w-0 flex-1 items-center gap-2 flex-wrap">
+              <!-- 维度微胶囊 -->
+              <span class="rounded bg-parchment px-2 py-0.5 text-fine font-medium text-ink">
+                {{ item.dimension_name_snap }}
+              </span>
+              <!-- 倾向徽章 -->
+              <span
+                class="rounded-full px-2 py-0.5 text-[11px] font-medium"
+                :class="item.type === 'praise' ? 'bg-[#e8f5e9] text-[#248a3d]' : item.type === 'improve' ? 'bg-[#fff3e0] text-[#d97706]' : 'bg-[#f4f4f5] text-[#52525b]'"
+              >
+                {{ item.type === "praise" ? "👍 表扬" : item.type === "improve" ? "⚠️ 待改进" : "➖ 中立" }}
+              </span>
 
-              <!-- 评语文本 -->
-              <p class="text-caption text-ink leading-relaxed whitespace-pre-wrap">
-                {{ item.comment }}
-              </p>
+              <!-- 评语语义图标：悬浮显示具体评语，可在悬浮说明中两步确认删除 -->
+              <span
+                v-if="item.comment"
+                class="group/comment relative inline-flex"
+                @mouseleave="armedRemoveId = null"
+              >
+                <button
+                  type="button"
+                  class="inline-flex h-5 w-5 items-center justify-center rounded text-faint transition-colors hover:text-primary"
+                  aria-label="查看评语"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                  </svg>
+                </button>
+                <!-- 外层负责定位与悬浮桥接（padding 消除移动鼠标时的空隙），内层负责视觉 -->
+                <span
+                  role="tooltip"
+                  class="pointer-events-none absolute bottom-full left-1/2 z-10 -translate-x-1/2 pb-1.5 opacity-0 transition-opacity duration-150 group-hover/comment:pointer-events-auto group-hover/comment:opacity-100 group-focus-within/comment:pointer-events-auto group-focus-within/comment:opacity-100"
+                >
+                  <span class="block w-max max-w-[280px] rounded-sm bg-tile px-2.5 py-1.5 text-left text-fine leading-relaxed text-white shadow-md">
+                    <span class="block whitespace-pre-wrap">{{ item.comment }}</span>
+                    <span class="mt-1 flex items-center justify-end border-t border-white/15 pt-1">
+                      <button
+                        type="button"
+                        data-test="comment-delete-btn"
+                        class="rounded px-1.5 py-0.5 text-[11px] font-medium transition-colors"
+                        :class="armedRemoveId === item.id ? 'bg-[#d70015] text-white' : 'text-white/70 hover:bg-white/10 hover:text-white'"
+                        @click.stop="onRemoveClick(item.id)"
+                      >
+                        {{ armedRemoveId === item.id ? "确认删除" : "删除" }}
+                      </button>
+                    </span>
+                  </span>
+                </span>
+              </span>
+
+              <!-- 时间戳 -->
+              <span class="ml-auto text-[11px] text-weak">
+                {{ item.created_at.slice(11, 16) || "" }}
+              </span>
             </div>
           </div>
         </div>

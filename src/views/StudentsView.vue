@@ -6,11 +6,13 @@ import AppInput from "../components/ui/AppInput.vue";
 import StudentTable from "../components/StudentTable.vue";
 import StudentFormDialog from "../components/StudentFormDialog.vue";
 import ImportRosterDialog from "../components/ImportRosterDialog.vue";
+import ImportScoreDialog from "../components/ImportScoreDialog.vue";
 import EmptyState from "../components/ui/EmptyState.vue";
 import { createStudent, getStats, listStudents } from "../lib/db";
 import { onPageAction } from "../agent/page-action-bus";
 import type { ImportRosterMode } from "../agent/page-actions/students-import";
 
+import type { RosterImportResult, RosterTable } from "../lib/roster";
 import type { Stats, StudentInput, StudentRow } from "../types";
 
 const router = useRouter();
@@ -25,6 +27,39 @@ const dialogOpen = ref(false);
 const dialogInitial = ref<Partial<StudentInput> | null>(null);
 const importOpen = ref(false);
 const importMode = ref<ImportRosterMode>("smart");
+// 花名册对话框检测到成绩单后交接进来：携带已解析表格直接进入成绩导入
+const scoreImportOpen = ref(false);
+const scoreHandoff = ref<{ table: RosterTable; fileName: string } | null>(null);
+
+function switchToScoreImport(payload: { table: RosterTable; fileName: string }) {
+  importOpen.value = false;
+  scoreHandoff.value = payload;
+  scoreImportOpen.value = true;
+}
+
+function closeScoreImport() {
+  scoreImportOpen.value = false;
+  scoreHandoff.value = null;
+}
+
+/** 花名册导入完成：无失败行 → 关闭对话框并直接进入目标班级详情；有失败行 → 留在对话框看明细 */
+function onRosterImported(payload: { result: RosterImportResult; targetClass: string | null }) {
+  void refresh();
+  if (payload.result.failed.length > 0) return;
+  importOpen.value = false;
+  if (payload.targetClass) {
+    router.push({ name: "class-detail", params: { name: payload.targetClass } });
+  }
+}
+
+/** 成绩导入完成：关闭对话框并进入归属班级的详情页 */
+function onScoreImported(payload: { className: string | null }) {
+  closeScoreImport();
+  void refresh();
+  if (payload.className) {
+    router.push({ name: "class-detail", params: { name: payload.className } });
+  }
+}
 
 function openCreateDialog(preset?: Partial<StudentInput> | null) {
   dialogInitial.value = preset ?? null;
@@ -158,6 +193,15 @@ const cards = () => [
     :open="importOpen"
     :initial-mode="importMode"
     @close="importOpen = false"
-    @imported="refresh"
+    @imported="onRosterImported"
+    @switch-to-scores="switchToScoreImport"
+  />
+
+  <ImportScoreDialog
+    :open="scoreImportOpen"
+    :initial-table="scoreHandoff?.table ?? null"
+    :initial-file-name="scoreHandoff?.fileName ?? ''"
+    @close="closeScoreImport"
+    @imported="onScoreImported"
   />
 </template>

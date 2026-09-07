@@ -174,21 +174,71 @@ describe("prepareRosterRows", () => {
 describe("importRosterStudents", () => {
   const nos = ["9000011", "9000012"];
 
-  it("imports new students and skips ones already in the database", async () => {
+  it("imports new students and overwrites same name+no records on re-import", async () => {
     await cleanupByNos(nos);
     try {
       const first = parseRosterTable(TEMPLATE_TEXT.replace(/9000001/g, "9000011").replace(/9000002/g, "9000012"));
-      const result = await importRosterStudents(prepareRosterRows(first, detectFieldMapping(first, 0)));
+      const prep = prepareRosterRows(first, detectFieldMapping(first, 0));
+      const result = await importRosterStudents(prep);
       expect(result.imported).toBe(2);
+      expect(result.updated).toBe(0);
       expect(result.skipped).toEqual([]);
 
-      // 幂等：同一份文件重复导入 → 全部跳过
-      const again = await importRosterStudents(prepareRosterRows(first, detectFieldMapping(first, 0)));
+      // 重复导入同一文件：姓名与学号均相同 → 覆盖更新，不产生重复学生，记录 id 不变
+      const before = (await listStudents()).filter((s) => nos.includes(s.student_no));
+      const again = await importRosterStudents(prep);
       expect(again.imported).toBe(0);
-      expect(again.skipped).toHaveLength(2);
-      expect(again.skipped[0].reason).toContain("已存在");
+      expect(again.updated).toBe(2);
+      expect(again.skipped).toEqual([]);
+      const after = (await listStudents()).filter((s) => nos.includes(s.student_no));
+      expect(after).toHaveLength(2);
+      expect(after.map((s) => s.id).sort()).toEqual(before.map((s) => s.id).sort());
     } finally {
       await cleanupByNos(nos);
+    }
+  });
+
+  it("overwrites fields with the newly uploaded data for same name+no", async () => {
+    const no = "9000013";
+    await cleanupByNos([no]);
+    try {
+      const v1 = parseRosterTable("姓名,学号,出生日期,监护人,联系电话\n覆盖测试生,9000013,2017-01-01,旧监护人,13800000001");
+      await importRosterStudents(prepareRosterRows(v1, detectFieldMapping(v1, 0)));
+
+      const v2 = parseRosterTable("姓名,学号,出生日期,监护人,联系电话\n覆盖测试生,9000013,2017-02-02,新监护人,13800000002");
+      const result = await importRosterStudents(prepareRosterRows(v2, detectFieldMapping(v2, 0)));
+      expect(result.updated).toBe(1);
+      expect(result.imported).toBe(0);
+
+      const [s] = (await listStudents()).filter((x) => x.student_no === no);
+      expect(s.birth_date).toBe("2017-02-02");
+      expect(s.guardians[0].name).toBe("新监护人");
+      expect(s.guardians[0].phone).toBe("13800000002");
+    } finally {
+      await cleanupByNos([no]);
+    }
+  });
+
+  it("skips same student_no with different name instead of overwriting", async () => {
+    const no = "9000014";
+    await cleanupByNos([no]);
+    try {
+      const v1 = parseRosterTable("姓名,学号\n学号占用者,9000014");
+      await importRosterStudents(prepareRosterRows(v1, detectFieldMapping(v1, 0)));
+      const before = (await listStudents()).find((s) => s.student_no === no);
+
+      const v2 = parseRosterTable("姓名,学号\n冒名顶替者,9000014");
+      const result = await importRosterStudents(prepareRosterRows(v2, detectFieldMapping(v2, 0)));
+      expect(result.imported).toBe(0);
+      expect(result.updated).toBe(0);
+      expect(result.skipped[0].reason).toContain("姓名不一致");
+
+      // 原记录未被改动
+      const after = (await listStudents()).find((s) => s.student_no === no);
+      expect(after?.id).toBe(before?.id);
+      expect(after?.name).toBe("学号占用者");
+    } finally {
+      await cleanupByNos([no]);
     }
   });
 

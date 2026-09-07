@@ -1,22 +1,43 @@
 import Database from "@tauri-apps/plugin-sql";
 import { localDateStr } from "./format";
+import { currentSemester, parsePeriodsJson } from "./timetable";
 import { DEFAULT_PROFILE } from "../types";
 import type {
   BehaviorDimension,
   BehaviorInput,
+  CalendarEvent,
+  CalendarEventType,
   ClassBehaviorRecord,
+  ClassScoreOverviewRow,
+  ClassSnapshot,
   ClassSummary,
   CommentPreset,
+  Exam,
+  ExamInput,
+  ExamScore,
+  ExamScoreRow,
+  ExamWithStats,
   Gender,
   Guardian,
   Photo,
   Profile,
-  Stats,
+  RecycleEntityType,
+  RecycleItem,
   Student,
   StudentBehaviorRecord,
+  StudentExamScore,
   StudentInput,
   StudentRow,
+  StudentSnapshot,
+  Stats,
+  Timetable,
+  TimetableException,
+  TimetableExceptionWithClass,
+  TimetablePeriod,
+  TimetableSlot,
+  TimetableSlotWithClass,
 } from "../types";
+import { RECYCLE_RETENTION_DAYS } from "../types";
 
 /** 是否在 Tauri 外壳里运行；浏览器里跑 dev 时走内存兜底，方便调样式。 */
 export const isTauri = (): boolean =>
@@ -26,9 +47,241 @@ const DB_URL = "sqlite:aprilio.db";
 
 let dbPromise: Promise<Database> | null = null;
 
+/**
+ * 前端持有的表结构契约（与 src-tauri/src/lib.rs 迁移保持同构，tests/schema-sync.test.ts 对账）。
+ * 启动时幂等执行一遍：即使本地调试库的迁移版本历史与代码不一致
+ * （例如版本号曾被历史迁移占用，导致新迁移被跳过），也不会出现「no such table」。
+ */
+const SCHEMA_DDL: string[] = [
+  `CREATE TABLE IF NOT EXISTS students (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT NOT NULL DEFAULT '',
+    gender      TEXT NOT NULL DEFAULT '男',
+    birth_date  TEXT,
+    student_no  TEXT,
+    grade_class TEXT,
+    id_card     TEXT,
+    address     TEXT,
+    status      TEXT NOT NULL DEFAULT 'active',
+    note        TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+  )`,
+  `CREATE TABLE IF NOT EXISTS guardians (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id INTEGER NOT NULL,
+    name       TEXT NOT NULL DEFAULT '',
+    phone      TEXT NOT NULL DEFAULT '',
+    relation   TEXT NOT NULL DEFAULT '监护人',
+    is_primary INTEGER NOT NULL DEFAULT 0,
+    occupation TEXT NOT NULL DEFAULT '',
+    tags       TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_guardians_student_id ON guardians(student_id)`,
+  `CREATE TABLE IF NOT EXISTS photos (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id  INTEGER,
+    grade_class TEXT,
+    file_name   TEXT NOT NULL,
+    caption     TEXT,
+    taken_at    TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE
+  )`,
+  `CREATE TABLE IF NOT EXISTS classes (
+    name       TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+  )`,
+  `CREATE TABLE IF NOT EXISTS profile (
+    id         INTEGER PRIMARY KEY,
+    name       TEXT NOT NULL DEFAULT '',
+    title      TEXT NOT NULL DEFAULT '',
+    motto      TEXT NOT NULL DEFAULT '',
+    avatar     TEXT NOT NULL DEFAULT '',
+    hero       TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+  )`,
+  `INSERT INTO profile (id) VALUES (1) ON CONFLICT(id) DO NOTHING`,
+  `CREATE TABLE IF NOT EXISTS behavior_dimensions (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    category    TEXT NOT NULL DEFAULT 'study',
+    code        TEXT NOT NULL UNIQUE,
+    name        TEXT NOT NULL,
+    icon        TEXT,
+    sort_order  INTEGER NOT NULL DEFAULT 0,
+    is_system   INTEGER NOT NULL DEFAULT 1,
+    is_active   INTEGER NOT NULL DEFAULT 1,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+  )`,
+  `CREATE TABLE IF NOT EXISTS student_behavior_records (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id          INTEGER NOT NULL,
+    dimension_id        INTEGER NOT NULL,
+    dimension_name_snap TEXT NOT NULL,
+    category_snap       TEXT NOT NULL,
+    type                TEXT NOT NULL DEFAULT 'praise',
+    comment             TEXT NOT NULL,
+    recorded_date       TEXT NOT NULL,
+    created_at          TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE,
+    FOREIGN KEY (dimension_id) REFERENCES behavior_dimensions(id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_behavior_student_date ON student_behavior_records(student_id, recorded_date)`,
+  `CREATE INDEX IF NOT EXISTS idx_behavior_recorded_date ON student_behavior_records(recorded_date)`,
+  `CREATE INDEX IF NOT EXISTS idx_behavior_dimension ON student_behavior_records(dimension_id)`,
+  `CREATE TABLE IF NOT EXISTS behavior_comment_presets (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    dimension_id INTEGER NOT NULL,
+    type         TEXT NOT NULL DEFAULT 'praise',
+    content      TEXT NOT NULL,
+    use_count    INTEGER NOT NULL DEFAULT 1,
+    source       TEXT NOT NULL DEFAULT 'system',
+    last_used_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    FOREIGN KEY (dimension_id) REFERENCES behavior_dimensions(id) ON DELETE CASCADE
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_comment_presets_dim_type ON behavior_comment_presets(dimension_id, type, use_count DESC)`,
+  `CREATE TABLE IF NOT EXISTS recycle_bin (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    entity_type TEXT NOT NULL,
+    label       TEXT NOT NULL,
+    summary     TEXT NOT NULL DEFAULT '',
+    payload     TEXT NOT NULL,
+    deleted_at  TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_recycle_bin_deleted_at ON recycle_bin(deleted_at)`,
+  `CREATE TABLE IF NOT EXISTS exams (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    class_name  TEXT NOT NULL,
+    name        TEXT NOT NULL,
+    exam_date   TEXT NOT NULL,
+    note        TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_exams_class_date ON exams(class_name, exam_date)`,
+  `CREATE TABLE IF NOT EXISTS exam_scores (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    exam_id     INTEGER NOT NULL,
+    student_id  INTEGER NOT NULL,
+    subject     TEXT NOT NULL,
+    score       REAL,
+    grade       TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    UNIQUE (exam_id, student_id, subject),
+    FOREIGN KEY (exam_id) REFERENCES exams(id) ON DELETE CASCADE,
+    FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_exam_scores_exam ON exam_scores(exam_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_exam_scores_student ON exam_scores(student_id)`,
+  `CREATE TABLE IF NOT EXISTS timetables (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    class_name   TEXT NOT NULL,
+    semester     TEXT NOT NULL,
+    note         TEXT,
+    periods_json TEXT,
+    created_at   TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    updated_at   TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    UNIQUE (class_name, semester)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_timetables_class ON timetables(class_name, semester)`,
+  `CREATE TABLE IF NOT EXISTS timetable_slots (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    timetable_id INTEGER NOT NULL,
+    day_of_week  INTEGER NOT NULL,
+    period       INTEGER NOT NULL,
+    subject      TEXT NOT NULL DEFAULT '',
+    note         TEXT,
+    updated_at   TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    UNIQUE (timetable_id, day_of_week, period),
+    FOREIGN KEY (timetable_id) REFERENCES timetables(id) ON DELETE CASCADE
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_timetable_slots_timetable ON timetable_slots(timetable_id)`,
+  `CREATE TABLE IF NOT EXISTS timetable_exceptions (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    timetable_id   INTEGER NOT NULL,
+    exception_date TEXT NOT NULL,
+    period         INTEGER NOT NULL,
+    subject        TEXT NOT NULL DEFAULT '',
+    note           TEXT,
+    created_at     TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    updated_at     TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    UNIQUE (timetable_id, exception_date, period),
+    FOREIGN KEY (timetable_id) REFERENCES timetables(id) ON DELETE CASCADE
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_timetable_exceptions_date ON timetable_exceptions(exception_date)`,
+  `CREATE TABLE IF NOT EXISTS calendar_events (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    class_name TEXT,
+    event_date TEXT NOT NULL,
+    type       TEXT NOT NULL DEFAULT 'memo',
+    period     INTEGER,
+    content    TEXT NOT NULL,
+    title      TEXT,
+    done       INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_calendar_events_date ON calendar_events(event_date)`,
+  `CREATE INDEX IF NOT EXISTS idx_calendar_events_class_date ON calendar_events(class_name, event_date)`,
+];
+
+/**
+ * 旧 calendar_memos（v3 及以前）→ calendar_events（v4 起）的一次性数据迁移。
+ * 迁移已在 v4 SQL 里做过；这里兜底「迁移历史混乱、v4 被跳过但 ensureSchema 已建新表」
+ * 的调试库：能查到旧表就把数据搬过去再删旧表，查不到（正常路径）就静默跳过。
+ */
+export async function migrateLegacyCalendarMemos(db: Database): Promise<void> {
+  let legacy: { class_name: string; memo_date: string; content: string; done: number }[];
+  try {
+    legacy = await db.select(
+      "SELECT class_name, memo_date, content, done FROM calendar_memos WHERE TRIM(content) != ''"
+    );
+  } catch {
+    return; // 旧表不存在：v4 已迁移并删除
+  }
+  for (const m of legacy) {
+    await db.execute(
+      "INSERT INTO calendar_events (class_name, event_date, type, content, done) VALUES (?, ?, 'memo', ?, ?)",
+      [m.class_name, m.memo_date, m.content, m.done]
+    );
+  }
+  await db.execute("DROP TABLE calendar_memos");
+}
+
+async function ensureSchema(db: Database): Promise<void> {
+  for (const sql of SCHEMA_DDL) {
+    await db.execute(sql);
+  }
+  try {
+    await db.execute("ALTER TABLE profile ADD COLUMN my_subjects TEXT");
+  } catch {
+    /* 列已存在：迁移或上次启动已补齐 */
+  }
+  try {
+    // 日程事件绑定节次（2026-09-07）：旧库幂等补列；period 为 NULL = 全天/日报事件
+    await db.execute("ALTER TABLE calendar_events ADD COLUMN period INTEGER");
+  } catch {
+    /* 列已存在 */
+  }
+  try {
+    // 日程事件 AI 快速浏览标题（2026-09-07）：旧库幂等补列；NULL = 未生成（未配置 AI 退回前几字）
+    await db.execute("ALTER TABLE calendar_events ADD COLUMN title TEXT");
+  } catch {
+    /* 列已存在 */
+  }
+  await migrateLegacyCalendarMemos(db);
+}
+
 function getDb(): Promise<Database> {
   if (!dbPromise) {
-    dbPromise = Database.load(DB_URL).catch((e: unknown) => {
+    dbPromise = (async () => {
+      const db = await Database.load(DB_URL);
+      await ensureSchema(db);
+      return db;
+    })().catch((e: unknown) => {
       dbPromise = null;
       throw e;
     });
@@ -48,17 +301,32 @@ interface MemoryStore {
   behaviorDimensions: BehaviorDimension[];
   behaviorRecords: StudentBehaviorRecord[];
   commentPresets: (CommentPreset & { last_used_at: string })[];
+  recycleBin: RecycleItem[];
+  exams: Exam[];
+  examScores: ExamScore[];
+  timetables: Timetable[];
+  timetableSlots: TimetableSlot[];
+  timetableExceptions: TimetableException[];
+  calendarEvents: CalendarEvent[];
   nextStudentId: number;
   nextPhotoId: number;
   nextGuardianId: number;
   nextDimensionId: number;
   nextBehaviorRecordId: number;
   nextCommentPresetId: number;
+  nextRecycleId: number;
+  nextExamId: number;
+  nextExamScoreId: number;
+  nextTimetableId: number;
+  nextTimetableSlotId: number;
+  nextTimetableExceptionId: number;
+  nextCalendarEventId: number;
 }
 
-const now = () => new Date().toISOString().slice(0, 19).replace("T", " ");
+/** 与 SQLite datetime('now','localtime') 同格式的本地时间戳 */
+const now = () => fmtLocalTs(new Date());
 
-/** 与 Rust Migration 5 的种子数据保持一致，浏览器演示态/单测共用 */
+/** 与 Rust 迁移种子数据保持一致，浏览器演示态/单测共用 */
 const BEHAVIOR_DIMENSIONS: BehaviorDimension[] = [
   { id: 1, category: "study", code: "homework", name: "作业情况", icon: "BookOpen", sort_order: 1, is_system: 1, is_active: 1 },
   { id: 2, category: "study", code: "exam", name: "单元/期中期末成绩", icon: "GraduationCap", sort_order: 2, is_system: 1, is_active: 1 },
@@ -106,6 +374,8 @@ function seedStore(): MemoryStore {
 
   const guardians: Guardian[] = [];
   let gid = 1;
+  const fatherJobs = ["工程师", "个体经营", "公务员", "司机", "销售"];
+  const motherJobs = ["教师", "护士", "会计", "全职妈妈", "设计师"];
 
   const students: Student[] = names.map(([name, gender, birth, klass, phone], i) => {
     const sid = i + 1;
@@ -116,6 +386,8 @@ function seedStore(): MemoryStore {
       phone,
       relation: "父亲",
       is_primary: true,
+      occupation: fatherJobs[i % fatherJobs.length],
+      tags: i % 2 === 0 ? ["积极配合"] : ["严格"],
     });
     guardians.push({
       id: gid++,
@@ -124,6 +396,8 @@ function seedStore(): MemoryStore {
       phone: phone.replace("8", "9"),
       relation: "母亲",
       is_primary: false,
+      occupation: motherJobs[i % motherJobs.length],
+      tags: ["沟通顺畅"],
     });
     return {
       id: sid,
@@ -132,7 +406,7 @@ function seedStore(): MemoryStore {
       birth_date: birth,
       student_no: `2023000${String(1 + i)}`,
       grade_class: klass,
-      enroll_date: "2024-09-01",
+      id_card: null,
       address: "杭州市西湖区文三路 128 号",
       status: "active",
       note: null,
@@ -178,6 +452,117 @@ function seedStore(): MemoryStore {
     new Set(students.map((s) => s.grade_class).filter(Boolean))
   );
 
+  // 演示课表：三年级二班整周 + 三年级一班少量格子；
+  // 周一第 2 节两个班都有语文 → 演示「我的课表」跨班聚合与撞课告警
+  const demoTimetableEntries: [string, [number, number, string, string?][]][] = [
+    [
+      "三年级二班",
+      [
+        [1, 1, "数学"],
+        [1, 2, "语文"],
+        [1, 3, "英语"],
+        [1, 5, "体育"],
+        [1, 6, "音乐"],
+        [2, 1, "语文"],
+        [2, 2, "数学"],
+        [2, 3, "美术"],
+        [2, 5, "道德与法治"],
+        [3, 1, "语文"],
+        [3, 2, "数学"],
+        [3, 3, "科学"],
+        [3, 5, "信息科技", "去机房"],
+        [4, 1, "数学"],
+        [4, 2, "语文"],
+        [4, 3, "体育"],
+        [4, 5, "劳动"],
+        [5, 1, "英语"],
+        [5, 2, "数学"],
+        [5, 3, "语文"],
+        [5, 5, "班会"],
+      ],
+    ],
+    [
+      "三年级一班",
+      [
+        [1, 1, "数学"],
+        [1, 2, "语文"],
+        [1, 3, "英语"],
+        [3, 1, "语文"],
+        [3, 2, "数学"],
+        [5, 3, "语文"],
+      ],
+    ],
+  ];
+
+  const semester = currentSemester();
+  const timetables: Timetable[] = [];
+  const timetableSlots: TimetableSlot[] = [];
+  let timetableId = 1;
+  let slotId = 1;
+  for (const [className, entries] of demoTimetableEntries) {
+    const tid = timetableId++;
+    timetables.push({
+      id: tid,
+      class_name: className,
+      semester,
+      note: null,
+      periods: null,
+      created_at: base,
+      updated_at: base,
+    });
+    for (const [day, period, subject, note] of entries) {
+      timetableSlots.push({
+        id: slotId++,
+        timetable_id: tid,
+        day_of_week: day,
+        period,
+        subject,
+        note: note ?? null,
+        updated_at: base,
+      });
+    }
+  }
+
+  // 演示日程事件：班级事件（type 区分）+ 教师个人事件（class_name 为 null）
+  const localDate = (offsetDays: number) => {
+    const d = new Date();
+    d.setDate(d.getDate() + offsetDays);
+    const p = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  };
+  const calendarEvents: CalendarEvent[] = [
+    { id: 1, class_name: "三年级二班", event_date: localDate(1), type: "todo", period: null, content: "收秋游回执单", title: null, done: 0, created_at: base, updated_at: base },
+    { id: 2, class_name: "三年级二班", event_date: localDate(3), type: "memo", period: null, content: "大课间彩排", title: null, done: 0, created_at: base, updated_at: base },
+    { id: 3, class_name: "三年级二班", event_date: localDate(-2), type: "memo", period: null, content: "班委开会", title: null, done: 1, created_at: base, updated_at: base },
+    { id: 4, class_name: "三年级二班", event_date: localDate(2), type: "exam", period: 6, content: "数学第一单元测验", title: null, done: 0, created_at: base, updated_at: base },
+    { id: 5, class_name: null, event_date: localDate(0), type: "homework", period: 4, content: "布置语文第 3 课抄写", title: null, done: 0, created_at: base, updated_at: base },
+    { id: 6, class_name: null, event_date: localDate(0), type: "todo", period: null, content: "下午教研组会议", title: null, done: 0, created_at: base, updated_at: base },
+  ];
+
+  // 演示调课例外：明天第 6 节停课（彩排）、后天第 7 节加一节语文
+  const timetableExceptions: TimetableException[] = [
+    {
+      id: 1,
+      timetable_id: 1,
+      exception_date: localDate(1),
+      period: 6,
+      subject: "",
+      note: "大课间彩排",
+      created_at: base,
+      updated_at: base,
+    },
+    {
+      id: 2,
+      timetable_id: 1,
+      exception_date: localDate(2),
+      period: 7,
+      subject: "语文",
+      note: "调课补课",
+      created_at: base,
+      updated_at: base,
+    },
+  ];
+
   return {
     students,
     photos,
@@ -194,12 +579,26 @@ function seedStore(): MemoryStore {
       source: "system" as const,
       last_used_at: base,
     })),
+    recycleBin: [],
+    exams: [],
+    examScores: [],
+    timetables,
+    timetableSlots,
+    timetableExceptions,
+    calendarEvents,
     nextStudentId: 11,
     nextPhotoId: pid,
     nextGuardianId: gid,
     nextDimensionId: BEHAVIOR_DIMENSIONS.length + 1,
     nextBehaviorRecordId: 1,
     nextCommentPresetId: BEHAVIOR_PRESET_SEED.length + 1,
+    nextRecycleId: 1,
+    nextExamId: 1,
+    nextExamScoreId: 1,
+    nextTimetableId: timetableId,
+    nextTimetableSlotId: slotId,
+    nextTimetableExceptionId: timetableExceptions.length + 1,
+    nextCalendarEventId: calendarEvents.length + 1,
   };
 }
 
@@ -207,6 +606,61 @@ let memory: MemoryStore | null = null;
 function mem(): MemoryStore {
   if (!memory) memory = seedStore();
   return memory;
+}
+
+/* ------------------------------------------------------------------ */
+/* 回收站：快照存取辅助                                                  */
+/* ------------------------------------------------------------------ */
+
+const RETENTION_MS = RECYCLE_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+
+/** "2026-09-06 10:00:00" 格式化 */
+function fmtLocalTs(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+/** deleted_at + 保留天数 → 过期时间戳 */
+function expireAtOf(deletedAt: string): string {
+  const t = new Date(deletedAt.replace(" ", "T")).getTime();
+  if (Number.isNaN(t)) return deletedAt;
+  return fmtLocalTs(new Date(t + RETENTION_MS));
+}
+
+/** 距彻底删除还剩几天（向上取整，最小 0） */
+export function recycleRemainingDays(item: Pick<RecycleItem, "expire_at">, now = new Date()): number {
+  const expire = new Date(item.expire_at.replace(" ", "T")).getTime();
+  if (Number.isNaN(expire)) return 0;
+  return Math.max(0, Math.ceil((expire - now.getTime()) / (24 * 60 * 60 * 1000)));
+}
+
+/** 监护人标签解析：JSON 数组字符串 / 已是数组 / 脏数据 → string[] */
+function parseTags(raw: unknown): string[] {
+  if (Array.isArray(raw)) return raw.filter((t): t is string => typeof t === "string");
+  if (typeof raw !== "string" || !raw.trim()) return [];
+  try {
+    const arr: unknown = JSON.parse(raw);
+    return Array.isArray(arr) ? arr.filter((t): t is string => typeof t === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+/** 快照里抽出的照片元数据 */
+interface PhotoSnapshot {
+  grade_class?: string | null;
+  file_name: string;
+  caption: string | null;
+  taken_at: string | null;
+}
+
+function photoSnap(p: Pick<Photo, "grade_class" | "file_name" | "caption" | "taken_at">): PhotoSnapshot {
+  return {
+    grade_class: p.grade_class ?? null,
+    file_name: p.file_name,
+    caption: p.caption ?? null,
+    taken_at: p.taken_at ?? null,
+  };
 }
 
 /* ------------------------------------------------------------------ */
@@ -278,7 +732,12 @@ export async function getStudent(id: number): Promise<Student | null> {
     const sGuardians = mem().guardians.filter((g) => g.student_id === id);
     return {
       ...student,
-      guardians: sGuardians,
+      guardians: sGuardians.map((g) => ({
+        ...g,
+        is_primary: Boolean(g.is_primary),
+        occupation: g.occupation ?? "",
+        tags: parseTags(g.tags),
+      })),
     };
   }
   const db = await getDb();
@@ -291,7 +750,12 @@ export async function getStudent(id: number): Promise<Student | null> {
   );
   return {
     ...student,
-    guardians: guardians.map((g) => ({ ...g, is_primary: Boolean(g.is_primary) })),
+    guardians: guardians.map((g) => ({
+      ...g,
+      is_primary: Boolean(g.is_primary),
+      occupation: g.occupation ?? "",
+      tags: parseTags(g.tags),
+    })),
   };
 }
 
@@ -319,7 +783,7 @@ export async function createStudent(input: StudentInput): Promise<number> {
   const db = await getDb();
   const result = await db.execute(
     `INSERT INTO students
-       (name, gender, birth_date, student_no, grade_class, enroll_date,
+       (name, gender, birth_date, student_no, grade_class, id_card,
         address, status, note, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'))`,
     [
@@ -328,7 +792,7 @@ export async function createStudent(input: StudentInput): Promise<number> {
       input.birth_date,
       input.student_no,
       input.grade_class,
-      input.enroll_date,
+      input.id_card,
       input.address,
       input.status,
       input.note,
@@ -338,8 +802,16 @@ export async function createStudent(input: StudentInput): Promise<number> {
   if (studentId && input.guardians?.length) {
     for (const g of input.guardians) {
       await db.execute(
-        "INSERT INTO guardians (student_id, name, phone, relation, is_primary) VALUES (?, ?, ?, ?, ?)",
-        [studentId, g.name, g.phone, g.relation, g.is_primary ? 1 : 0]
+        "INSERT INTO guardians (student_id, name, phone, relation, is_primary, occupation, tags) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        [
+          studentId,
+          g.name,
+          g.phone,
+          g.relation,
+          g.is_primary ? 1 : 0,
+          g.occupation ?? "",
+          JSON.stringify(g.tags ?? []),
+        ]
       );
     }
   }
@@ -372,7 +844,7 @@ export async function updateStudent(id: number, input: StudentInput): Promise<vo
   await db.execute(
     `UPDATE students
         SET name = ?, gender = ?, birth_date = ?, student_no = ?, grade_class = ?,
-            enroll_date = ?, address = ?, status = ?, note = ?, updated_at = datetime('now','localtime')
+            id_card = ?, address = ?, status = ?, note = ?, updated_at = datetime('now','localtime')
       WHERE id = ?`,
     [
       input.name,
@@ -380,7 +852,7 @@ export async function updateStudent(id: number, input: StudentInput): Promise<vo
       input.birth_date,
       input.student_no,
       input.grade_class,
-      input.enroll_date,
+      input.id_card,
       input.address,
       input.status,
       input.note,
@@ -391,28 +863,416 @@ export async function updateStudent(id: number, input: StudentInput): Promise<vo
   if (input.guardians?.length) {
     for (const g of input.guardians) {
       await db.execute(
-        "INSERT INTO guardians (student_id, name, phone, relation, is_primary) VALUES (?, ?, ?, ?, ?)",
-        [id, g.name, g.phone, g.relation, g.is_primary ? 1 : 0]
+        "INSERT INTO guardians (student_id, name, phone, relation, is_primary, occupation, tags) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        [
+          id,
+          g.name,
+          g.phone,
+          g.relation,
+          g.is_primary ? 1 : 0,
+          g.occupation ?? "",
+          JSON.stringify(g.tags ?? []),
+        ]
       );
     }
   }
 }
 
+/** 学生完整快照（供回收站与恢复使用，浏览器/SQLite 双通道共用） */
+function buildStudentSnapshot(
+  student: Student,
+  guardians: Guardian[],
+  photos: Photo[],
+  behaviors: StudentBehaviorRecord[]
+): StudentSnapshot {
+  return {
+    student: {
+      name: student.name,
+      gender: student.gender,
+      birth_date: student.birth_date ?? null,
+      student_no: student.student_no ?? "",
+      grade_class: student.grade_class ?? "",
+      id_card: student.id_card ?? null,
+      address: student.address ?? null,
+      status: student.status ?? "active",
+      note: student.note ?? null,
+    },
+    guardians: guardians.map((g) => ({
+      name: g.name ?? "",
+      phone: g.phone ?? "",
+      relation: g.relation ?? "监护人",
+      is_primary: Boolean(g.is_primary),
+      occupation: g.occupation ?? "",
+      tags: parseTags(g.tags),
+    })),
+    photos: photos.map(photoSnap),
+    behaviors: behaviors.map((b) => ({
+      dimension_id: b.dimension_id,
+      dimension_name_snap: b.dimension_name_snap,
+      category_snap: b.category_snap,
+      type: b.type,
+      comment: b.comment,
+      recorded_date: b.recorded_date,
+      created_at: b.created_at,
+    })),
+  };
+}
+
+/** 学生快照摘要：班级 · 照片数 · 表现条数 */
+function studentSummary(snap: StudentSnapshot): string {
+  const parts = [snap.student.grade_class || "未分班"];
+  if (snap.student.student_no) parts.push(`学号 ${snap.student.student_no}`);
+  parts.push(`照片 ${snap.photos.length} 张`, `表现 ${snap.behaviors.length} 条`);
+  return parts.join(" · ");
+}
+
+/**
+ * 删除学生 → 移入回收站（保留 7 天）。
+ * 档案、监护人、照片记录与表现流水整体进快照；落盘图片在彻底删除前不清理，
+ * 以便随时恢复。
+ */
 export async function deleteStudent(id: number): Promise<void> {
   if (!isTauri()) {
     const store = mem();
-    store.students = store.students.filter((s) => s.id !== id);
-    store.photos = store.photos.filter((p) => p.student_id !== id);
+    const idx = store.students.findIndex((s) => s.id === id);
+    if (idx === -1) return;
+    const [student] = store.students.splice(idx, 1);
+    const guardians = store.guardians.filter((g) => g.student_id === id);
     store.guardians = store.guardians.filter((g) => g.student_id !== id);
+    const photos = store.photos.filter((p) => p.student_id === id);
+    store.photos = store.photos.filter((p) => p.student_id !== id);
+    const behaviors = store.behaviorRecords.filter((r) => r.student_id === id);
     store.behaviorRecords = store.behaviorRecords.filter((r) => r.student_id !== id);
+    store.examScores = store.examScores.filter((r) => r.student_id !== id);
+
+    const snap = buildStudentSnapshot(student, guardians, photos, behaviors);
+    const ts = now();
+    store.recycleBin.unshift({
+      id: store.nextRecycleId++,
+      entity_type: "student",
+      label: student.name,
+      summary: studentSummary(snap),
+      payload: snap,
+      deleted_at: ts,
+      expire_at: expireAtOf(ts),
+    });
     return;
   }
 
   const db = await getDb();
+  const rows = await db.select<Student[]>("SELECT * FROM students WHERE id = ?", [id]);
+  const student = rows[0];
+  if (!student) return;
+  const guardians = await db.select<Guardian[]>(
+    "SELECT * FROM guardians WHERE student_id = ? ORDER BY is_primary DESC, id ASC",
+    [id]
+  );
+  const photos = await db.select<Photo[]>("SELECT * FROM photos WHERE student_id = ?", [id]);
+  const behaviors = await db.select<StudentBehaviorRecord[]>(
+    "SELECT * FROM student_behavior_records WHERE student_id = ?",
+    [id]
+  );
+
+  const snap = buildStudentSnapshot(student, guardians, photos, behaviors);
+  await db.execute(
+    "INSERT INTO recycle_bin (entity_type, label, summary, payload) VALUES ('student', ?, ?, ?)",
+    [student.name, studentSummary(snap), JSON.stringify(snap)]
+  );
   await db.execute("DELETE FROM guardians WHERE student_id = ?", [id]);
   await db.execute("DELETE FROM photos WHERE student_id = ?", [id]);
   await db.execute("DELETE FROM student_behavior_records WHERE student_id = ?", [id]);
+  await db.execute("DELETE FROM exam_scores WHERE student_id = ?", [id]);
   await db.execute("DELETE FROM students WHERE id = ?", [id]);
+}
+
+/* ------------------------------------------------------------------ */
+/* 回收站：列表 / 恢复 / 彻底删除 / 过期清理                              */
+/* ------------------------------------------------------------------ */
+
+/** SQLite 回收站行（payload 为 JSON 字符串） */
+interface RecycleBinRow {
+  id: number;
+  entity_type: string;
+  label: string;
+  summary: string;
+  payload: string | ClassSnapshot | StudentSnapshot;
+  deleted_at: string;
+}
+
+/** 行 → 回收站条目：补 expire_at，payload 按需 JSON 反序列化 */
+function toRecycleItem(row: RecycleBinRow): RecycleItem {
+  let payload: ClassSnapshot | StudentSnapshot;
+  if (typeof row.payload === "string") {
+    try {
+      payload = JSON.parse(row.payload);
+    } catch {
+      payload = { name: row.label, students: [], classPhotos: [] };
+    }
+  } else {
+    payload = row.payload;
+  }
+  return {
+    id: Number(row.id),
+    entity_type: row.entity_type as RecycleEntityType,
+    label: row.label,
+    summary: row.summary ?? "",
+    payload,
+    deleted_at: row.deleted_at,
+    expire_at: expireAtOf(row.deleted_at),
+  };
+}
+
+/** 快照里所有照片文件名（彻底删除时同步清落盘文件） */
+function snapshotFileNames(payload: ClassSnapshot | StudentSnapshot): string[] {
+  if ("classPhotos" in payload) {
+    return [
+      ...payload.classPhotos.map((p) => p.file_name),
+      ...payload.students.flatMap((s) => s.photos.map((p) => p.file_name)),
+    ];
+  }
+  return payload.photos.map((p) => p.file_name);
+}
+
+/** 恢复一条学生快照（重新分配 ID，照片/监护人/表现流水重新挂接） */
+async function insertStudentSnapshot(db: Database, snap: StudentSnapshot): Promise<number> {
+  const result = await db.execute(
+    `INSERT INTO students
+       (name, gender, birth_date, student_no, grade_class, id_card,
+        address, status, note, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'), datetime('now','localtime'))`,
+    [
+      snap.student.name,
+      snap.student.gender,
+      snap.student.birth_date,
+      snap.student.student_no,
+      snap.student.grade_class,
+      snap.student.id_card,
+      snap.student.address,
+      snap.student.status,
+      snap.student.note,
+    ]
+  );
+  const studentId = Number(result.lastInsertId ?? 0);
+
+  for (const g of snap.guardians) {
+    await db.execute(
+      "INSERT INTO guardians (student_id, name, phone, relation, is_primary, occupation, tags) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      [studentId, g.name, g.phone, g.relation, g.is_primary ? 1 : 0, g.occupation ?? "", JSON.stringify(g.tags ?? [])]
+    );
+  }
+  for (const p of snap.photos) {
+    await db.execute(
+      "INSERT INTO photos (student_id, grade_class, file_name, caption, taken_at) VALUES (?, ?, ?, ?, ?)",
+      [studentId, p.grade_class ?? null, p.file_name, p.caption, p.taken_at]
+    );
+  }
+  for (const b of snap.behaviors) {
+    await db.execute(
+      `INSERT INTO student_behavior_records
+         (student_id, dimension_id, dimension_name_snap, category_snap, type, comment, recorded_date, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        studentId,
+        b.dimension_id,
+        b.dimension_name_snap,
+        b.category_snap,
+        b.type,
+        b.comment,
+        b.recorded_date,
+        b.created_at,
+      ]
+    );
+  }
+  return studentId;
+}
+
+/** 内存态恢复学生快照（返回新学生 ID） */
+function insertStudentSnapshotMemory(store: MemoryStore, snap: StudentSnapshot): number {
+  const id = store.nextStudentId++;
+  const ts = now();
+  const guardians: Guardian[] = snap.guardians.map((g) => ({
+    ...g,
+    id: store.nextGuardianId++,
+    student_id: id,
+  }));
+  store.guardians.push(...guardians);
+  const photos: Photo[] = snap.photos.map((p) => ({
+    id: store.nextPhotoId++,
+    student_id: id,
+    grade_class: p.grade_class ?? null,
+    file_name: p.file_name,
+    caption: p.caption,
+    taken_at: p.taken_at,
+    created_at: ts,
+  }));
+  store.photos.push(...photos);
+  const behaviors: StudentBehaviorRecord[] = snap.behaviors.map((b) => ({
+    ...b,
+    id: store.nextBehaviorRecordId++,
+    student_id: id,
+  }));
+  store.behaviorRecords.push(...behaviors);
+  store.students.push({
+    ...snap.student,
+    id,
+    guardians,
+    created_at: ts,
+    updated_at: ts,
+  });
+  return id;
+}
+
+/** 回收站条目列表（打开即先清理过期项） */
+export async function listRecycleItems(): Promise<RecycleItem[]> {
+  await purgeExpiredRecycleItems();
+  if (!isTauri()) {
+    return [...mem().recycleBin].sort(
+      (a, b) => (a.deleted_at < b.deleted_at ? 1 : -1) || b.id - a.id
+    );
+  }
+  const db = await getDb();
+  const rows = await db.select<RecycleBinRow[]>(
+    "SELECT * FROM recycle_bin ORDER BY deleted_at DESC, id DESC"
+  );
+  return rows.map(toRecycleItem);
+}
+
+/** 恢复回收站条目：班级整体重建（含学生/照片/表现流水），学生档案重新入库 */
+export async function restoreRecycleItem(itemId: number): Promise<void> {
+  if (!isTauri()) {
+    const store = mem();
+    const idx = store.recycleBin.findIndex((r) => r.id === itemId);
+    if (idx === -1) return;
+    const [item] = store.recycleBin.splice(idx, 1);
+    if (item.entity_type === "class") {
+      const snap = item.payload as ClassSnapshot;
+      if (!store.classes.includes(snap.name)) store.classes.push(snap.name);
+      for (const s of snap.students) insertStudentSnapshotMemory(store, s);
+      const ts = now();
+      for (const p of snap.classPhotos) {
+        store.photos.push({
+          id: store.nextPhotoId++,
+          student_id: null,
+          grade_class: snap.name,
+          file_name: p.file_name,
+          caption: p.caption,
+          taken_at: p.taken_at,
+          created_at: ts,
+        });
+      }
+    } else {
+      insertStudentSnapshotMemory(store, item.payload as StudentSnapshot);
+    }
+    return;
+  }
+
+  const db = await getDb();
+  const rows = await db.select<RecycleBinRow[]>("SELECT * FROM recycle_bin WHERE id = ?", [itemId]);
+  if (!rows.length) return;
+  const item = toRecycleItem(rows[0]);
+
+  if (item.entity_type === "class") {
+    const snap = item.payload as ClassSnapshot;
+    await db.execute("INSERT OR IGNORE INTO classes (name) VALUES (?)", [snap.name]);
+    for (const s of snap.students) await insertStudentSnapshot(db, s);
+    for (const p of snap.classPhotos) {
+      await db.execute(
+        "INSERT INTO photos (student_id, grade_class, file_name, caption, taken_at) VALUES (NULL, ?, ?, ?, ?)",
+        [snap.name, p.file_name, p.caption, p.taken_at]
+      );
+    }
+  } else {
+    await insertStudentSnapshot(db, item.payload as StudentSnapshot);
+  }
+  await db.execute("DELETE FROM recycle_bin WHERE id = ?", [itemId]);
+}
+
+/** 彻底删除单条回收站条目（连带清落盘图片文件，尽力而为） */
+export async function purgeRecycleItem(itemId: number): Promise<void> {
+  const items = await listRecycleBinForPurge(itemId);
+  await removeRecycleRows([itemId]);
+  const fileNames = items.flatMap((i) => snapshotFileNames(i.payload));
+  if (fileNames.length && isTauri()) {
+    const { deletePhotoFile } = await import("./photos");
+    for (const f of fileNames) {
+      try {
+        await deletePhotoFile(f);
+      } catch {
+        // 文件可能已不存在，忽略单张失败
+      }
+    }
+  }
+}
+
+/** 清空回收站并连带清理落盘图片 */
+export async function clearRecycleBin(): Promise<void> {
+  const items = await listRecycleItems();
+  await removeRecycleRows(items.map((i) => i.id));
+  const fileNames = items.flatMap((i) => snapshotFileNames(i.payload));
+  if (fileNames.length && isTauri()) {
+    const { deletePhotoFile } = await import("./photos");
+    for (const f of fileNames) {
+      try {
+        await deletePhotoFile(f);
+      } catch {}
+    }
+  }
+}
+
+/** 读取待清理条目（SQLite 通道；内存通道返回空数组，内存态直接过滤） */
+async function listRecycleBinForPurge(itemId: number): Promise<RecycleItem[]> {
+  if (!isTauri()) {
+    return mem().recycleBin.filter((r) => r.id === itemId);
+  }
+  const db = await getDb();
+  const rows = await db.select<RecycleBinRow[]>("SELECT * FROM recycle_bin WHERE id = ?", [itemId]);
+  return rows.map(toRecycleItem);
+}
+
+async function removeRecycleRows(ids: number[]): Promise<void> {
+  if (!ids.length) return;
+  if (!isTauri()) {
+    const store = mem();
+    const idSet = new Set(ids);
+    store.recycleBin = store.recycleBin.filter((r) => !idSet.has(r.id));
+    return;
+  }
+  const db = await getDb();
+  const placeholders = ids.map(() => "?").join(",");
+  await db.execute(`DELETE FROM recycle_bin WHERE id IN (${placeholders})`, ids);
+}
+
+/** 清理超过保留期（默认 7 天）的回收站条目，连带清落盘图片 */
+export async function purgeExpiredRecycleItems(): Promise<void> {
+  if (!isTauri()) {
+    const store = mem();
+    const cutoff = Date.now() - RETENTION_MS;
+    const expired = store.recycleBin.filter((r) => {
+      const t = new Date(r.deleted_at.replace(" ", "T")).getTime();
+      return !Number.isNaN(t) && t <= cutoff;
+    });
+    if (!expired.length) return;
+    const expiredIds = new Set(expired.map((r) => r.id));
+    store.recycleBin = store.recycleBin.filter((r) => !expiredIds.has(r.id));
+    return;
+  }
+
+  const db = await getDb();
+  const rows = await db.select<RecycleBinRow[]>(
+    "SELECT * FROM recycle_bin WHERE deleted_at <= datetime('now','localtime','-7 day')"
+  );
+  if (!rows.length) return;
+  const items = rows.map(toRecycleItem);
+  await removeRecycleRows(items.map((i) => i.id));
+  const fileNames = items.flatMap((i) => snapshotFileNames(i.payload));
+  if (fileNames.length) {
+    const { deletePhotoFile } = await import("./photos");
+    for (const f of fileNames) {
+      try {
+        await deletePhotoFile(f);
+      } catch {}
+    }
+  }
 }
 
 export async function listPhotos(studentId?: number): Promise<Photo[]> {
@@ -485,13 +1345,9 @@ export async function listClasses(): Promise<ClassSummary[]> {
     const db = await getDb();
     students = await db.select<Student[]>("SELECT * FROM students");
     photos = await db.select<Photo[]>("SELECT * FROM photos");
-    try {
-      const explicitClasses = await db.select<{ name: string }[]>("SELECT name FROM classes");
-      for (const row of explicitClasses) {
-        if (row.name && row.name !== "未分班") classNames.add(row.name);
-      }
-    } catch {
-      // 兼容尚未执行 Migration 3 的环境
+    const explicitClasses = await db.select<{ name: string }[]>("SELECT name FROM classes");
+    for (const row of explicitClasses) {
+      if (row.name && row.name !== "未分班") classNames.add(row.name);
     }
   }
 
@@ -607,46 +1463,145 @@ export async function renameClass(oldName: string, newName: string): Promise<voi
     );
   }
   await db.execute("UPDATE photos SET grade_class = ? WHERE grade_class = ?", [newTrimmed, oldTrimmed]);
-  try {
-    await db.execute("DELETE FROM classes WHERE name = ?", [oldTrimmed]);
-  } catch {}
+  await db.execute("DELETE FROM classes WHERE name = ?", [oldTrimmed]);
 }
 
-export async function deleteClass(name: string, reassignToUnassigned = true): Promise<void> {
+/**
+ * 删除班级 → 整班（学生档案、监护人、照片、表现流水、班级公共照片）移入回收站，
+ * 保留 7 天可恢复。
+ */
+export async function deleteClass(name: string): Promise<void> {
   const trimmed = name.trim();
-  if (trimmed === "未分班") throw new Error("系统「未分班」分类不能删除");
 
   if (!isTauri()) {
     const store = mem();
+    const members = store.students.filter((s) =>
+      trimmed === "未分班" ? !s.grade_class || s.grade_class === "未分班" : s.grade_class === trimmed
+    );
+    const classPhotos = store.photos.filter(
+      (p) => p.grade_class === trimmed && p.student_id === null
+    );
+
+    const studentSnaps: StudentSnapshot[] = members.map((s) => {
+      const guardians = store.guardians.filter((g) => g.student_id === s.id);
+      const photos = store.photos.filter((p) => p.student_id === s.id);
+      const behaviors = store.behaviorRecords.filter((r) => r.student_id === s.id);
+      return buildStudentSnapshot(s, guardians, photos, behaviors);
+    });
+
+    const photoTotal = classPhotos.length + studentSnaps.reduce((n, s) => n + s.photos.length, 0);
+    const behaviorTotal = studentSnaps.reduce((n, s) => n + s.behaviors.length, 0);
+    const ts = now();
+
+    store.recycleBin.unshift({
+      id: store.nextRecycleId++,
+      entity_type: "class",
+      label: trimmed,
+      summary: `${members.length} 名学生 · 照片 ${photoTotal} 张 · 表现 ${behaviorTotal} 条`,
+      payload: { name: trimmed, students: studentSnaps, classPhotos: classPhotos.map(photoSnap) } satisfies ClassSnapshot,
+      deleted_at: ts,
+      expire_at: expireAtOf(ts),
+    });
+
+    const memberIds = new Set(members.map((s) => s.id));
+    store.students = store.students.filter((s) => !memberIds.has(s.id));
+    store.guardians = store.guardians.filter((g) => !memberIds.has(g.student_id ?? -1));
+    store.photos = store.photos.filter(
+      (p) =>
+        p.grade_class !== trimmed &&
+        (p.student_id === null || !memberIds.has(p.student_id))
+    );
+    store.behaviorRecords = store.behaviorRecords.filter((r) => !memberIds.has(r.student_id));
+    const classExamIds = new Set(store.exams.filter((e) => e.class_name === trimmed).map((e) => e.id));
+    store.exams = store.exams.filter((e) => e.class_name !== trimmed);
+    store.examScores = store.examScores.filter(
+      (s) => !classExamIds.has(s.exam_id) && !memberIds.has(s.student_id)
+    );
+    // 课表随班级删除（不进回收站快照，与成绩同口径）
+    const classTimetableIds = new Set(
+      store.timetables.filter((t) => t.class_name === trimmed).map((t) => t.id)
+    );
+    store.timetables = store.timetables.filter((t) => t.class_name !== trimmed);
+    store.timetableSlots = store.timetableSlots.filter((s) => !classTimetableIds.has(s.timetable_id));
+    store.timetableExceptions = store.timetableExceptions.filter(
+      (e) => !classTimetableIds.has(e.timetable_id)
+    );
+    store.calendarEvents = store.calendarEvents.filter((e) => e.class_name !== trimmed);
     store.classes = store.classes.filter((c) => c !== trimmed);
-    if (reassignToUnassigned) {
-      const ts = now();
-      for (const s of store.students) {
-        if (s.grade_class === trimmed) {
-          s.grade_class = "";
-          s.updated_at = ts;
-        }
-      }
-      for (const p of store.photos) {
-        if (p.grade_class === trimmed) {
-          p.grade_class = null;
-        }
-      }
-    }
     return;
   }
 
   const db = await getDb();
-  try {
-    await db.execute("DELETE FROM classes WHERE name = ?", [trimmed]);
-  } catch {}
-  if (reassignToUnassigned) {
-    await db.execute(
-      "UPDATE students SET grade_class = '', updated_at = datetime('now','localtime') WHERE grade_class = ?",
-      [trimmed]
+  // 「未分班」是虚拟分组，成员口径同 listStudents：字面量 + grade_class 为空的存量学生
+  const memberWhere =
+    trimmed === "未分班"
+      ? "(grade_class IS NULL OR grade_class = '' OR grade_class = '未分班')"
+      : "grade_class = ?";
+  const memberParams = trimmed === "未分班" ? [] : [trimmed];
+  const members = await db.select<Student[]>(`SELECT * FROM students WHERE ${memberWhere}`, memberParams);
+  const classPhotos = await db.select<Photo[]>(
+    "SELECT * FROM photos WHERE grade_class = ? AND student_id IS NULL",
+    [trimmed]
+  );
+
+  const studentSnaps: StudentSnapshot[] = [];
+  for (const s of members) {
+    const guardians = await db.select<Guardian[]>(
+      "SELECT * FROM guardians WHERE student_id = ? ORDER BY is_primary DESC, id ASC",
+      [s.id]
     );
-    await db.execute("UPDATE photos SET grade_class = NULL WHERE grade_class = ?", [trimmed]);
+    const photos = await db.select<Photo[]>("SELECT * FROM photos WHERE student_id = ?", [s.id]);
+    const behaviors = await db.select<StudentBehaviorRecord[]>(
+      "SELECT * FROM student_behavior_records WHERE student_id = ?",
+      [s.id]
+    );
+    studentSnaps.push(buildStudentSnapshot(s, guardians, photos, behaviors));
   }
+
+  const photoTotal = classPhotos.length + studentSnaps.reduce((n, s) => n + s.photos.length, 0);
+  const behaviorTotal = studentSnaps.reduce((n, s) => n + s.behaviors.length, 0);
+  await db.execute(
+    "INSERT INTO recycle_bin (entity_type, label, summary, payload) VALUES ('class', ?, ?, ?)",
+    [
+      trimmed,
+      `${members.length} 名学生 · 照片 ${photoTotal} 张 · 表现 ${behaviorTotal} 条`,
+      JSON.stringify({
+        name: trimmed,
+        students: studentSnaps,
+        classPhotos: classPhotos.map(photoSnap),
+      } satisfies ClassSnapshot),
+    ]
+  );
+
+  // 学生已整体进回收站，这里按班级把主表数据清掉（顺序：成绩 → 流水 → 照片 → 监护人 → 学生）
+  await db.execute(
+    `DELETE FROM exam_scores WHERE student_id IN (SELECT id FROM students WHERE ${memberWhere})`,
+    memberParams
+  );
+  await db.execute(
+    "DELETE FROM exam_scores WHERE exam_id IN (SELECT id FROM exams WHERE class_name = ?)",
+    [trimmed]
+  );
+  await db.execute("DELETE FROM exams WHERE class_name = ?", [trimmed]);
+  // 课表随班级删除（不进回收站快照，与成绩同口径）
+  await db.execute("DELETE FROM timetable_slots WHERE timetable_id IN (SELECT id FROM timetables WHERE class_name = ?)", [trimmed]);
+  await db.execute("DELETE FROM timetable_exceptions WHERE timetable_id IN (SELECT id FROM timetables WHERE class_name = ?)", [trimmed]);
+  await db.execute("DELETE FROM timetables WHERE class_name = ?", [trimmed]);
+  await db.execute("DELETE FROM calendar_events WHERE class_name = ?", [trimmed]);
+  await db.execute(
+    `DELETE FROM student_behavior_records WHERE student_id IN (SELECT id FROM students WHERE ${memberWhere})`,
+    memberParams
+  );
+  await db.execute(
+    `DELETE FROM photos WHERE (grade_class = ? AND student_id IS NULL) OR student_id IN (SELECT id FROM students WHERE ${memberWhere})`,
+    [trimmed, ...memberParams]
+  );
+  await db.execute(
+    `DELETE FROM guardians WHERE student_id IN (SELECT id FROM students WHERE ${memberWhere})`,
+    memberParams
+  );
+  await db.execute(`DELETE FROM students WHERE ${memberWhere}`, memberParams);
+  await db.execute("DELETE FROM classes WHERE name = ?", [trimmed]);
 }
 
 export async function batchUpdateStudentClass(
@@ -674,9 +1629,7 @@ export async function batchUpdateStudentClass(
 
   const db = await getDb();
   if (targetClass) {
-    try {
-      await db.execute("INSERT OR IGNORE INTO classes (name) VALUES (?)", [targetClass]);
-    } catch {}
+    await db.execute("INSERT OR IGNORE INTO classes (name) VALUES (?)", [targetClass]);
   }
   const placeholders = studentIds.map(() => "?").join(",");
   await db.execute(
@@ -818,10 +1771,10 @@ export async function getProfile(): Promise<Profile> {
   if (!isTauri()) return { ...memProfile };
 
   const db = await getDb();
-  const rows = await db.select<Profile[]>(
-    "SELECT name, title, motto, avatar, hero FROM profile WHERE id = 1"
+  const rows = await db.select<(Profile & { my_subjects: unknown })[]>(
+    "SELECT name, title, motto, avatar, hero, my_subjects FROM profile WHERE id = 1"
   );
-  return { ...DEFAULT_PROFILE, ...(rows[0] ?? {}) };
+  return { ...DEFAULT_PROFILE, ...(rows[0] ?? {}), my_subjects: parseTags(rows[0]?.my_subjects) };
 }
 
 export async function saveProfile(p: Profile): Promise<void> {
@@ -832,20 +1785,21 @@ export async function saveProfile(p: Profile): Promise<void> {
 
   const db = await getDb();
   await db.execute(
-    `INSERT INTO profile (id, name, title, motto, avatar, hero, updated_at)
-          VALUES (1, ?, ?, ?, ?, ?, datetime('now','localtime'))
+    `INSERT INTO profile (id, name, title, motto, avatar, hero, my_subjects, updated_at)
+          VALUES (1, ?, ?, ?, ?, ?, ?, datetime('now','localtime'))
      ON CONFLICT(id) DO UPDATE SET
-          name       = excluded.name,
-          title      = excluded.title,
-          motto      = excluded.motto,
-          avatar     = excluded.avatar,
-          hero       = excluded.hero,
-          updated_at = excluded.updated_at`,
-    [p.name, p.title, p.motto, p.avatar, p.hero]
+          name        = excluded.name,
+          title       = excluded.title,
+          motto       = excluded.motto,
+          avatar      = excluded.avatar,
+          hero        = excluded.hero,
+          my_subjects = excluded.my_subjects,
+          updated_at  = excluded.updated_at`,
+    [p.name, p.title, p.motto, p.avatar, p.hero, JSON.stringify(p.my_subjects ?? [])]
   );
 }
 
-/** 清空所有数据（设置页用） */
+/** 清空所有数据（设置页用，回收站一并清空） */
 export async function clearAll(): Promise<void> {
   if (!isTauri()) {
     memory = seedStore();
@@ -854,18 +1808,28 @@ export async function clearAll(): Promise<void> {
     memory.classes = [];
     memory.guardians = [];
     memory.behaviorRecords = [];
+    memory.exams = [];
+    memory.examScores = [];
+    memory.timetables = [];
+    memory.timetableSlots = [];
+    memory.timetableExceptions = [];
+    memory.calendarEvents = [];
+    memory.recycleBin = [];
     return;
   }
   const db = await getDb();
-  try {
-    await db.execute("DELETE FROM guardians");
-  } catch {}
+  await db.execute("DELETE FROM guardians");
   await db.execute("DELETE FROM photos");
   await db.execute("DELETE FROM students");
   await db.execute("DELETE FROM student_behavior_records");
-  try {
-    await db.execute("DELETE FROM classes");
-  } catch {}
+  await db.execute("DELETE FROM exam_scores");
+  await db.execute("DELETE FROM exams");
+  await db.execute("DELETE FROM timetable_slots");
+  await db.execute("DELETE FROM timetable_exceptions");
+  await db.execute("DELETE FROM timetables");
+  await db.execute("DELETE FROM calendar_events");
+  await db.execute("DELETE FROM classes");
+  await db.execute("DELETE FROM recycle_bin");
 }
 
 /* ------------------------------------------------------------------ */
@@ -1020,6 +1984,48 @@ export async function addBehaviorRecord(input: BehaviorInput): Promise<number> {
   return Number(result.lastInsertId ?? 0);
 }
 
+/**
+ * 删除一条表现流水，并对称回退评语沉淀：
+ * 同 (维度, 倾向, 内容) 词条 use_count-1；history 来源的词条计数归零后随之移除。
+ */
+export async function deleteBehaviorRecord(recordId: number): Promise<void> {
+  if (!isTauri()) {
+    const store = mem();
+    const idx = store.behaviorRecords.findIndex((r) => r.id === recordId);
+    if (idx === -1) return;
+    const [rec] = store.behaviorRecords.splice(idx, 1);
+    const preset = store.commentPresets.find(
+      (p) => p.dimension_id === rec.dimension_id && p.type === rec.type && p.content === rec.comment
+    );
+    if (preset && preset.use_count > 0) {
+      preset.use_count -= 1;
+      if (preset.source === "history" && preset.use_count <= 0) {
+        store.commentPresets = store.commentPresets.filter((p) => p.id !== preset.id);
+      }
+    }
+    return;
+  }
+
+  const db = await getDb();
+  const rows = await db.select<
+    { dimension_id: number; type: string; comment: string }[]
+  >(
+    `SELECT dimension_id, type, comment FROM student_behavior_records WHERE id = ?`,
+    [recordId]
+  );
+  if (!rows.length) return;
+  const rec = rows[0];
+  await db.execute(`DELETE FROM student_behavior_records WHERE id = ?`, [recordId]);
+  await db.execute(
+    `UPDATE behavior_comment_presets SET use_count = use_count - 1
+      WHERE dimension_id = ? AND type = ? AND content = ? AND use_count > 0`,
+    [rec.dimension_id, rec.type, rec.comment]
+  );
+  await db.execute(
+    `DELETE FROM behavior_comment_presets WHERE source = 'history' AND use_count <= 0`
+  );
+}
+
 /** 常用评语：按使用频次取前 N 条（默认 4） */
 export async function listCommentPresets(
   dimensionId: number,
@@ -1115,5 +2121,899 @@ export async function listBehaviorRecordsByClass(
     ORDER BY r.recorded_date DESC, r.created_at DESC, r.id DESC
     LIMIT ?`,
     [className, limit]
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* 考试与成绩：批次（考试名 + 考试时间）→ 学生 × 科目成绩                  */
+/* ------------------------------------------------------------------ */
+
+/** 考试时间校验：YYYY-MM-DD（导入管道已归一化，这里兜底防脏数据入库） */
+function assertExamDate(date: string): void {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("考试时间格式应为 YYYY-MM-DD");
+}
+
+/** 新建考试批次。返回新考试 id。 */
+export async function createExam(input: ExamInput): Promise<number> {
+  const name = input.name.trim();
+  if (!name) throw new Error("考试名称不能为空");
+  assertExamDate(input.exam_date);
+
+  if (!isTauri()) {
+    const store = mem();
+    const id = store.nextExamId++;
+    const ts = now();
+    store.exams.push({
+      id,
+      class_name: input.class_name,
+      name,
+      exam_date: input.exam_date,
+      note: input.note ?? null,
+      created_at: ts,
+      updated_at: ts,
+    });
+    return id;
+  }
+
+  const db = await getDb();
+  const result = await db.execute(
+    "INSERT INTO exams (class_name, name, exam_date, note) VALUES (?, ?, ?, ?)",
+    [input.class_name, name, input.exam_date, input.note ?? null]
+  );
+  return Number(result.lastInsertId ?? 0);
+}
+
+/** 按「班级 + 考试名 + 考试时间」查考试（重复导入不产生重复批次） */
+export async function findExam(className: string, name: string, examDate: string): Promise<Exam | null> {
+  if (!isTauri()) {
+    return (
+      mem().exams.find(
+        (e) => e.class_name === className && e.name === name && e.exam_date === examDate
+      ) ?? null
+    );
+  }
+  const db = await getDb();
+  const rows = await db.select<Exam[]>(
+    "SELECT * FROM exams WHERE class_name = ? AND name = ? AND exam_date = ? LIMIT 1",
+    [className, name, examDate]
+  );
+  return rows[0] ?? null;
+}
+
+/** 查或建考试批次（幂等）：同班同名同时间复用既有批次 */
+export async function findOrCreateExam(input: ExamInput): Promise<{ exam: Exam; created: boolean }> {
+  const name = input.name.trim();
+  if (!name) throw new Error("考试名称不能为空");
+  assertExamDate(input.exam_date);
+
+  const existing = await findExam(input.class_name, name, input.exam_date);
+  if (existing) return { exam: existing, created: false };
+  const id = await createExam(input);
+  return { exam: { ...input, note: input.note ?? null, id, created_at: "", updated_at: "" }, created: true };
+}
+
+/** 班级考试列表（带成绩统计，按考试时间倒序） */
+export async function listExamsByClass(className: string): Promise<ExamWithStats[]> {
+  if (!isTauri()) {
+    const store = mem();
+    return store.exams
+      .filter((e) => e.class_name === className)
+      .map((e) => {
+        const scores = store.examScores.filter((s) => s.exam_id === e.id);
+        return {
+          ...e,
+          subject_count: new Set(scores.map((s) => s.subject)).size,
+          score_count: scores.length,
+          student_count: new Set(scores.map((s) => s.student_id)).size,
+        };
+      })
+      .sort((a, b) => (a.exam_date === b.exam_date ? b.id - a.id : a.exam_date < b.exam_date ? 1 : -1));
+  }
+  const db = await getDb();
+  return db.select<ExamWithStats[]>(
+    `SELECT e.*,
+            (SELECT COUNT(DISTINCT subject)    FROM exam_scores sc WHERE sc.exam_id = e.id) AS subject_count,
+            (SELECT COUNT(*)                   FROM exam_scores sc WHERE sc.exam_id = e.id) AS score_count,
+            (SELECT COUNT(DISTINCT student_id) FROM exam_scores sc WHERE sc.exam_id = e.id) AS student_count
+       FROM exams e
+      WHERE e.class_name = ?
+      ORDER BY e.exam_date DESC, e.id DESC`,
+    [className]
+  );
+}
+
+export async function getExam(examId: number): Promise<Exam | null> {
+  if (!isTauri()) {
+    return mem().exams.find((e) => e.id === examId) ?? null;
+  }
+  const db = await getDb();
+  const rows = await db.select<Exam[]>("SELECT * FROM exams WHERE id = ?", [examId]);
+  return rows[0] ?? null;
+}
+
+/** 更新考试批次信息（考试名 / 时间 / 备注） */
+export async function updateExam(
+  examId: number,
+  patch: { name?: string; exam_date?: string; note?: string | null }
+): Promise<void> {
+  if (patch.name !== undefined && !patch.name.trim()) throw new Error("考试名称不能为空");
+  if (patch.exam_date !== undefined) assertExamDate(patch.exam_date);
+
+  if (!isTauri()) {
+    const store = mem();
+    const exam = store.exams.find((e) => e.id === examId);
+    if (!exam) return;
+    if (patch.name !== undefined) exam.name = patch.name.trim();
+    if (patch.exam_date !== undefined) exam.exam_date = patch.exam_date;
+    if (patch.note !== undefined) exam.note = patch.note;
+    exam.updated_at = now();
+    return;
+  }
+
+  const db = await getDb();
+  const exam = await getExam(examId);
+  if (!exam) return;
+  const name = patch.name !== undefined ? patch.name.trim() : exam.name;
+  const date = patch.exam_date !== undefined ? patch.exam_date : exam.exam_date;
+  const note = patch.note !== undefined ? patch.note : exam.note;
+  await db.execute(
+    "UPDATE exams SET name = ?, exam_date = ?, note = ?, updated_at = datetime('now','localtime') WHERE id = ?",
+    [name, date, note, examId]
+  );
+}
+
+/** 删除考试批次（成绩随之清除；不影响学生档案） */
+export async function deleteExam(examId: number): Promise<void> {
+  if (!isTauri()) {
+    const store = mem();
+    store.examScores = store.examScores.filter((s) => s.exam_id !== examId);
+    store.exams = store.exams.filter((e) => e.id !== examId);
+    return;
+  }
+  const db = await getDb();
+  await db.execute("DELETE FROM exam_scores WHERE exam_id = ?", [examId]);
+  await db.execute("DELETE FROM exams WHERE id = ?", [examId]);
+}
+
+/** 写入/覆盖一条成绩（考试 × 学生 × 科目 唯一，重复导入天然幂等） */
+export async function upsertExamScore(
+  examId: number,
+  studentId: number,
+  subject: string,
+  score: number | null,
+  grade: string | null
+): Promise<void> {
+  const subj = subject.trim();
+  if (!subj) throw new Error("科目名不能为空");
+  if (score === null && (grade === null || !grade.trim())) {
+    throw new Error("成绩内容为空（分数与等级至少填一项）");
+  }
+
+  if (!isTauri()) {
+    const store = mem();
+    const existing = store.examScores.find(
+      (s) => s.exam_id === examId && s.student_id === studentId && s.subject === subj
+    );
+    if (existing) {
+      existing.score = score;
+      existing.grade = grade === null ? null : grade.trim();
+      existing.updated_at = now();
+      return;
+    }
+    store.examScores.push({
+      id: store.nextExamScoreId++,
+      exam_id: examId,
+      student_id: studentId,
+      subject: subj,
+      score,
+      grade: grade === null ? null : grade.trim(),
+      created_at: now(),
+      updated_at: now(),
+    });
+    return;
+  }
+
+  const db = await getDb();
+  await db.execute(
+    `INSERT INTO exam_scores (exam_id, student_id, subject, score, grade)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(exam_id, student_id, subject) DO UPDATE SET
+       score = excluded.score,
+       grade = excluded.grade,
+       updated_at = datetime('now','localtime')`,
+    [examId, studentId, subj, score, grade === null ? null : grade.trim()]
+  );
+}
+
+/** 一次考试的全部成绩（联学生姓名/学号，考试明细表用） */
+export async function getExamScores(examId: number): Promise<ExamScoreRow[]> {
+  if (!isTauri()) {
+    const store = mem();
+    return store.examScores
+      .filter((s) => s.exam_id === examId)
+      .map((s) => {
+        const student = store.students.find((st) => st.id === s.student_id);
+        return {
+          ...s,
+          student_name: student?.name ?? "",
+          student_no: student?.student_no ?? null,
+        };
+      })
+      .sort((a, b) => a.student_name.localeCompare(b.student_name, "zh") || a.id - b.id);
+  }
+  const db = await getDb();
+  const rows = await db.select<ExamScoreRow[]>(
+    `SELECT sc.*, s.name AS student_name, s.student_no
+       FROM exam_scores sc
+       INNER JOIN students s ON sc.student_id = s.id
+      WHERE sc.exam_id = ?
+      ORDER BY sc.id ASC`,
+    [examId]
+  );
+  return rows.sort((a, b) => a.student_name.localeCompare(b.student_name, "zh") || a.id - b.id);
+}
+
+/** 某个学生的全部成绩（联考试信息，学生档案成绩区用，按考试时间倒序） */
+export async function listStudentExamScores(studentId: number): Promise<StudentExamScore[]> {
+  if (!isTauri()) {
+    const store = mem();
+    const examById = new Map(store.exams.map((e) => [e.id, e]));
+    return store.examScores
+      .filter((s) => s.student_id === studentId)
+      .flatMap((s) => {
+        const exam = examById.get(s.exam_id);
+        if (!exam) return [];
+        return [{ ...s, exam_name: exam.name, exam_date: exam.exam_date }];
+      })
+      .sort(
+        (a, b) =>
+          (a.exam_date === b.exam_date ? b.exam_id - a.exam_id : a.exam_date < b.exam_date ? 1 : -1) ||
+          a.id - b.id
+      );
+  }
+  const db = await getDb();
+  return db.select<StudentExamScore[]>(
+    `SELECT sc.*, e.name AS exam_name, e.exam_date
+       FROM exam_scores sc
+       INNER JOIN exams e ON sc.exam_id = e.id
+      WHERE sc.student_id = ?
+      ORDER BY e.exam_date DESC, e.id DESC, sc.id ASC`,
+    [studentId]
+  );
+}
+
+/** 班级内全部成绩行（联学生与考试字段，总览矩阵的原始素材） */
+interface ClassScoreRawRow extends ExamScore {
+  student_name: string;
+  student_no: string | null;
+}
+
+/** 班级成绩总览：学生 × 各次考试总分矩阵（多次重考的学生分数相加为总分口径） */
+export async function getClassScoreOverview(
+  className: string
+): Promise<{ exams: Exam[]; rows: ClassScoreOverviewRow[] }> {
+  const exams = await listExamsByClass(className);
+  let raw: ClassScoreRawRow[];
+
+  if (!isTauri()) {
+    const store = mem();
+    const examIds = new Set(exams.map((e) => e.id));
+    raw = store.examScores
+      .filter((s) => examIds.has(s.exam_id))
+      .map((s) => {
+        const student = store.students.find((st) => st.id === s.student_id);
+        return {
+          ...s,
+          student_name: student?.name ?? "",
+          student_no: student?.student_no ?? null,
+        };
+      });
+  } else {
+    const db = await getDb();
+    raw = await db.select<ClassScoreRawRow[]>(
+      `SELECT sc.*, s.name AS student_name, s.student_no
+         FROM exam_scores sc
+         INNER JOIN students s ON sc.student_id = s.id
+         INNER JOIN exams e ON sc.exam_id = e.id
+        WHERE e.class_name = ?`,
+      [className]
+    );
+  }
+
+  interface CellAcc {
+    score: number;
+    hasNumeric: boolean;
+    grades: string[];
+  }
+
+  const byStudent = new Map<number, ClassScoreOverviewRow>();
+  const accByStudent = new Map<number, Map<number, CellAcc>>();
+  for (const r of raw) {
+    let row = byStudent.get(r.student_id);
+    if (!row) {
+      row = { student_id: r.student_id, student_name: r.student_name, student_no: r.student_no, cells: {} };
+      byStudent.set(r.student_id, row);
+      accByStudent.set(r.student_id, new Map());
+    }
+    const acc = accByStudent.get(r.student_id)!;
+    const cell = acc.get(r.exam_id) ?? { score: 0, hasNumeric: false, grades: [] };
+    if (r.score !== null && !Number.isNaN(r.score)) {
+      cell.score += r.score;
+      cell.hasNumeric = true;
+    } else if (r.grade) {
+      cell.grades.push(r.grade);
+    }
+    acc.set(r.exam_id, cell);
+    // 数字分聚合为总分；纯等级（如「优」）原样保留
+    row.cells[r.exam_id] = {
+      score: cell.hasNumeric ? cell.score : null,
+      grade: cell.grades.length ? cell.grades.join("、") : null,
+    };
+  }
+
+  const rows = [...byStudent.values()].sort((a, b) => a.student_name.localeCompare(b.student_name, "zh"));
+  return { exams: exams.map(({ ...e }) => e), rows };
+}
+
+/* ------------------------------------------------------------------ */
+/* 课程表：一班一学期一张，格子（天 × 节）幂等 upsert                      */
+/* ------------------------------------------------------------------ */
+
+/** SQLite 行：periods 以 JSON 字符串落库，取出时解析 */
+type TimetableRaw = Omit<Timetable, "periods"> & { periods_json: string | null };
+
+function toTimetable(raw: TimetableRaw): Timetable {
+  const { periods_json, ...rest } = raw;
+  return { ...rest, periods: parsePeriodsJson(periods_json) };
+}
+
+function assertSlotPosition(dayOfWeek: number, period: number): void {
+  if (!Number.isInteger(dayOfWeek) || dayOfWeek < 1 || dayOfWeek > 5) {
+    throw new Error("课表只支持周一到周五（1~5）");
+  }
+  if (!Number.isInteger(period) || period < 1 || period > 12) {
+    throw new Error("节次应为 1~12 的整数");
+  }
+}
+
+function sortSlots<T extends Pick<TimetableSlot, "day_of_week" | "period">>(slots: T[]): T[] {
+  return slots.sort((a, b) => a.day_of_week - b.day_of_week || a.period - b.period);
+}
+
+/** 班级某学期的课表（含全部格子）；没有课表返回 null */
+export async function getTimetableWithSlots(
+  className: string,
+  semester: string
+): Promise<(Timetable & { slots: TimetableSlot[] }) | null> {
+  if (!isTauri()) {
+    const store = mem();
+    const t = store.timetables.find((x) => x.class_name === className && x.semester === semester);
+    if (!t) return null;
+    return {
+      ...t,
+      periods: t.periods ? t.periods.map((p) => ({ ...p })) : null,
+      slots: sortSlots(store.timetableSlots.filter((s) => s.timetable_id === t.id).map((s) => ({ ...s }))),
+    };
+  }
+  const db = await getDb();
+  const heads = await db.select<TimetableRaw[]>(
+    "SELECT * FROM timetables WHERE class_name = ? AND semester = ? LIMIT 1",
+    [className, semester]
+  );
+  if (!heads[0]) return null;
+  const slots = await db.select<TimetableSlot[]>(
+    "SELECT * FROM timetable_slots WHERE timetable_id = ?",
+    [heads[0].id]
+  );
+  return { ...toTimetable(heads[0]), slots: sortSlots(slots) };
+}
+
+/** 查或建班级某学期的课表（幂等）：重复导入/重复打开复用同一张 */
+export async function findOrCreateTimetable(
+  className: string,
+  semester: string
+): Promise<{ timetable: Timetable; created: boolean }> {
+  const name = className.trim();
+  if (!name) throw new Error("班级名不能为空");
+  if (!/^\d{4}-\d{4}-[12]$/.test(semester)) throw new Error("学期号格式应为 YYYY-YYYY-1/2");
+
+  const existing = await getTimetableWithSlots(name, semester);
+  if (existing) {
+    const { slots: _slots, ...timetable } = existing;
+    return { timetable, created: false };
+  }
+
+  if (!isTauri()) {
+    const store = mem();
+    const timetable: Timetable = {
+      id: store.nextTimetableId++,
+      class_name: name,
+      semester,
+      note: null,
+      periods: null,
+      created_at: now(),
+      updated_at: now(),
+    };
+    store.timetables.push(timetable);
+    return { timetable: { ...timetable }, created: true };
+  }
+
+  const db = await getDb();
+  const result = await db.execute(
+    "INSERT INTO timetables (class_name, semester) VALUES (?, ?)",
+    [name, semester]
+  );
+  const rows = await db.select<TimetableRaw[]>("SELECT * FROM timetables WHERE id = ?", [
+    Number(result.lastInsertId ?? 0),
+  ]);
+  return { timetable: toTimetable(rows[0]), created: true };
+}
+
+/**
+ * 写一格课：subject 传空串 = 清空该格（删行）。
+ * (timetable_id, day_of_week, period) 唯一，编辑天然幂等。
+ */
+export async function saveTimetableSlot(
+  timetableId: number,
+  dayOfWeek: number,
+  period: number,
+  subject: string,
+  note: string | null = null
+): Promise<void> {
+  assertSlotPosition(dayOfWeek, period);
+  const subj = subject.trim();
+  const trimmedNote = note?.trim() ? note.trim() : null;
+
+  if (!isTauri()) {
+    const store = mem();
+    const existing = store.timetableSlots.find(
+      (s) => s.timetable_id === timetableId && s.day_of_week === dayOfWeek && s.period === period
+    );
+    if (!subj) {
+      if (existing) {
+        store.timetableSlots = store.timetableSlots.filter((s) => s !== existing);
+      }
+      return;
+    }
+    if (existing) {
+      existing.subject = subj;
+      existing.note = trimmedNote;
+      existing.updated_at = now();
+      return;
+    }
+    store.timetableSlots.push({
+      id: store.nextTimetableSlotId++,
+      timetable_id: timetableId,
+      day_of_week: dayOfWeek,
+      period,
+      subject: subj,
+      note: trimmedNote,
+      updated_at: now(),
+    });
+    return;
+  }
+
+  const db = await getDb();
+  if (!subj) {
+    await db.execute(
+      "DELETE FROM timetable_slots WHERE timetable_id = ? AND day_of_week = ? AND period = ?",
+      [timetableId, dayOfWeek, period]
+    );
+    return;
+  }
+  await db.execute(
+    `INSERT INTO timetable_slots (timetable_id, day_of_week, period, subject, note)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(timetable_id, day_of_week, period) DO UPDATE SET
+       subject    = excluded.subject,
+       note       = excluded.note,
+       updated_at = datetime('now','localtime')`,
+    [timetableId, dayOfWeek, period, subj, trimmedNote]
+  );
+}
+
+/** 更新课表节次配置（节数 / 上下午 / 上下课时间），空数组视为恢复默认 */
+export async function saveTimetablePeriods(
+  timetableId: number,
+  periods: TimetablePeriod[]
+): Promise<void> {
+  if (!Array.isArray(periods)) throw new Error("节次配置应为数组");
+  const seen = new Set<number>();
+  for (const p of periods) {
+    if (!Number.isInteger(p.period) || p.period < 1 || p.period > 12) {
+      throw new Error("节次应为 1~12 的整数");
+    }
+    if (seen.has(p.period)) throw new Error("节次序号不能重复");
+    seen.add(p.period);
+  }
+  const json = periods.length ? JSON.stringify(periods) : null;
+
+  if (!isTauri()) {
+    const store = mem();
+    const t = store.timetables.find((x) => x.id === timetableId);
+    if (!t) throw new Error("课表不存在");
+    t.periods = json ? (JSON.parse(json) as TimetablePeriod[]) : null;
+    t.updated_at = now();
+    return;
+  }
+
+  const db = await getDb();
+  await db.execute(
+    "UPDATE timetables SET periods_json = ?, updated_at = datetime('now','localtime') WHERE id = ?",
+    [json, timetableId]
+  );
+}
+
+/** 我的课表素材：某学期全部班级的课表格子（联班级名与节次配置） */
+export async function listTimetableSlotsWithClass(semester: string): Promise<TimetableSlotWithClass[]> {
+  if (!isTauri()) {
+    const store = mem();
+    const byId = new Map(store.timetables.map((t) => [t.id, t]));
+    return sortSlots(
+      store.timetableSlots
+        .flatMap((s) => {
+          const t = byId.get(s.timetable_id);
+          if (!t || t.semester !== semester) return [];
+          return [{ ...s, class_name: t.class_name, periods: t.periods }];
+        })
+    );
+  }
+  const db = await getDb();
+  const rows = await db.select<(TimetableSlot & { class_name: string; periods_json: string | null })[]>(
+    `SELECT s.*, t.class_name, t.periods_json
+       FROM timetable_slots s
+       INNER JOIN timetables t ON s.timetable_id = t.id
+      WHERE t.semester = ?`,
+    [semester]
+  );
+  return sortSlots(rows.map(({ periods_json, ...s }) => ({ ...s, periods: parsePeriodsJson(periods_json) })));
+}
+
+/** 学期内各班节次配置（含没排过课的班）；「我的课表」整表行数的数据来源 */
+export async function listTimetablePeriodsByClass(
+  semester: string
+): Promise<{ class_name: string; periods: TimetablePeriod[] | null }[]> {
+  if (!isTauri()) {
+    return mem()
+      .timetables.filter((t) => t.semester === semester)
+      .map((t) => ({ class_name: t.class_name, periods: t.periods }))
+      .sort((a, b) => a.class_name.localeCompare(b.class_name, "zh"));
+  }
+  const db = await getDb();
+  const rows = await db.select<{ class_name: string; periods_json: string | null }[]>(
+    "SELECT class_name, periods_json FROM timetables WHERE semester = ?",
+    [semester]
+  );
+  return rows
+    .map(({ class_name, periods_json }) => ({ class_name, periods: parsePeriodsJson(periods_json) }))
+    .sort((a, b) => a.class_name.localeCompare(b.class_name, "zh"));
+}
+
+/** 清空某张课表的全部格子（导入「清空后导入」选项用）；返回删除格数 */
+export async function clearTimetableSlots(timetableId: number): Promise<number> {
+  if (!isTauri()) {
+    const store = mem();
+    const before = store.timetableSlots.length;
+    store.timetableSlots = store.timetableSlots.filter((s) => s.timetable_id !== timetableId);
+    return before - store.timetableSlots.length;
+  }
+  const db = await getDb();
+  const result = await db.execute("DELETE FROM timetable_slots WHERE timetable_id = ?", [
+    timetableId,
+  ]);
+  return result.rowsAffected;
+}
+
+/** 库内出现过的全部科目（去重），「任教学科」候选与导入识别共用 */
+export async function listTimetableSubjects(): Promise<string[]> {
+  if (!isTauri()) {
+    const seen: string[] = [];
+    for (const s of mem().timetableSlots) {
+      const subj = s.subject.trim();
+      if (subj && !seen.includes(subj)) seen.push(subj);
+    }
+    return seen.sort((a, b) => a.localeCompare(b, "zh"));
+  }
+  const db = await getDb();
+  const rows = await db.select<{ subject: string }[]>(
+    "SELECT DISTINCT subject FROM timetable_slots WHERE TRIM(subject) != ''"
+  );
+  return rows.map((r) => r.subject.trim()).sort((a, b) => a.localeCompare(b, "zh"));
+}
+
+/* ------------------------------------------------------------------ */
+/* 调课例外：某班「某天某节」覆盖周课表（换课 / 停课 / 加课）                */
+/* ------------------------------------------------------------------ */
+
+function assertCalendarDate(date: string): void {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("日期格式应为 YYYY-MM-DD");
+}
+
+/** 保存一条调课例外：subject 传空串 = 停课；(timetable_id, date, period) 唯一，编辑天然幂等 */
+export async function saveTimetableException(
+  timetableId: number,
+  exceptionDate: string,
+  period: number,
+  subject: string,
+  note: string | null = null
+): Promise<void> {
+  assertCalendarDate(exceptionDate);
+  if (!Number.isInteger(period) || period < 1 || period > 12) {
+    throw new Error("节次应为 1~12 的整数");
+  }
+  const subj = subject.trim();
+  const trimmedNote = note?.trim() ? note.trim() : null;
+
+  if (!isTauri()) {
+    const store = mem();
+    const existing = store.timetableExceptions.find(
+      (e) =>
+        e.timetable_id === timetableId &&
+        e.exception_date === exceptionDate &&
+        e.period === period
+    );
+    if (existing) {
+      existing.subject = subj;
+      existing.note = trimmedNote;
+      existing.updated_at = now();
+      return;
+    }
+    store.timetableExceptions.push({
+      id: store.nextTimetableExceptionId++,
+      timetable_id: timetableId,
+      exception_date: exceptionDate,
+      period,
+      subject: subj,
+      note: trimmedNote,
+      created_at: now(),
+      updated_at: now(),
+    });
+    return;
+  }
+
+  const db = await getDb();
+  await db.execute(
+    `INSERT INTO timetable_exceptions (timetable_id, exception_date, period, subject, note)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(timetable_id, exception_date, period) DO UPDATE SET
+       subject    = excluded.subject,
+       note       = excluded.note,
+       updated_at = datetime('now','localtime')`,
+    [timetableId, exceptionDate, period, subj, trimmedNote]
+  );
+}
+
+/** 删除一条调课例外 = 该天该节恢复周课表默认 */
+export async function clearTimetableException(
+  timetableId: number,
+  exceptionDate: string,
+  period: number
+): Promise<void> {
+  assertCalendarDate(exceptionDate);
+  if (!isTauri()) {
+    const store = mem();
+    store.timetableExceptions = store.timetableExceptions.filter(
+      (e) =>
+        !(
+          e.timetable_id === timetableId &&
+          e.exception_date === exceptionDate &&
+          e.period === period
+        )
+    );
+    return;
+  }
+  const db = await getDb();
+  await db.execute(
+    "DELETE FROM timetable_exceptions WHERE timetable_id = ? AND exception_date = ? AND period = ?",
+    [timetableId, exceptionDate, period]
+  );
+}
+
+/** 某班课表在 [startDate, endDate] 内的调课例外（班级万年历按月查询用） */
+export async function listTimetableExceptionsInRange(
+  timetableId: number,
+  startDate: string,
+  endDate: string
+): Promise<TimetableException[]> {
+  assertCalendarDate(startDate);
+  assertCalendarDate(endDate);
+  if (!isTauri()) {
+    return mem()
+      .timetableExceptions.filter(
+        (e) =>
+          e.timetable_id === timetableId &&
+          e.exception_date >= startDate &&
+          e.exception_date <= endDate
+      )
+      .sort((a, b) => a.exception_date.localeCompare(b.exception_date) || a.period - b.period)
+      .map((e) => ({ ...e }));
+  }
+  const db = await getDb();
+  return db.select<TimetableException[]>(
+    `SELECT * FROM timetable_exceptions
+      WHERE timetable_id = ? AND exception_date >= ? AND exception_date <= ?
+      ORDER BY exception_date ASC, period ASC`,
+    [timetableId, startDate, endDate]
+  );
+}
+
+/** 某学期全部班级在日期区间内的调课例外（联班级名，我的课表 / 首页 / Agent 用） */
+export async function listTimetableExceptionsWithClass(
+  semester: string,
+  startDate: string,
+  endDate: string
+): Promise<TimetableExceptionWithClass[]> {
+  assertCalendarDate(startDate);
+  assertCalendarDate(endDate);
+  if (!isTauri()) {
+    const store = mem();
+    const byId = new Map(store.timetables.map((t) => [t.id, t]));
+    return store.timetableExceptions
+      .flatMap((e) => {
+        const t = byId.get(e.timetable_id);
+        if (!t || t.semester !== semester) return [];
+        return [{ ...e, class_name: t.class_name }];
+      })
+      .filter((e) => e.exception_date >= startDate && e.exception_date <= endDate)
+      .sort((a, b) => a.exception_date.localeCompare(b.exception_date) || a.period - b.period);
+  }
+  const db = await getDb();
+  return db.select<TimetableExceptionWithClass[]>(
+    `SELECT e.*, t.class_name
+       FROM timetable_exceptions e
+       INNER JOIN timetables t ON e.timetable_id = t.id
+      WHERE t.semester = ? AND e.exception_date >= ? AND e.exception_date <= ?
+      ORDER BY e.exception_date ASC, e.period ASC`,
+    [semester, startDate, endDate]
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* 统一日程事件：备忘 / 待办 / 考试 / 作业；班级可空 = 教师个人事件          */
+/* ------------------------------------------------------------------ */
+
+const EVENT_TYPES: CalendarEventType[] = ["memo", "todo", "exam", "homework"];
+
+/** 新增日程事件：className 传 null = 教师个人事件（只在教师维度展示）；period 传节次 = 落在课表具体格子，返回 id */
+export async function addCalendarEvent(
+  className: string | null,
+  eventDate: string,
+  content: string,
+  type: CalendarEventType = "memo",
+  period: number | null = null
+): Promise<number> {
+  const cls = className?.trim() || null;
+  assertCalendarDate(eventDate);
+  const text = content.trim();
+  if (!text) throw new Error("日程内容不能为空");
+  if (text.length > 200) throw new Error("日程内容请控制在 200 字以内");
+  if (!EVENT_TYPES.includes(type)) throw new Error("日程类型不合法");
+  if (period !== null && (!Number.isInteger(period) || period < 1 || period > 30)) {
+    throw new Error("节次不合法");
+  }
+
+  if (!isTauri()) {
+    const store = mem();
+    const id = store.nextCalendarEventId++;
+    store.calendarEvents.push({
+      id,
+      class_name: cls,
+      event_date: eventDate,
+      type,
+      period,
+      content: text,
+      title: null,
+      done: 0,
+      created_at: now(),
+      updated_at: now(),
+    });
+    return id;
+  }
+
+  const db = await getDb();
+  const result = await db.execute(
+    "INSERT INTO calendar_events (class_name, event_date, type, period, content) VALUES (?, ?, ?, ?, ?)",
+    [cls, eventDate, type, period, text]
+  );
+  return Number(result.lastInsertId ?? 0);
+}
+
+/** 某班在 [startDate, endDate] 闭区间内的日程事件（班级日历用，按日期升序） */
+export async function listClassEventsInRange(
+  className: string,
+  startDate: string,
+  endDate: string
+): Promise<CalendarEvent[]> {
+  assertCalendarDate(startDate);
+  assertCalendarDate(endDate);
+  if (!isTauri()) {
+    return mem()
+      .calendarEvents.filter(
+        (e) => e.class_name === className && e.event_date >= startDate && e.event_date <= endDate
+      )
+      .sort((a, b) => a.event_date.localeCompare(b.event_date) || a.id - b.id)
+      .map((e) => ({ ...e }));
+  }
+  const db = await getDb();
+  return db.select<CalendarEvent[]>(
+    `SELECT * FROM calendar_events
+      WHERE class_name = ? AND event_date >= ? AND event_date <= ?
+      ORDER BY event_date ASC, id ASC`,
+    [className, startDate, endDate]
+  );
+}
+
+/**
+ * 教师维度在日期区间内的全部日程事件（首页 / 我的课表 / Agent 用）：
+ * 含班级事件与个人事件（class_name 为 null）——班主任关心自己所有班的事。
+ */
+export async function listTeacherEventsInRange(
+  startDate: string,
+  endDate: string
+): Promise<CalendarEvent[]> {
+  assertCalendarDate(startDate);
+  assertCalendarDate(endDate);
+  if (!isTauri()) {
+    return mem()
+      .calendarEvents.filter((e) => e.event_date >= startDate && e.event_date <= endDate)
+      .sort((a, b) => a.event_date.localeCompare(b.event_date) || a.id - b.id)
+      .map((e) => ({ ...e }));
+  }
+  const db = await getDb();
+  return db.select<CalendarEvent[]>(
+    `SELECT * FROM calendar_events
+      WHERE event_date >= ? AND event_date <= ?
+      ORDER BY event_date ASC, id ASC`,
+    [startDate, endDate]
+  );
+}
+
+/** 切换日程事件完成状态 */
+export async function setCalendarEventDone(id: number, done: boolean): Promise<void> {
+  if (!isTauri()) {
+    const event = mem().calendarEvents.find((e) => e.id === id);
+    if (event) {
+      event.done = done ? 1 : 0;
+      event.updated_at = now();
+    }
+    return;
+  }
+  const db = await getDb();
+  await db.execute(
+    "UPDATE calendar_events SET done = ?, updated_at = datetime('now','localtime') WHERE id = ?",
+    [done ? 1 : 0, id]
+  );
+}
+
+/** 删除一条日程事件 */
+export async function deleteCalendarEvent(id: number): Promise<void> {
+  if (!isTauri()) {
+    const store = mem();
+    store.calendarEvents = store.calendarEvents.filter((e) => e.id !== id);
+    return;
+  }
+  const db = await getDb();
+  await db.execute("DELETE FROM calendar_events WHERE id = ?", [id]);
+}
+
+/**
+ * 写入日程事件的 AI 快速浏览标题（memo-ai 生成成功后调用，一次生成永久复用）。
+ * 仅在已配置 AI 模型时会被调用；title 保持 NULL = 界面退回显示全文前几个字。
+ */
+export async function setCalendarEventTitle(id: number, title: string): Promise<void> {
+  const text = title.trim().slice(0, 30);
+  if (!text) return;
+  if (!isTauri()) {
+    const event = mem().calendarEvents.find((e) => e.id === id);
+    if (event) {
+      event.title = text;
+      event.updated_at = now();
+    }
+    return;
+  }
+  const db = await getDb();
+  await db.execute(
+    "UPDATE calendar_events SET title = ?, updated_at = datetime('now','localtime') WHERE id = ?",
+    [text, id]
   );
 }

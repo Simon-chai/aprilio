@@ -19,6 +19,7 @@ import {
   type LoadedRoster,
   type SmartImportOutcome,
 } from "../../lib/roster";
+import { detectScoreSheet, runSmartScoreImport, type SmartScoreImportOutcome } from "../../lib/scores";
 import { defineAgentTool } from "../define";
 
 export default defineAgentTool({
@@ -81,6 +82,13 @@ export default defineAgentTool({
         ? args.name_column.trim()
         : undefined;
 
+    // 成绩单分流：花名册智能导入最常见的起点就是一份成绩单——识别到科目成绩列时
+    // 转入成绩导入管道（自动建档 + 智能生成一次考试），而不是把成绩列当垃圾丢掉。
+    const scoreDetection = detectScoreSheet(loaded.table, { fileName: loaded.fileName });
+    if (scoreDetection && scoreDetection.confidence !== "low") {
+      return importScoreFromRosterTool(loaded, nameColumnArg);
+    }
+
     let outcome: SmartImportOutcome;
     try {
       // 不传 config：runSmartImportTable 缺省读本机模型配置，已配置模型时叠加 AI 识别
@@ -112,6 +120,9 @@ export default defineAgentTool({
     const parts = [
       `已从「${fileLabel}」${sheetSuffix}导入 ${result.imported} 名学生（姓名列：${detectDesc}）`,
     ];
+    if (result.updated) {
+      parts.push(`覆盖更新 ${result.updated} 名（姓名与学号均相同，用新上传数据覆盖）`);
+    }
     if (result.skipped.length) {
       parts.push(
         `跳过 ${result.skipped.length} 条（${result.skipped
@@ -129,7 +140,9 @@ export default defineAgentTool({
       );
     }
 
-    logInfo(`花名册导入完成：成功 ${result.imported}，跳过 ${result.skipped.length}，失败 ${result.failed.length}`);
+    logInfo(
+      `花名册导入完成：成功 ${result.imported}，更新 ${result.updated}，跳过 ${result.skipped.length}，失败 ${result.failed.length}`,
+    );
 
     return {
       ok: true,
@@ -140,9 +153,92 @@ export default defineAgentTool({
         name_column: mapping.nameColumn + 1,
         detection: { method: detection.method, confidence: detection.confidence },
         imported: result.imported,
+        updated: result.updated,
         skipped: result.skipped.length,
         failed: result.failed.length,
       },
     };
   },
 });
+
+/**
+ * 花名册工具的成绩单分流：表格识别为成绩单时改走成绩导入管道（runSmartScoreImport），
+ * 一次完成「学生建档 + 智能生成考试批次 + 成绩关联」，回复里向用户说明两件事都做了。
+ */
+async function importScoreFromRosterTool(loaded: LoadedRoster, nameColumnArg?: string) {
+  let outcome: SmartScoreImportOutcome;
+  try {
+    outcome = await runSmartScoreImport(loaded.table, {
+      nameColumn: nameColumnArg,
+      fileName: loaded.fileName,
+    });
+  } catch (e) {
+    logError("成绩单导入失败", e);
+    return { ok: false, summary: "", error: `成绩单导入失败：${e instanceof Error ? e.message : String(e)}` };
+  }
+
+  if (outcome.status !== "ok") {
+    return { ok: false, summary: "", error: outcome.message };
+  }
+
+  const { exam, examCreated, result } = outcome;
+  if (!result) {
+    return { ok: false, summary: "", error: "导入流程异常：缺少导入结果。" };
+  }
+
+  const fileLabel = loaded.fileName;
+  const sheetSuffix = loaded.kind === "table" && loaded.sheet ? `（工作表「${loaded.sheet}」）` : "";
+  const subjectDesc = outcome.detection.subjects.map((s) => s.name).join("、");
+
+  const parts = [
+    `检测到「${fileLabel}」${sheetSuffix}是一份成绩单，已按成绩导入：`,
+    `${examCreated ? "智能生成" : "复用"}考试「${exam.name}」（${exam.exam_date}${exam.class_name ? `，${exam.class_name}` : ""}）`,
+    `识别科目：${subjectDesc || "（无）"}`,
+  ];
+  if (result.students_created) {
+    parts.push(`自动建档 ${result.students_created} 名学生`);
+  }
+  if (result.students_matched) {
+    parts.push(`匹配已有学生 ${result.students_matched} 名`);
+  }
+  parts.push(`写入 ${result.scores_written} 条成绩`);
+  if (result.skipped.length) {
+    parts.push(
+      `跳过 ${result.skipped.length} 条（${result.skipped
+        .slice(0, 3)
+        .map((s) => `${s.name}:${s.reason}`)
+        .join("；")}${result.skipped.length > 3 ? " 等" : ""}）`,
+    );
+  }
+  if (result.failed.length) {
+    parts.push(
+      `失败 ${result.failed.length} 条（${result.failed
+        .slice(0, 3)
+        .map((f) => `${f.name}:${f.reason}`)
+        .join("；")}${result.failed.length > 3 ? " 等" : ""}）`,
+    );
+  }
+
+  logInfo(
+    `成绩单（经花名册入口）导入完成：考试「${exam.name}」(${exam.exam_date})，成绩 ${result.scores_written} 条，` +
+      `建档 ${result.students_created}，匹配 ${result.students_matched}，跳过 ${result.skipped.length}，失败 ${result.failed.length}`,
+  );
+
+  return {
+    ok: true,
+    summary: `${parts.join("。")}。成绩已关联到学生档案，可在「班级管理 → 考试成绩」与学生详情页查看。`,
+    data: {
+      file: loaded.path,
+      sheet: loaded.sheet,
+      detected_as: "score-sheet",
+      exam: { id: exam.id, name: exam.name, date: exam.exam_date, class: exam.class_name },
+      exam_created: examCreated,
+      subjects: outcome.detection.subjects.map((s) => s.name),
+      students_matched: result.students_matched,
+      students_created: result.students_created,
+      scores_written: result.scores_written,
+      skipped: result.skipped.length,
+      failed: result.failed.length,
+    },
+  };
+}

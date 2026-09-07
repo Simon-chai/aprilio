@@ -8,6 +8,7 @@
  */
 import { computed, ref, watch } from "vue";
 import AppButton from "./ui/AppButton.vue";
+import AnalyzingOverlay from "./AnalyzingOverlay.vue";
 import { isTauri } from "../lib/db";
 import { isAiConfigured, loadAiConfig } from "../lib/ai";
 import { createLlm } from "../agent/providers";
@@ -31,6 +32,7 @@ import {
   type RosterImportResult,
   type RosterTable,
 } from "../lib/roster";
+import { detectScoreSheet, type ScoreSheetDetection } from "../lib/scores";
 
 type Mode = "smart" | "template";
 
@@ -38,7 +40,13 @@ const props = withDefaults(
   defineProps<{ open: boolean; initialMode?: Mode; presetClass?: string }>(),
   { initialMode: "smart" },
 );
-const emit = defineEmits<{ close: []; imported: [] }>();
+const emit = defineEmits<{
+  close: [];
+  /** 导入完成：带结果与可跳转的目标班级（唯一时），父视图负责关闭对话框与跳转 */
+  imported: [payload: { result: RosterImportResult; targetClass: string | null }];
+  /** 检测到成绩单且用户选择转入成绩导入：把已解析表格交给父视图打开「导入成绩」 */
+  "switch-to-scores": [payload: { table: RosterTable; fileName: string }];
+}>();
 
 const mode = ref<Mode>(props.initialMode);
 const fileLabel = ref("");
@@ -51,6 +59,9 @@ const selectedColumn = ref(-1);
 const importing = ref(false);
 const result = ref<RosterImportResult | null>(null);
 const error = ref("");
+/** 成绩单检测：花名册入口最常见的起点就是一份成绩单，提示可一键转成绩导入 */
+const scoreSheetHint = ref<ScoreSheetDetection | null>(null);
+const scoreHintDismissed = ref(false);
 
 watch(
   () => props.open,
@@ -66,6 +77,8 @@ watch(
     importing.value = false;
     result.value = null;
     error.value = "";
+    scoreSheetHint.value = null;
+    scoreHintDismissed.value = false;
   },
 );
 
@@ -206,6 +219,8 @@ async function analyzeFromTable() {
   result.value = null;
   error.value = "";
   selectedColumn.value = -1;
+  scoreSheetHint.value = null;
+  scoreHintDismissed.value = false;
 
   const t = table.value;
   if (mode.value === "template") {
@@ -216,6 +231,11 @@ async function analyzeFromTable() {
     selectedColumn.value = findNameColumnByHeader(t);
     analyzing.value = false;
     return;
+  }
+
+  // 成绩单检测（仅智能导入模式）：识别到科目成绩列时提示可转入成绩导入
+  if (mode.value === "smart") {
+    scoreSheetHint.value = detectScoreSheet(t, { fileName: fileLabel.value });
   }
 
   const rule = detectNameColumn(t);
@@ -238,6 +258,17 @@ async function analyzeFromTable() {
   analyzing.value = false;
 }
 
+/** 从映射后的行推断导入目标班级：全部行同一班级时返回该班级名，否则 null */
+function inferTargetClass(): string | null {
+  if (props.presetClass) return props.presetClass;
+  const classes = new Set<string>();
+  for (const row of prepared.value?.rows ?? []) {
+    const gc = (row.input?.grade_class ?? row.grade_class ?? "") as string;
+    if (gc) classes.add(gc);
+  }
+  return classes.size === 1 ? ([...classes][0] ?? null) : null;
+}
+
 async function doImport() {
   if (!prepared.value || importing.value) return;
   importing.value = true;
@@ -245,9 +276,9 @@ async function doImport() {
   try {
     result.value = await importRosterStudents(prepared.value);
     logInfo(
-      `花名册导入完成：成功 ${result.value.imported}，跳过 ${result.value.skipped.length}，失败 ${result.value.failed.length}`,
+      `花名册导入完成：成功 ${result.value.imported}，更新 ${result.value.updated}，跳过 ${result.value.skipped.length}，失败 ${result.value.failed.length}`,
     );
-    if (result.value.imported > 0) emit("imported");
+    emit("imported", { result: result.value, targetClass: inferTargetClass() });
   } catch (e) {
     logError("花名册导入失败", e);
     error.value = `导入失败：${e instanceof Error ? e.message : String(e)}`;
@@ -271,7 +302,14 @@ defineExpose({ loadText, loadTable, analyzeFromTable });
         <button class="text-caption text-weak hover:text-ink" @click="emit('close')">关闭</button>
       </div>
 
-      <div class="scroll-thin min-h-0 flex-1 overflow-y-auto pr-1">
+      <div class="scroll-thin relative min-h-0 flex-1 overflow-y-auto pr-1">
+        <!-- AI 分析中：页面内叠加动效（非弹窗），底纹扫描 + 旋转环 + 步骤轮播 + 已用时长 -->
+        <AnalyzingOverlay
+          :show="analyzing"
+          title="智能识别中"
+          :steps="['解析表格结构…', '识别列语义…', 'AI 分析姓名列…']"
+        />
+
         <!-- 模式切换 -->
         <div class="flex items-center gap-4">
           <div class="inline-flex rounded-md border border-hairline bg-parchment p-1">
@@ -310,11 +348,44 @@ defineExpose({ loadText, loadTable, analyzeFromTable });
           </span>
         </div>
 
-        <p v-if="analyzing" class="mt-4 text-caption text-weak">正在解析表格…</p>
         <p v-if="error" class="mt-4 rounded-md bg-[#fdeef0] p-3 text-caption text-danger">{{ error }}</p>
         <p v-if="templateError" class="mt-4 rounded-md bg-[#fdeef0] p-3 text-caption text-danger">
           {{ templateError }}
         </p>
+
+        <!-- 成绩单提示：转入成绩导入，或继续按花名册导入 -->
+        <div
+          v-if="scoreSheetHint && !scoreHintDismissed && mode === 'smart'"
+          data-test="score-sheet-banner"
+          class="mt-4 rounded-md bg-primary-soft p-3"
+        >
+          <p class="text-caption text-ink">
+            这更像一份<b>成绩单</b>（识别到科目列：{{
+              scoreSheetHint.subjects.map((s) => s.name).join("、")
+            }}）。转为成绩导入会自动创建一次考试，并把成绩关联到学生档案。
+          </p>
+          <div class="mt-2 flex items-center gap-3">
+            <AppButton
+              variant="primary"
+              data-test="switch-to-scores-btn"
+              @click="
+                emit('switch-to-scores', {
+                  table: table!,
+                  fileName: fileLabel,
+                })
+              "
+            >
+              转为成绩导入
+            </AppButton>
+            <button
+              type="button"
+              class="text-caption text-weak hover:text-ink"
+              @click="scoreHintDismissed = true"
+            >
+              仍按花名册导入
+            </button>
+          </div>
+        </div>
 
         <!-- 解析结果 -->
         <template v-if="table && !error">
@@ -408,8 +479,8 @@ defineExpose({ loadText, loadTable, analyzeFromTable });
         <!-- 导入结果 -->
         <div v-if="result" class="mt-4 rounded-md bg-parchment p-3">
           <p class="text-caption font-medium text-ink">
-            导入完成：成功 {{ result.imported }} · 跳过 {{ result.skipped.length }} · 失败
-            {{ result.failed.length }}
+            导入完成：成功 {{ result.imported }} · 更新 {{ result.updated }} · 跳过
+            {{ result.skipped.length }} · 失败 {{ result.failed.length }}
           </p>
           <ul
             v-if="result.skipped.length || result.failed.length"
@@ -420,6 +491,9 @@ defineExpose({ loadText, loadTable, analyzeFromTable });
               第{{ f.row || "—" }}行 {{ f.name || "空姓名" }}：{{ f.reason }}
             </li>
           </ul>
+          <p v-if="!result.failed.length" class="mt-1 text-fine text-weak">
+            正在返回班级详情，无需其他操作…
+          </p>
         </div>
       </div>
 

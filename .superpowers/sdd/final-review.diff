@@ -1,0 +1,874 @@
+﻿diff --git a/.superpowers/sdd/progress.md b/.superpowers/sdd/progress.md
+new file mode 100644
+index 0000000..c31c69a
+--- /dev/null
++++ b/.superpowers/sdd/progress.md
+@@ -0,0 +1,12 @@
++# SDD Progress Ledger
++
++Plan: docs/superpowers/plans/2026-09-05-student-behavior-viewing.md
++Started: 2026-09-05
++Branch: main
++
++## Tasks
++
++- [x] Task 1: 鍒涘缓鏃ュ父琛ㄧ幇鏃堕棿绾跨粍浠?StudentBehaviorTimeline.vue (commits 4d50f90..63d31e5, review clean)
++- [x] Task 2: 鍦ㄥ鐢熻鎯呴〉闆嗘垚鏃堕棿绾夸笌銆? 璁拌〃鐜般€嶄氦浜?(commits 63d31e5..HEAD, review clean)
++- [x] Task 3: 鎵╁睍 AI Agent query_data 宸ュ叿鏌ヨ鏃ュ父琛ㄧ幇 (commits 7cbcdac..HEAD, review clean)
++- [x] Task 4: 鍏ㄩ噺鍥炲綊涓庣被鍨嬫鏌ラ獙璇侊紙Verification Gate锛?(all gates passed: vue-tsc 0 errors, 302 tests green, cargo check clean)
+diff --git a/src/agent/tools/query.ts b/src/agent/tools/query.ts
+index b6ea2d1..1f37e42 100644
+--- a/src/agent/tools/query.ts
++++ b/src/agent/tools/query.ts
+@@ -5,7 +5,7 @@
+  * 閬垮厤娉ㄥ叆涓庤鍐欙紝涔熷拰 lib/db.ts 鐨勬煡璇㈣兘鍔涘榻愩€?  * 娴忚鍣ㄦ紨绀烘€佽蛋鍐呭瓨绀轰緥鏁版嵁锛屾闈㈢璧?SQLite锛屽悓涓€濂楄繑鍥炵粨鏋勩€?  */
+-import { getStats, listPhotos, listStudents } from "../../lib/db";
++import { getStats, listBehaviorRecords, listPhotos, listStudents } from "../../lib/db";
+ import { defineAgentTool } from "../define";
+ 
+ const DEFAULT_LIMIT = 20;
+@@ -22,19 +22,19 @@ export default defineAgentTool({
+   name: "query_data",
+   label: "鏁版嵁鏌ヨ",
+   description:
+-    "鏌ヨ搴旂敤鏁版嵁搴擄細瀛︾敓妗ｆ锛坰tudents锛夈€佺収鐗囪褰曪紙photos锛夈€佹眹鎬荤粺璁★紙stats锛夈€傛暟鎹垎鏋愩€佹暟閲忕粺璁°€佹潯浠剁瓫閫夐兘鐢ㄥ畠銆?,
++    "鏌ヨ搴旂敤鏁版嵁搴擄細瀛︾敓妗ｆ锛坰tudents锛夈€佺収鐗囪褰曪紙photos锛夈€佹眹鎬荤粺璁★紙stats锛夈€佹棩甯歌〃鐜帮紙behaviors锛夈€傛暟鎹垎鏋愩€佹暟閲忕粺璁°€佹潯浠剁瓫閫夐兘鐢ㄥ畠銆?,
+   tags: ["readonly"],
+   parameters: {
+     type: "object",
+     properties: {
+       entity: {
+         type: "string",
+-        enum: ["students", "photos", "stats"],
++        enum: ["students", "photos", "stats", "behaviors"],
+         description: "鏌ヨ瀹炰綋",
+       },
+       keyword: {
+         type: "string",
+-        description: "鍏抽敭璇嶏細students 鎸夊鍚?瀛﹀彿妯＄硦鍖归厤锛沺hotos 鎸夎鏄?鏂囦欢鍚嶅尮閰嶏紱stats 蹇界暐",
++        description: "鍏抽敭璇嶏細students 鎸夊鍚?瀛﹀彿妯＄硦鍖归厤锛沺hotos 鎸夎鏄?鏂囦欢鍚嶅尮閰嶏紱behaviors 鎸夎瘎璇?缁村害鍚嶅尮閰嶏紱stats 蹇界暐",
+       },
+       grade_class: {
+         type: "string",
+@@ -42,7 +42,16 @@ export default defineAgentTool({
+       },
+       student_id: {
+         type: "number",
+-        description: "鎸夊鐢?ID 杩囨护鐓х墖锛屼粎 photos 鐢熸晥",
++        description: "鎸夊鐢?ID 杩囨护鐓х墖鎴栬〃鐜拌褰曪紝浠?photos銆乥ehaviors 鐢熸晥",
++      },
++      polarity: {
++        type: "string",
++        enum: ["praise", "improve"],
++        description: "鎸夎瘎浠峰€惧悜杩囨护琛ㄧ幇娴佹按锛歱raise锛堣〃鎵級| improve锛堝緟鏀硅繘锛夛紝浠?behaviors 鐢熸晥",
++      },
++      dimension_name: {
++        type: "string",
++        description: "鎸夎〃鐜扮淮搴﹀悕绉拌繃婊わ紝濡傘€岃鍫傝〃鐜般€嶃€併€屼綔涓氭儏鍐点€嶏紝浠?behaviors 鐢熸晥",
+       },
+       limit: {
+         type: "number",
+@@ -94,6 +103,35 @@ export default defineAgentTool({
+       return { ok: true, summary: `搴旂敤缁熻锛?{JSON.stringify(stats)}`, data: stats };
+     }
+ 
+-    return { ok: false, summary: "", error: `鏈煡鏌ヨ瀹炰綋 "${entity}"锛屽彲閫夛細students銆乸hotos銆乻tats銆俙 };
++    if (entity === "behaviors") {
++      const studentId = Number.isInteger(Number(args.student_id))
++        ? Number(args.student_id)
++        : undefined;
++      const all = await listBehaviorRecords(studentId, 100);
++      const polarity = typeof args.polarity === "string" ? args.polarity.trim() : "";
++      const dimensionName = typeof args.dimension_name === "string" ? args.dimension_name.trim() : "";
++
++      const filtered = all.filter((r) => {
++        if (polarity && r.type !== polarity) return false;
++        if (dimensionName && r.dimension_name_snap !== dimensionName) return false;
++        if (keyword && !r.comment.includes(keyword) && !r.dimension_name_snap.includes(keyword)) {
++          return false;
++        }
++        return true;
++      });
++
++      const rows = filtered.slice(0, limit);
++      const rowsSummary = rows
++        .map((r) => `[${r.recorded_date}] ${r.dimension_name_snap} ${r.type === 'praise' ? '馃憤' : '鈿狅笍'} ${r.comment}`)
++        .join("\n");
++
++      return {
++        ok: true,
++        summary: `鏃ュ父琛ㄧ幇鏌ヨ锛氬懡涓?${filtered.length} 鏉★紝杩斿洖鍓?${rows.length} 鏉°€俓n${rowsSummary || JSON.stringify(rows)}`,
++        data: rows,
++      };
++    }
++
++    return { ok: false, summary: "", error: `鏈煡鏌ヨ瀹炰綋 "${entity}"锛屽彲閫夛細students銆乸hotos銆乻tats銆乥ehaviors銆俙 };
+   },
+ });
+diff --git a/src/components/StudentBehaviorTimeline.vue b/src/components/StudentBehaviorTimeline.vue
+new file mode 100644
+index 0000000..a81e984
+--- /dev/null
++++ b/src/components/StudentBehaviorTimeline.vue
+@@ -0,0 +1,229 @@
++<script setup lang="ts">
++import { computed, ref } from "vue";
++import type { BehaviorPolarity, StudentBehaviorRecord } from "../types";
++
++const props = defineProps<{
++  records: StudentBehaviorRecord[];
++  loading?: boolean;
++}>();
++
++const emit = defineEmits<{
++  add: [];
++}>();
++
++const selectedPolarity = ref<"all" | BehaviorPolarity>("all");
++const selectedDimension = ref<string>("all");
++
++// 鎻愬彇鎵€鏈夊凡瀛樺湪鐨勭淮搴︿緵涓嬫媺閫夋嫨
++const availableDimensions = computed(() => {
++  const set = new Set<string>();
++  for (const r of props.records) {
++    if (r.dimension_name_snap) set.add(r.dimension_name_snap);
++  }
++  return Array.from(set);
++});
++
++// 缁熻鍚勫€惧悜鏁伴噺
++const stats = computed(() => {
++  let praise = 0;
++  let improve = 0;
++  for (const r of props.records) {
++    if (r.type === "praise") praise++;
++    else if (r.type === "improve") improve++;
++  }
++  return { all: props.records.length, praise, improve };
++});
++
++// 杩囨护鍚庣殑鍒楄〃
++const filteredRecords = computed(() => {
++  return props.records.filter((r) => {
++    if (selectedPolarity.value !== "all" && r.type !== selectedPolarity.value) {
++      return false;
++    }
++    if (selectedDimension.value !== "all" && r.dimension_name_snap !== selectedDimension.value) {
++      return false;
++    }
++    return true;
++  });
++});
++
++// 鎸?recorded_date 鍊掑簭鍒嗙粍
++interface DateGroup {
++  date: string;
++  items: StudentBehaviorRecord[];
++}
++
++const groupedRecords = computed<DateGroup[]>(() => {
++  const map = new Map<string, StudentBehaviorRecord[]>();
++  for (const r of filteredRecords.value) {
++    const date = r.recorded_date || r.created_at.slice(0, 10);
++    const list = map.get(date) ?? [];
++    list.push(r);
++    map.set(date, list);
++  }
++  return Array.from(map.entries())
++    .sort(([dateA], [dateB]) => (dateA < dateB ? 1 : -1))
++    .map(([date, items]) => ({
++      date,
++      items: items.sort((a, b) => b.id - a.id),
++    }));
++});
++</script>
++
++<template>
++  <div class="flex flex-col gap-4">
++    <!-- 绛涢€夋帶鍒舵爮 -->
++    <div v-if="records.length > 0" class="flex flex-wrap items-center justify-between gap-3 border-b border-divider pb-3">
++      <!-- 鍊惧悜杩囨护鑳跺泭 -->
++      <div class="flex items-center gap-1.5 text-fine">
++        <button
++          data-test="filter-all"
++          type="button"
++          class="rounded-full px-3 py-1 transition-colors font-medium"
++          :class="selectedPolarity === 'all' ? 'bg-primary text-white' : 'bg-parchment text-weak hover:text-ink'"
++          @click="selectedPolarity = 'all'"
++        >
++          鍏ㄩ儴 ({{ stats.all }})
++        </button>
++        <button
++          data-test="filter-praise"
++          type="button"
++          class="rounded-full px-3 py-1 transition-colors font-medium"
++          :class="selectedPolarity === 'praise' ? 'bg-[#e8f5e9] text-[#248a3d] border border-[#a3e635]' : 'bg-parchment text-weak hover:text-ink'"
++          @click="selectedPolarity = 'praise'"
++        >
++          馃憤 琛ㄦ壃 ({{ stats.praise }})
++        </button>
++        <button
++          data-test="filter-improve"
++          type="button"
++          class="rounded-full px-3 py-1 transition-colors font-medium"
++          :class="selectedPolarity === 'improve' ? 'bg-[#fff3e0] text-[#d97706] border border-[#fcd34d]' : 'bg-parchment text-weak hover:text-ink'"
++          @click="selectedPolarity = 'improve'"
++        >
++          鈿狅笍 寰呮敼杩?({{ stats.improve }})
++        </button>
++      </div>
++
++      <!-- 缁村害杩囨护涓嬫媺 -->
++      <div v-if="availableDimensions.length > 1" class="flex items-center gap-2">
++        <span class="text-fine text-weak">缁村害锛?/span>
++        <select
++          data-test="dimension-select"
++          v-model="selectedDimension"
++          class="h-7 rounded-md border border-hairline bg-canvas px-2 text-fine text-ink focus:border-primary focus:outline-none"
++        >
++          <option value="all">鍏ㄩ儴浜嬮」</option>
++          <option v-for="dim in availableDimensions" :key="dim" :value="dim">
++            {{ dim }}
++          </option>
++        </select>
++      </div>
++    </div>
++
++    <!-- 鍔犺浇涓?-->
++    <div v-if="loading" class="py-12 text-center text-caption text-weak">
++      鍔犺浇鏃ュ父琛ㄧ幇鈥?+    </div>
++
++    <!-- 绌虹姸鎬侊細涓€鏉¤褰曢兘娌℃湁 -->
++    <div
++      v-else-if="records.length === 0"
++      class="flex flex-col items-center justify-center py-12 text-center"
++    >
++      <div class="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-parchment text-weak">
++        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
++          <path d="M12 20h9" />
++          <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
++        </svg>
++      </div>
++      <p class="text-body font-medium text-ink">鏆傛棤鏃ュ父琛ㄧ幇璁板綍</p>
++      <p class="mt-1 text-fine text-weak">
++        鍙偣鍑诲彸涓婅鎴栦笅鏂规寜閽紝涓鸿瀛︾敓蹇€熻褰曡鍫傝〃鐜般€佷綔涓氭儏鍐电瓑銆?+      </p>
++      <button
++        data-test="empty-add-btn"
++        type="button"
++        class="mt-4 rounded-full bg-primary px-4 py-1.5 text-caption font-medium text-white transition-opacity hover:opacity-90"
++        @click="emit('add')"
++      >
++        + 璁拌〃鐜?+      </button>
++    </div>
++
++    <!-- 绛涢€夊悗鏃犵粨鏋?-->
++    <div
++      v-else-if="filteredRecords.length === 0"
++      class="py-10 text-center text-caption text-weak"
++    >
++      娌℃湁绗﹀悎绛涢€夋潯浠剁殑琛ㄧ幇璁板綍
++    </div>
++
++    <!-- 鏃堕棿绾垮垪琛?-->
++    <div v-else class="space-y-6">
++      <div
++        v-for="group in groupedRecords"
++        :key="group.date"
++        class="relative pl-6"
++      >
++        <!-- 鏃堕棿杞寸旱鍚戝彂涓濆熀绾?-->
++        <div class="absolute bottom-0 left-2 top-2 w-[1.5px] bg-hairline" />
++
++        <!-- 鏃ユ湡鏍囪 -->
++        <div class="mb-3 flex items-center gap-2">
++          <span
++            data-test="timeline-date"
++            class="rounded-full bg-parchment px-2.5 py-0.5 text-[11px] font-semibold text-muted"
++          >
++            {{ group.date }}
++          </span>
++          <span class="text-[11px] text-faint">
++            {{ group.items.length }} 椤硅〃鐜?+          </span>
++        </div>
++
++        <!-- 褰撳ぉ娴佹按浜嬮」 -->
++        <div class="space-y-2.5">
++          <div
++            v-for="item in group.items"
++            :key="item.id"
++            data-test="timeline-item"
++            class="group relative flex items-start gap-3 rounded-lg border border-divider bg-canvas p-3.5 transition-colors hover:border-hairline hover:bg-parchment/40"
++          >
++            <!-- 鑺傜偣鍦嗙偣閿氬畾鍦ㄦ椂闂寸嚎涓?-->
++            <div
++              class="absolute -left-[19px] top-4.5 flex h-2.5 w-2.5 items-center justify-center rounded-full ring-4 ring-canvas"
++              :class="item.type === 'praise' ? 'bg-[#248a3d]' : 'bg-[#d97706]'"
++            />
++
++            <!-- 鍐呭鍖?-->
++            <div class="min-w-0 flex-1 space-y-1.5">
++              <div class="flex items-center gap-2">
++                <!-- 缁村害寰兌鍥?-->
++                <span class="rounded bg-parchment px-2 py-0.5 text-fine font-medium text-ink">
++                  {{ item.dimension_name_snap }}
++                </span>
++                <!-- 鍊惧悜寰界珷 -->
++                <span
++                  class="rounded-full px-2 py-0.5 text-[11px] font-medium"
++                  :class="item.type === 'praise' ? 'bg-[#e8f5e9] text-[#248a3d]' : 'bg-[#fff3e0] text-[#d97706]'"
++                >
++                  {{ item.type === "praise" ? "馃憤 琛ㄦ壃" : "鈿狅笍 寰呮敼杩? }}
++                </span>
++                <!-- 鏃堕棿鎴?-->
++                <span class="ml-auto text-[11px] text-weak">
++                  {{ item.created_at.slice(11, 16) || "" }}
++                </span>
++              </div>
++
++              <!-- 璇勮鏂囨湰 -->
++              <p class="text-caption text-ink leading-relaxed whitespace-pre-wrap">
++                {{ item.comment }}
++              </p>
++            </div>
++          </div>
++        </div>
++      </div>
++    </div>
++  </div>
++</template>
+diff --git a/src/views/StudentDetailView.vue b/src/views/StudentDetailView.vue
+index 9f361c7..f5226f9 100644
+--- a/src/views/StudentDetailView.vue
++++ b/src/views/StudentDetailView.vue
+@@ -1,5 +1,5 @@
+ <script setup lang="ts">
+-import { computed, onMounted, ref, watch } from "vue";
++import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+ import { useRoute, useRouter } from "vue-router";
+ import { confirm } from "@tauri-apps/plugin-dialog";
+ import AppButton from "../components/ui/AppButton.vue";
+@@ -7,11 +7,22 @@ import AppCard from "../components/ui/AppCard.vue";
+ import StatusChip from "../components/ui/StatusChip.vue";
+ import PhotoGrid from "../components/PhotoGrid.vue";
+ import StudentFormDialog from "../components/StudentFormDialog.vue";
+-import { addPhoto, deletePhoto, deleteStudent, getStudent, listPhotos, updateStudent, isTauri } from "../lib/db";
++import QuickBehaviorPopover from "../components/QuickBehaviorPopover.vue";
++import StudentBehaviorTimeline from "../components/StudentBehaviorTimeline.vue";
++import {
++  addPhoto,
++  deletePhoto,
++  deleteStudent,
++  getStudent,
++  listBehaviorRecords,
++  listPhotos,
++  updateStudent,
++  isTauri,
++} from "../lib/db";
+ import { deletePhotoFile, getPhotosDir, importPhoto } from "../lib/photos";
+ import { formatShort } from "../lib/format";
+ import { STATUS_LABEL } from "../types";
+-import type { Photo, Student, StudentInput } from "../types";
++import type { BehaviorPolarity, Photo, Student, StudentBehaviorRecord, StudentInput } from "../types";
+ 
+ const route = useRoute();
+ const router = useRouter();
+@@ -19,18 +30,55 @@ const router = useRouter();
+ const id = computed(() => Number(route.params.id));
+ const student = ref<Student | null>(null);
+ const photos = ref<Photo[]>([]);
++const behaviors = ref<StudentBehaviorRecord[]>([]);
++const activeTab = ref<"behaviors" | "photos">("behaviors");
+ const photosDir = ref("");
+ const loading = ref(true);
+ const error = ref("");
+ const dialogOpen = ref(false);
+ const busy = ref(false);
+ 
++const quickOpen = ref(false);
++const quickAnchor = ref<{ x: number; y: number } | null>(null);
++const toast = ref("");
++let toastTimer: ReturnType<typeof setTimeout> | undefined;
++
++function openQuickBehavior(e?: MouseEvent) {
++  if (e && (e.currentTarget || e.target)) {
++    const el = (e.currentTarget || e.target) as HTMLElement;
++    if (typeof el.getBoundingClientRect === "function") {
++      const rect = el.getBoundingClientRect();
++      quickAnchor.value = { x: rect.right, y: rect.bottom + 6 };
++    } else {
++      quickAnchor.value = null;
++    }
++  } else {
++    quickAnchor.value = null;
++  }
++  quickOpen.value = true;
++}
++
++async function onQuickSaved(payload: { studentName: string; dimensionName: string; polarity: BehaviorPolarity }) {
++  toast.value = `宸茶褰?${payload.studentName} ${payload.dimensionName}`;
++  clearTimeout(toastTimer);
++  toastTimer = setTimeout(() => (toast.value = ""), 2400);
++  behaviors.value = await listBehaviorRecords(id.value);
++}
++
++onBeforeUnmount(() => clearTimeout(toastTimer));
++
+ async function refresh() {
+   loading.value = true;
+   error.value = "";
+   try {
+-    student.value = await getStudent(id.value);
+-    photos.value = await listPhotos(id.value);
++    const [s, p, b] = await Promise.all([
++      getStudent(id.value),
++      listPhotos(id.value),
++      listBehaviorRecords(id.value),
++    ]);
++    student.value = s;
++    photos.value = p;
++    behaviors.value = b;
+   } catch (e) {
+     error.value = e instanceof Error ? e.message : String(e);
+   } finally {
+@@ -144,10 +192,19 @@ function goBack() {
+       <h1 class="text-tagline font-semibold text-ink">瀛︾敓璇︽儏</h1>
+     </div>
+     <div class="flex items-center gap-3">
++      <AppButton
++        data-test="quick-behavior-btn"
++        :disabled="!student"
++        @click="openQuickBehavior"
++      >
++        + 璁拌〃鐜?+      </AppButton>
+       <AppButton variant="secondary" :disabled="!student" @click="dialogOpen = true">
+         缂栬緫妗ｆ
+       </AppButton>
+-      <AppButton :disabled="!student || busy" @click="onAddPhoto">娣诲姞鍥剧墖</AppButton>
++      <AppButton variant="secondary" :disabled="!student || busy" @click="onAddPhoto">
++        娣诲姞鍥剧墖
++      </AppButton>
+     </div>
+   </header>
+ 
+@@ -179,7 +236,7 @@ function goBack() {
+             <span>{{ student.gender || "鎬у埆鏈～" }}</span>
+           </div>
+           <p class="text-caption text-muted">
+-            鏈€杩戞洿鏂?{{ formatShort(student.updated_at) }} 路 鍏?{{ photos.length }} 寮犲浘鐗囪褰?+            鏈€杩戞洿鏂?{{ formatShort(student.updated_at) }} 路 鍏?{{ photos.length }} 寮犲浘鐗?路 鍏?{{ behaviors.length }} 鏉¤〃鐜拌褰?           </p>
+         </div>
+         <AppButton variant="danger" @click="onDeleteStudent">鍒犻櫎瀛︾敓</AppButton>
+@@ -234,28 +291,72 @@ function goBack() {
+           </AppCard>
+         </div>
+ 
++        <!-- 鍙充晶鍗＄墖锛歍ab 涓讳綋 -->
+         <AppCard fill class="flex flex-col gap-4">
+-          <div class="flex items-center justify-between">
++          <div class="flex items-center justify-between border-b border-hairline pb-3">
+             <div class="flex items-center gap-2">
+-              <h3 class="text-body font-semibold text-ink">鍥剧墖璁板綍</h3>
+-              <span class="rounded-pill bg-parchment px-2 py-1 text-fine text-weak">
+-                {{ photos.length }} 寮?-              </span>
++              <button
++                type="button"
++                data-test="tab-behaviors"
++                class="rounded-sm px-3.5 py-1.5 text-caption font-medium transition-colors"
++                :class="activeTab === 'behaviors' ? 'bg-ink text-canvas' : 'text-weak hover:text-ink hover:bg-pearl'"
++                @click="activeTab = 'behaviors'"
++              >
++                鏃ュ父琛ㄧ幇 ({{ behaviors.length }})
++              </button>
++              <button
++                type="button"
++                data-test="tab-photos"
++                class="rounded-sm px-3.5 py-1.5 text-caption font-medium transition-colors"
++                :class="activeTab === 'photos' ? 'bg-ink text-canvas' : 'text-weak hover:text-ink hover:bg-pearl'"
++                @click="activeTab = 'photos'"
++              >
++                鍥剧墖璁板綍 ({{ photos.length }})
++              </button>
++            </div>
++            <div v-if="activeTab === 'behaviors'">
++              <button
++                type="button"
++                class="text-caption text-primary transition-opacity hover:opacity-80"
++                @click="openQuickBehavior"
++              >
++                + 璁拌〃鐜?+              </button>
++            </div>
++            <div v-else-if="activeTab === 'photos'">
++              <button
++                type="button"
++                class="text-caption text-primary transition-opacity hover:opacity-80"
++                @click="onAddPhoto"
++              >
++                浠庢湰鍦板鍏?+              </button>
+             </div>
+-            <button class="text-caption text-primary" @click="onAddPhoto">浠庢湰鍦板鍏?/button>
+           </div>
+ 
+-          <PhotoGrid
+-            :photos="photos"
+-            :dir="photosDir"
+-            can-add
+-            @add="onAddPhoto"
+-            @remove="onRemovePhoto"
+-          />
++          <!-- Tab 鍐呭锛氭棩甯歌〃鐜?-->
++          <div v-if="activeTab === 'behaviors'">
++            <StudentBehaviorTimeline
++              :records="behaviors"
++              :loading="loading"
++              @add="openQuickBehavior"
++            />
++          </div>
+ 
+-          <p v-if="!loading && !photos.length" class="py-6 text-center text-caption text-weak">
+-            杩樻病鏈夊浘鐗囪褰曪紝鐐逛笂闈㈢殑銆屾坊鍔犲浘鐗囥€嶄粠鏈湴閫変竴寮犮€?-          </p>
++          <!-- Tab 鍐呭锛氬浘鐗囪褰?-->
++          <div v-else-if="activeTab === 'photos'" class="flex flex-col gap-4">
++            <PhotoGrid
++              :photos="photos"
++              :dir="photosDir"
++              can-add
++              @add="onAddPhoto"
++              @remove="onRemovePhoto"
++            />
++
++            <p v-if="!loading && !photos.length" class="py-6 text-center text-caption text-weak">
++              杩樻病鏈夊浘鐗囪褰曪紝鐐逛笂闈㈢殑銆屾坊鍔犲浘鐗囥€嶄粠鏈湴閫変竴寮犮€?+            </p>
++          </div>
+         </AppCard>
+       </div>
+     </template>
+@@ -271,4 +372,35 @@ function goBack() {
+     @close="dialogOpen = false"
+     @submit="onSave"
+   />
++
++  <QuickBehaviorPopover
++    :open="quickOpen"
++    :student="student"
++    :anchor="quickAnchor"
++    @close="quickOpen = false"
++    @saved="onQuickSaved"
++  />
++
++  <!-- 蹇嵎璁拌〃鐜?Toast 鎻愮ず -->
++  <Transition name="qb-toast">
++    <div
++      v-if="toast"
++      data-test="quick-toast"
++      class="fixed inset-x-0 top-4 z-[60] mx-auto w-fit rounded-full bg-tile px-4 py-1.5 text-fine text-white shadow-lg"
++    >
++      {{ toast }}
++    </div>
++  </Transition>
+ </template>
++
++<style scoped>
++.qb-toast-enter-active,
++.qb-toast-leave-active {
++  transition: opacity 0.2s ease, transform 0.2s ease;
++}
++.qb-toast-enter-from,
++.qb-toast-leave-to {
++  opacity: 0;
++  transform: translateY(-8px);
++}
++</style>
+diff --git a/tests/agent-query-tool.test.ts b/tests/agent-query-tool.test.ts
+index e7dbe18..34995ca 100644
+--- a/tests/agent-query-tool.test.ts
++++ b/tests/agent-query-tool.test.ts
+@@ -57,4 +57,62 @@ describe("query_data tool", () => {
+     expect(result.ok).toBe(false);
+     expect(result.error).toContain("鏈煡鏌ヨ瀹炰綋");
+   });
++
++  it("queries student behavior records with polarity and keyword filters", async () => {
++    // 棰勭疆琛ㄧ幇璁板綍
++    const { addBehaviorRecord } = await import("../src/lib/db");
++    await addBehaviorRecord({
++      student_id: 1,
++      dimension_id: 3,
++      dimension_name_snap: "璇惧爞琛ㄧ幇",
++      category_snap: "behavior",
++      type: "praise",
++      comment: "鏅鸿兘鍔╂墜琛ㄧ幇鏌ヨ娴嬭瘯锛氭暟瀛﹁涓诲姩鍙戣█",
++      recorded_date: "2026-09-05",
++    });
++
++    const res = await tool.execute(
++      {
++        entity: "behaviors",
++        student_id: 1,
++        polarity: "praise",
++        keyword: "涓诲姩鍙戣█",
++      },
++      ctx
++    );
++
++    expect(res.ok).toBe(true);
++    expect(res.summary).toContain("鏃ュ父琛ㄧ幇鏌ヨ锛氬懡涓?);
++    expect(res.summary).toContain("鏁板璇句富鍔ㄥ彂瑷€");
++    const data = res.data as { comment: string }[];
++    expect(data.some((d) => d.comment.includes("涓诲姩鍙戣█"))).toBe(true);
++  });
++
++  it("filters behavior records by dimension_name and polarity", async () => {
++    const { addBehaviorRecord } = await import("../src/lib/db");
++    await addBehaviorRecord({
++      student_id: 1,
++      dimension_id: 1,
++      dimension_name_snap: "浣滀笟鎯呭喌",
++      category_snap: "study",
++      type: "improve",
++      comment: "鏈寜鏃朵氦浣滀笟",
++      recorded_date: "2026-09-05",
++    });
++
++    const res = await tool.execute(
++      {
++        entity: "behaviors",
++        student_id: 1,
++        dimension_name: "浣滀笟鎯呭喌",
++        polarity: "improve",
++      },
++      ctx
++    );
++
++    expect(res.ok).toBe(true);
++    const data = res.data as { comment: string; dimension_name_snap: string; type: string }[];
++    expect(data.length).toBeGreaterThanOrEqual(1);
++    expect(data.every((d) => d.dimension_name_snap === "浣滀笟鎯呭喌" && d.type === "improve")).toBe(true);
++  });
+ });
+diff --git a/tests/student-behavior-timeline.test.ts b/tests/student-behavior-timeline.test.ts
+new file mode 100644
+index 0000000..1f4a043
+--- /dev/null
++++ b/tests/student-behavior-timeline.test.ts
+@@ -0,0 +1,99 @@
++import { mount } from "@vue/test-utils";
++import { describe, expect, it } from "vitest";
++import StudentBehaviorTimeline from "../src/components/StudentBehaviorTimeline.vue";
++import type { StudentBehaviorRecord } from "../src/types";
++
++const mockRecords: StudentBehaviorRecord[] = [
++  {
++    id: 1,
++    student_id: 1,
++    dimension_id: 3,
++    dimension_name_snap: "璇惧爞琛ㄧ幇",
++    category_snap: "behavior",
++    type: "praise",
++    comment: "绉瀬涓炬墜鍙戣█锛岃В绛旂枒闅鹃棶棰樻€濊矾娓呮櫚",
++    recorded_date: "2026-09-05",
++    created_at: "2026-09-05 10:30:00",
++  },
++  {
++    id: 2,
++    student_id: 1,
++    dimension_id: 1,
++    dimension_name_snap: "浣滀笟鎯呭喌",
++    category_snap: "study",
++    type: "improve",
++    comment: "缂哄皯涓€娆¤鍚庨敊棰樿姝?,
++    recorded_date: "2026-09-05",
++    created_at: "2026-09-05 14:00:00",
++  },
++  {
++    id: 3,
++    student_id: 1,
++    dimension_id: 4,
++    dimension_name_snap: "鍔冲姩鎯呭喌",
++    category_snap: "behavior",
++    type: "praise",
++    comment: "涓诲姩鍗忓姪鎵撴壂鍗敓瑙?,
++    recorded_date: "2026-09-02",
++    created_at: "2026-09-02 16:20:00",
++  },
++];
++
++describe("StudentBehaviorTimeline.vue", () => {
++  it("renders empty state when there are no records", () => {
++    const wrapper = mount(StudentBehaviorTimeline, {
++      props: { records: [] },
++    });
++    expect(wrapper.text()).toContain("鏆傛棤鏃ュ父琛ㄧ幇璁板綍");
++    const addBtn = wrapper.find("[data-test='empty-add-btn']");
++    expect(addBtn.exists()).toBe(true);
++  });
++
++  it("groups records by recorded_date in descending order", () => {
++    const wrapper = mount(StudentBehaviorTimeline, {
++      props: { records: mockRecords },
++    });
++    const dateHeaders = wrapper.findAll("[data-test='timeline-date']");
++    expect(dateHeaders.length).toBe(2);
++    expect(dateHeaders[0].text()).toContain("2026-09-05");
++    expect(dateHeaders[1].text()).toContain("2026-09-02");
++  });
++
++  it("filters records by polarity (all / praise / improve)", async () => {
++    const wrapper = mount(StudentBehaviorTimeline, {
++      props: { records: mockRecords },
++    });
++    expect(wrapper.findAll("[data-test='timeline-item']").length).toBe(3);
++
++    // 鍒囨崲鍒颁粎鐪嬪緟鏀硅繘
++    const improveFilter = wrapper.get("[data-test='filter-improve']");
++    await improveFilter.trigger("click");
++    expect(wrapper.findAll("[data-test='timeline-item']").length).toBe(1);
++    expect(wrapper.text()).toContain("缂哄皯涓€娆¤鍚庨敊棰樿姝?);
++
++    // 鍒囨崲鍒拌〃鎵?+    const praiseFilter = wrapper.get("[data-test='filter-praise']");
++    await praiseFilter.trigger("click");
++    expect(wrapper.findAll("[data-test='timeline-item']").length).toBe(2);
++    expect(wrapper.text()).toContain("绉瀬涓炬墜鍙戣█");
++  });
++
++  it("filters records by dimension", async () => {
++    const wrapper = mount(StudentBehaviorTimeline, {
++      props: { records: mockRecords },
++    });
++    const select = wrapper.get("[data-test='dimension-select']");
++    await select.setValue("鍔冲姩鎯呭喌");
++    const items = wrapper.findAll("[data-test='timeline-item']");
++    expect(items.length).toBe(1);
++    expect(wrapper.text()).toContain("涓诲姩鍗忓姪鎵撴壂鍗敓瑙?);
++  });
++
++  it("emits add event when clicking empty add button", async () => {
++    const wrapper = mount(StudentBehaviorTimeline, {
++      props: { records: [] },
++    });
++    await wrapper.get("[data-test='empty-add-btn']").trigger("click");
++    expect(wrapper.emitted("add")).toBeTruthy();
++  });
++});
+diff --git a/tests/student-detail-behavior.test.ts b/tests/student-detail-behavior.test.ts
+new file mode 100644
+index 0000000..51bfd4a
+--- /dev/null
++++ b/tests/student-detail-behavior.test.ts
+@@ -0,0 +1,122 @@
++import { flushPromises, mount } from "@vue/test-utils";
++import { createMemoryHistory, createRouter } from "vue-router";
++import { beforeEach, describe, expect, it } from "vitest";
++import StudentDetailView from "../src/views/StudentDetailView.vue";
++import { addBehaviorRecord } from "../src/lib/db";
++
++describe("StudentDetailView behavior tab integration", () => {
++  beforeEach(() => {
++    document.body.innerHTML = "";
++  });
++
++  function createTestRouter() {
++    return createRouter({
++      history: createMemoryHistory(),
++      routes: [
++        { path: "/students", name: "students", component: { template: "<div>Students</div>" } },
++        {
++          path: "/students/:id",
++          name: "student-detail",
++          component: StudentDetailView,
++        },
++      ],
++    });
++  }
++
++  it("renders tabs for behaviors and photos, with behaviors as default", async () => {
++    // 鍐欏叆涓€鏉℃ā鎷熸暟鎹?+    await addBehaviorRecord({
++      student_id: 1,
++      dimension_id: 3,
++      dimension_name_snap: "璇惧爞琛ㄧ幇",
++      category_snap: "behavior",
++      type: "praise",
++      comment: "璇惧爞涓撴敞搴﹂珮",
++      recorded_date: "2026-09-05",
++    });
++
++    const router = createTestRouter();
++    await router.push("/students/1");
++    await router.isReady();
++
++    const wrapper = mount(StudentDetailView, {
++      global: { plugins: [router] },
++    });
++    await flushPromises();
++
++    // 妫€鏌ラ《鏍忔湁銆? 璁拌〃鐜般€嶆寜閽?+    const addBtn = wrapper.find("[data-test='quick-behavior-btn']");
++    expect(addBtn.exists()).toBe(true);
++
++    // 妫€鏌?Tab 鏍囩瀛樺湪
++    const behaviorTab = wrapper.get("[data-test='tab-behaviors']");
++    const photosTab = wrapper.get("[data-test='tab-photos']");
++    expect(behaviorTab.text()).toContain("鏃ュ父琛ㄧ幇");
++    expect(photosTab.text()).toContain("鍥剧墖璁板綍");
++
++    // 妫€鏌ユ瑙堟枃妗堜腑鍖呭惈琛ㄧ幇璁板綍鏁?+    expect(wrapper.text()).toContain("鏉¤〃鐜拌褰?);
++
++    // 榛樿灞曠ず鏃ュ父琛ㄧ幇鍐呭
++    expect(wrapper.text()).toContain("璇惧爞涓撴敞搴﹂珮");
++
++    // 鍒囨崲鍒板浘鐗囪褰?+    await photosTab.trigger("click");
++    expect(wrapper.findComponent({ name: "PhotoGrid" }).exists()).toBe(true);
++
++    wrapper.unmount();
++  });
++
++  it("opens quick behavior popover when clicking + 璁拌〃鐜?button", async () => {
++    const router = createTestRouter();
++    await router.push("/students/1");
++    await router.isReady();
++
++    const wrapper = mount(StudentDetailView, {
++      global: { plugins: [router] },
++    });
++    await flushPromises();
++
++    const addBtn = wrapper.find("[data-test='quick-behavior-btn']");
++    expect(addBtn.exists()).toBe(true);
++    await addBtn.trigger("click");
++    await flushPromises();
++
++    // Popover is teleported to body
++    const card = document.body.querySelector("[data-test='quick-card']");
++    expect(card).not.toBeNull();
++
++    wrapper.unmount();
++  });
++
++  it("saves a quick behavior record and displays toast", async () => {
++    const router = createTestRouter();
++    await router.push("/students/1");
++    await router.isReady();
++
++    const wrapper = mount(StudentDetailView, {
++      global: { plugins: [router] },
++    });
++    await flushPromises();
++
++    const addBtn = wrapper.find("[data-test='quick-behavior-btn']");
++    await addBtn.trigger("click");
++    await flushPromises();
++
++    const ta = document.body.querySelector<HTMLTextAreaElement>("[data-test='comment-input']");
++    expect(ta).not.toBeNull();
++    ta!.value = "绉瀬涓炬墜鍥炵瓟闂";
++    ta!.dispatchEvent(new Event("input", { bubbles: true }));
++    await flushPromises();
++
++    document.body.querySelector<HTMLElement>("[data-test='save-btn']")!.click();
++    await flushPromises();
++
++    const toast = wrapper.find("[data-test='quick-toast']");
++    expect(toast.exists()).toBe(true);
++    expect(toast.text()).toContain("宸茶褰?鏋楃煡杩?);
++    expect(wrapper.text()).toContain("绉瀬涓炬墜鍥炵瓟闂");
++
++    wrapper.unmount();
++  });
++});

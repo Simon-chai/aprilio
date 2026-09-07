@@ -28,7 +28,8 @@ src/agent/loop.ts —— tool-calling 循环（TS 侧）
             ├── query.ts      → query_data       数据查询（lib/db.ts，浏览器/SQLite 双模式）
             ├── docs.ts       → find_docs        文档检索（构建期内联 docs/*.md）
             ├── student-ops.ts → manage_students 学生档案写操作（确认门）
-            ├── roster-import.ts → import_student_roster 花名册导入（智能识别姓名列，确认门）
+            ├── roster-import.ts → import_student_roster 花名册导入（智能识别姓名列，确认门；成绩单自动分流）
+            ├── score-import.ts → import_score_sheet 成绩单导入（生成考试批次，确认门）
             ├── ui_action     → 页面按钮动作（容器按当前页面动态生成参数枚举）
             └── Rust 桥接     → photos / rag_reindex / semantic_search / roster_read_text / roster_read_table（IPC）
                                     │
@@ -84,6 +85,13 @@ Agent 可达页面的唯一清单：home / classes / students / photos / profile
 根据表头与单元格内容自动识别姓名列（已配置模型时由 AI 辅助判断），
 其余列按表头映射；置信度低时返回候选列，让用户确认后带 `name_column` 重调。
 文件选择、识别规则与去重策略详见 [docs/ROSTER_IMPORT.md](ROSTER_IMPORT.md)。
+若加载的其实是一份成绩单，会自动转入成绩导入（见下）。
+
+### import_score_sheet —— 成绩单导入
+
+写操作（确认门）。把成绩单导入为一次考试批次（考试名 + 考试时间，可自动提取也可指定），
+成绩自动关联学生档案；成绩单里没有的学生自动建档，学号或姓名匹配已有档案。
+识别规则与幂等策略详见 [docs/SCORE_IMPORT.md](SCORE_IMPORT.md)。
 
 ## 如何新增能力（TS 执行面）
 

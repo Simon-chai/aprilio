@@ -2,7 +2,7 @@
 import { reactive, ref, watch } from "vue";
 import AppButton from "./ui/AppButton.vue";
 import AppInput from "./ui/AppInput.vue";
-import { STATUS_LABEL } from "../types";
+import { GUARDIAN_TAG_PRESETS, STATUS_LABEL } from "../types";
 import type { Gender, StudentInput } from "../types";
 
 const RELATIONS = ["父亲", "母亲", "爷爷", "奶奶", "外公", "外婆", "监护人", "其他"];
@@ -13,6 +13,8 @@ interface GuardianFormItem {
   phone: string;
   relation: string;
   is_primary: boolean;
+  occupation: string;
+  tags: string[];
 }
 
 interface FormModel {
@@ -21,7 +23,7 @@ interface FormModel {
   birth_date: string;
   student_no: string;
   grade_class: string;
-  enroll_date: string;
+  id_card: string;
   address: string;
   status: string;
   note: string;
@@ -35,17 +37,26 @@ const props = withDefaults(
 
 const emit = defineEmits<{ close: []; submit: [input: StudentInput] }>();
 
+const blankGuardian = (): GuardianFormItem => ({
+  name: "",
+  phone: "",
+  relation: "父亲",
+  is_primary: true,
+  occupation: "",
+  tags: [],
+});
+
 const blank = (): FormModel => ({
   name: "",
   gender: "男",
   birth_date: "",
   student_no: "",
   grade_class: "",
-  enroll_date: "",
+  id_card: "",
   address: "",
   status: "active",
   note: "",
-  guardians: [{ name: "", phone: "", relation: "父亲", is_primary: true }],
+  guardians: [blankGuardian()],
 });
 
 const fromInput = (s: Partial<StudentInput>): FormModel => {
@@ -57,8 +68,10 @@ const fromInput = (s: Partial<StudentInput>): FormModel => {
           phone: g.phone ?? "",
           relation: g.relation || "监护人",
           is_primary: g.is_primary !== undefined ? Boolean(g.is_primary) : idx === 0,
+          occupation: g.occupation ?? "",
+          tags: g.tags ? [...g.tags] : [],
         }))
-      : [{ name: "", phone: "", relation: "父亲", is_primary: true }];
+      : [blankGuardian()];
 
   return {
     name: s.name ?? "",
@@ -66,7 +79,7 @@ const fromInput = (s: Partial<StudentInput>): FormModel => {
     birth_date: s.birth_date ?? "",
     student_no: s.student_no ?? "",
     grade_class: s.grade_class ?? "",
-    enroll_date: s.enroll_date ?? "",
+    id_card: s.id_card ?? "",
     address: s.address ?? "",
     status: s.status ?? "active",
     note: s.note ?? "",
@@ -80,7 +93,7 @@ const toInput = (f: FormModel): StudentInput => ({
   birth_date: f.birth_date || null,
   student_no: f.student_no.trim(),
   grade_class: f.grade_class.trim(),
-  enroll_date: f.enroll_date || null,
+  id_card: f.id_card.trim() || null,
   address: f.address.trim() || null,
   status: f.status,
   note: f.note.trim() || null,
@@ -92,17 +105,21 @@ const toInput = (f: FormModel): StudentInput => ({
       phone: g.phone.trim(),
       relation: g.relation.trim() || "监护人",
       is_primary: g.is_primary ?? idx === 0,
+      occupation: g.occupation.trim(),
+      tags: [...g.tags],
     })),
 });
 
 const form = reactive<FormModel>(blank());
 const error = ref("");
+const tagDrafts = reactive<Record<number, string>>({});
 
 watch(
   [() => props.open, () => props.initial],
   ([open]) => {
     if (!open) return;
     Object.assign(form, blank(), props.initial ? fromInput(props.initial) : {});
+    Object.keys(tagDrafts).forEach((k) => delete tagDrafts[Number(k)]);
     error.value = "";
   }
 );
@@ -110,12 +127,7 @@ watch(
 function addGuardian() {
   const nextRelation =
     form.guardians.length === 1 && form.guardians[0].relation === "父亲" ? "母亲" : "监护人";
-  form.guardians.push({
-    name: "",
-    phone: "",
-    relation: nextRelation,
-    is_primary: form.guardians.length === 0,
-  });
+  form.guardians.push({ ...blankGuardian(), relation: nextRelation, is_primary: false });
 }
 
 function removeGuardian(index: number) {
@@ -126,9 +138,7 @@ function removeGuardian(index: number) {
       form.guardians[0].is_primary = true;
     }
   } else {
-    form.guardians[0].name = "";
-    form.guardians[0].phone = "";
-    form.guardians[0].relation = "监护人";
+    form.guardians[0] = blankGuardian();
   }
 }
 
@@ -138,6 +148,27 @@ function setPrimaryGuardian(index: number) {
   });
 }
 
+/** 添加风格标签：去重、限长限数 */
+function addTag(index: number, raw: string) {
+  const tag = raw.trim().slice(0, 10);
+  tagDrafts[index] = "";
+  if (!tag) return;
+  const g = form.guardians[index];
+  if (!g || g.tags.includes(tag) || g.tags.length >= 6) return;
+  g.tags.push(tag);
+}
+
+function removeTag(index: number, tagIdx: number) {
+  form.guardians[index]?.tags.splice(tagIdx, 1);
+}
+
+function onTagKeydown(e: KeyboardEvent, index: number) {
+  if (e.key === "Enter" || e.key === ",") {
+    e.preventDefault();
+    addTag(index, tagDrafts[index] ?? "");
+  }
+}
+
 function submit() {
   if (!form.name.trim()) {
     error.value = "请填写姓名";
@@ -145,6 +176,11 @@ function submit() {
   }
   if (!form.student_no.trim()) {
     error.value = "请填写学号";
+    return;
+  }
+  const idCard = form.id_card.trim();
+  if (idCard && !/^\d{15}$|^\d{17}[\dXx]$/.test(idCard)) {
+    error.value = "身份证号格式不正确（应为 15 或 18 位）";
     return;
   }
   error.value = "";
@@ -215,8 +251,14 @@ function submit() {
           />
         </label>
         <label class="space-y-1.5">
-          <span class="text-fine text-weak">入学日期</span>
-          <AppInput v-model="form.enroll_date" type="date" variant="field" width="100%" />
+          <span class="text-fine text-weak">身份证号</span>
+          <AppInput
+            v-model="form.id_card"
+            variant="field"
+            width="100%"
+            placeholder="选填，15 或 18 位"
+            data-test="id-card-input"
+          />
         </label>
 
         <label class="col-span-2 space-y-1.5">
@@ -246,34 +288,42 @@ function submit() {
               v-for="(g, idx) in form.guardians"
               :key="idx"
               data-test="guardian-row"
-              class="flex items-center gap-3 rounded-md border border-hairline bg-canvas p-3"
+              class="space-y-2.5 rounded-md border border-hairline bg-canvas p-3"
             >
-              <!-- 关系 -->
-              <div class="w-24 shrink-0 space-y-1">
-                <span class="text-[11px] text-weak">关系</span>
-                <select
-                  v-model="g.relation"
-                  class="h-8 w-full rounded-sm border border-hairline bg-canvas px-2 text-caption text-ink outline-none focus:border-primary-focus"
-                >
-                  <option v-for="rel in RELATIONS" :key="rel" :value="rel">{{ rel }}</option>
-                </select>
-              </div>
+              <!-- 第一行：关系 / 姓名 / 电话 / 职业 / 主联系 / 删除 -->
+              <div class="flex flex-wrap items-end gap-3">
+                <div class="w-20 shrink-0 space-y-1">
+                  <span class="text-[11px] text-weak">关系</span>
+                  <select
+                    v-model="g.relation"
+                    class="h-8 w-full rounded-sm border border-hairline bg-canvas px-2 text-caption text-ink outline-none focus:border-primary-focus"
+                  >
+                    <option v-for="rel in RELATIONS" :key="rel" :value="rel">{{ rel }}</option>
+                  </select>
+                </div>
 
-              <!-- 姓名 -->
-              <div class="flex-1 space-y-1">
-                <span class="text-[11px] text-weak">姓名</span>
-                <AppInput v-model="g.name" variant="field" width="100%" placeholder="监护人姓名" />
-              </div>
+                <div class="min-w-[120px] flex-1 space-y-1">
+                  <span class="text-[11px] text-weak">姓名</span>
+                  <AppInput v-model="g.name" variant="field" width="100%" placeholder="监护人姓名" data-test="guardian-name" />
+                </div>
 
-              <!-- 联系电话 -->
-              <div class="flex-1 space-y-1">
-                <span class="text-[11px] text-weak">联系电话</span>
-                <AppInput v-model="g.phone" variant="field" width="100%" placeholder="手机号" />
-              </div>
+                <div class="min-w-[130px] flex-1 space-y-1">
+                  <span class="text-[11px] text-weak">联系电话</span>
+                  <AppInput v-model="g.phone" variant="field" width="100%" placeholder="手机号" data-test="guardian-phone" />
+                </div>
 
-              <!-- 主要联系人 -->
-              <div class="flex shrink-0 items-center gap-1.5 pt-4">
-                <label class="flex cursor-pointer items-center gap-1 text-fine text-weak">
+                <div class="w-28 shrink-0 space-y-1">
+                  <span class="text-[11px] text-weak">职业</span>
+                  <AppInput
+                    v-model="g.occupation"
+                    variant="field"
+                    width="100%"
+                    placeholder="选填"
+                    data-test="guardian-occupation"
+                  />
+                </div>
+
+                <label class="flex cursor-pointer items-center gap-1 pb-1.5 text-fine text-weak">
                   <input
                     type="radio"
                     name="primary_guardian"
@@ -283,20 +333,53 @@ function submit() {
                   />
                   <span>主联系</span>
                 </label>
-              </div>
 
-              <!-- 删除按钮 -->
-              <div class="shrink-0 pt-4">
                 <button
                   type="button"
                   data-test="remove-guardian-btn"
-                  class="inline-flex h-8 w-8 items-center justify-center rounded-sm text-weak hover:bg-parchment hover:text-danger"
+                  class="mb-0.5 inline-flex h-8 w-8 items-center justify-center rounded-sm text-weak hover:bg-parchment hover:text-danger"
                   title="删除此监护人"
                   @click="removeGuardian(idx)"
                 >
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
                   </svg>
+                </button>
+              </div>
+
+              <!-- 第二行：风格标签 -->
+              <div class="flex flex-wrap items-center gap-1.5">
+                <span class="text-[11px] text-weak">风格标签</span>
+                <span
+                  v-for="(tag, ti) in g.tags"
+                  :key="tag"
+                  class="inline-flex items-center gap-1 rounded-pill bg-primary-soft px-2 py-0.5 text-[11px] text-primary"
+                >
+                  {{ tag }}
+                  <button
+                    type="button"
+                    class="text-primary/60 hover:text-primary"
+                    :title="`移除标签 ${tag}`"
+                    @click="removeTag(idx, ti)"
+                  >
+                    ×
+                  </button>
+                </span>
+                <input
+                  v-model="tagDrafts[idx]"
+                  data-test="guardian-tag-input"
+                  class="h-6 w-24 rounded-pill border border-hairline bg-canvas px-2 text-[11px] text-ink outline-none placeholder:text-faint focus:border-primary-focus"
+                  placeholder="+ 回车添加"
+                  @keydown="onTagKeydown($event, idx)"
+                />
+                <button
+                  v-for="preset in GUARDIAN_TAG_PRESETS.filter((t) => !g.tags.includes(t))"
+                  :key="preset"
+                  type="button"
+                  class="inline-flex items-center rounded-pill border border-hairline bg-canvas px-2 py-0.5 text-[11px] text-weak transition-colors hover:border-primary hover:text-primary"
+                  @click="addTag(idx, preset)"
+                >
+                  + {{ preset }}
                 </button>
               </div>
             </div>

@@ -10,13 +10,13 @@ describe("db student guardians CRUD operations", () => {
       birth_date: "2017-09-01",
       student_no: "GUARD_TEST_001",
       grade_class: "三年级一班",
-      enroll_date: "2024-09-01",
+      id_card: "330106201709012345",
       address: "杭州市西湖区",
       status: "active",
       note: "测试学生",
       guardians: [
-        { name: "张三", phone: "13811112222", relation: "父亲", is_primary: true },
-        { name: "李四", phone: "13933334444", relation: "母亲", is_primary: false },
+        { name: "张三", phone: "13811112222", relation: "父亲", is_primary: true, occupation: "工程师", tags: ["严格", "关注学习"] },
+        { name: "李四", phone: "13933334444", relation: "母亲", is_primary: false, occupation: "教师" },
       ],
     };
 
@@ -28,11 +28,16 @@ describe("db student guardians CRUD operations", () => {
       expect(student).not.toBeNull();
       expect(student?.name).toBe("多监护人测试生");
       expect(student?.gender).toBe("女");
+      expect(student?.id_card).toBe("330106201709012345");
       expect(student?.guardians.length).toBe(2);
       expect(student?.guardians[0].name).toBe("张三");
       expect(student?.guardians[0].relation).toBe("父亲");
       expect(student?.guardians[0].is_primary).toBe(true);
+      expect(student?.guardians[0].occupation).toBe("工程师");
+      expect(student?.guardians[0].tags).toEqual(["严格", "关注学习"]);
       expect(student?.guardians[1].name).toBe("李四");
+      expect(student?.guardians[1].occupation).toBe("教师");
+      expect(student?.guardians[1].tags).toEqual([]);
 
       const rows = await listStudents("多监护人测试生");
       expect(rows.length).toBe(1);
@@ -50,7 +55,7 @@ describe("db student guardians CRUD operations", () => {
       birth_date: "2017-01-01",
       student_no: "GUARD_TEST_002",
       grade_class: "三年级一班",
-      enroll_date: "2024-09-01",
+      id_card: null,
       address: null,
       status: "active",
       note: null,
@@ -86,7 +91,7 @@ describe("db student guardians CRUD operations", () => {
       birth_date: "2017-01-01",
       student_no: "GUARD_TEST_003",
       grade_class: "",
-      enroll_date: null,
+      id_card: null,
       address: null,
       status: "active",
       note: null,

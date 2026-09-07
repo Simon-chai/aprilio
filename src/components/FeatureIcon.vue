@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 
-type IconName = "classes" | "students" | "photos" | "settings" | "sparkle";
+type IconName = "classes" | "students" | "photos" | "settings" | "timetable" | "sparkle";
 
 const props = withDefaults(
   defineProps<{ name: IconName; size?: number; color?: string }>(),
@@ -10,6 +10,14 @@ const props = withDefaults(
 
 const d = computed(() => {
   switch (props.name) {
+    // 课程表：日历 + 课程格点
+    case "timetable":
+      return [
+        "M4.6 5.4h14.8a1.6 1.6 0 0 1 1.6 1.6v11.6a1.6 1.6 0 0 1-1.6 1.6H4.6a1.6 1.6 0 0 1-1.6-1.6V7a1.6 1.6 0 0 1 1.6-1.6Z",
+        "M8.2 3v4M15.8 3v4",
+        "M3.4 10.2h17.2",
+        "M8.3 13.9h.01M12.05 13.9h.01M15.8 13.9h.01M8.3 17h.01M12.05 17h.01M15.8 17h.01",
+      ];
     // 班级：一大一小两个人
     case "classes":
       return [

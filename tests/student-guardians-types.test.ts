@@ -7,11 +7,12 @@ describe("Student and Guardian Types", () => {
     expect(input.gender).toBe("男");
     expect(input.guardians).toEqual([]);
     expect(input.name).toBe("");
+    expect(input.id_card).toBeNull();
   });
 
   it("supports student with multiple guardians", () => {
     const guardians: Guardian[] = [
-      { name: "李建国", phone: "13800001111", relation: "父亲", is_primary: true },
+      { name: "李建国", phone: "13800001111", relation: "父亲", is_primary: true, occupation: "工程师", tags: ["积极配合"] },
       { name: "王秀英", phone: "13900002222", relation: "母亲", is_primary: false },
     ];
     const student: StudentInput = {
@@ -20,7 +21,7 @@ describe("Student and Guardian Types", () => {
       birth_date: "2017-05-01",
       student_no: "20230001",
       grade_class: "三年级一班",
-      enroll_date: "2024-09-01",
+      id_card: "330106201705012345",
       address: "测试住址",
       status: "active",
       note: null,
@@ -28,5 +29,7 @@ describe("Student and Guardian Types", () => {
     };
     expect(student.guardians.length).toBe(2);
     expect(student.guardians[0].relation).toBe("父亲");
+    expect(student.guardians[0].occupation).toBe("工程师");
+    expect(student.guardians[0].tags).toEqual(["积极配合"]);
   });
 });

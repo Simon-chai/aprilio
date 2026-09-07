@@ -9,20 +9,23 @@ import PhotoGrid from "../components/PhotoGrid.vue";
 import StudentFormDialog from "../components/StudentFormDialog.vue";
 import QuickBehaviorPopover from "../components/QuickBehaviorPopover.vue";
 import StudentBehaviorTimeline from "../components/StudentBehaviorTimeline.vue";
+import StudentScorePanel from "../components/StudentScorePanel.vue";
 import {
   addPhoto,
+  deleteBehaviorRecord,
   deletePhoto,
   deleteStudent,
   getStudent,
   listBehaviorRecords,
   listPhotos,
+  listStudentExamScores,
   updateStudent,
   isTauri,
 } from "../lib/db";
 import { deletePhotoFile, getPhotosDir, importPhoto } from "../lib/photos";
 import { formatShort } from "../lib/format";
 import { STATUS_LABEL } from "../types";
-import type { BehaviorPolarity, Photo, Student, StudentBehaviorRecord, StudentInput } from "../types";
+import type { BehaviorPolarity, Photo, Student, StudentBehaviorRecord, StudentExamScore, StudentInput } from "../types";
 
 const route = useRoute();
 const router = useRouter();
@@ -31,7 +34,8 @@ const id = computed(() => Number(route.params.id));
 const student = ref<Student | null>(null);
 const photos = ref<Photo[]>([]);
 const behaviors = ref<StudentBehaviorRecord[]>([]);
-const activeTab = ref<"behaviors" | "photos">("behaviors");
+const examScores = ref<StudentExamScore[]>([]);
+const activeTab = ref<"behaviors" | "photos" | "scores">("behaviors");
 const photosDir = ref("");
 const loading = ref(true);
 const error = ref("");
@@ -58,10 +62,21 @@ function openQuickBehavior(e?: MouseEvent) {
   quickOpen.value = true;
 }
 
-async function onQuickSaved(payload: { studentName: string; dimensionName: string; polarity: BehaviorPolarity }) {
-  toast.value = `已记录 ${payload.studentName} ${payload.dimensionName}`;
+function showToast(msg: string) {
+  toast.value = msg;
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => (toast.value = ""), 2400);
+}
+
+async function onQuickSaved(payload: { studentName: string; dimensionName: string; polarity: BehaviorPolarity }) {
+  showToast(`已记录 ${payload.studentName} ${payload.dimensionName}`);
+  behaviors.value = await listBehaviorRecords(id.value);
+}
+
+/** 删除一条表现记录（含评语），并刷新时间轴 */
+async function handleRemoveBehavior(recordId: number) {
+  await deleteBehaviorRecord(recordId);
+  showToast("已删除该条表现记录");
   behaviors.value = await listBehaviorRecords(id.value);
 }
 
@@ -71,14 +86,16 @@ async function refresh() {
   loading.value = true;
   error.value = "";
   try {
-    const [s, p, b] = await Promise.all([
+    const [s, p, b, es] = await Promise.all([
       getStudent(id.value),
       listPhotos(id.value),
       listBehaviorRecords(id.value),
+      listStudentExamScores(id.value),
     ]);
     student.value = s;
     photos.value = p;
     behaviors.value = b;
+    examScores.value = es;
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e);
   } finally {
@@ -101,10 +118,13 @@ const fields = computed(() => {
     ["出生日期", s.birth_date || "—"],
     ["学号", s.student_no],
     ["年级班级", s.grade_class || "—"],
-    ["入学日期", s.enroll_date || "—"],
+    ["身份证号", s.id_card || "—"],
     ["家庭住址", s.address || "—"],
   ] as const;
 });
+
+/** 参加过的考试批次数（Tab 徽标用） */
+const examCount = computed(() => new Set(examScores.value.map((s) => s.exam_id)).size);
 
 async function onSave(input: StudentInput) {
   await updateStudent(id.value, input);
@@ -147,14 +167,13 @@ async function onRemovePhoto(photo: Photo) {
 
 async function onDeleteStudent() {
   const ok = isTauri()
-    ? await confirm(`删除学生「${student.value?.name ?? ""}」及其全部图片记录？`, {
+    ? await confirm(`删除学生「${student.value?.name ?? ""}」？删除后将移入回收站，保留 7 天，期间可恢复。`, {
         title: "删除学生",
         kind: "warning",
       })
-    : window.confirm("删除该学生及其全部图片记录？");
+    : window.confirm(`删除学生「${student.value?.name ?? ""}」？删除后将移入回收站，保留 7 天。`);
   if (!ok) return;
 
-  for (const p of photos.value) await deletePhotoFile(p.file_name);
   await deleteStudent(id.value);
   router.push({ name: "students" });
 }
@@ -270,21 +289,38 @@ function goBack() {
               <div
                 v-for="g in student.guardians"
                 :key="g.name + g.phone"
-                class="flex items-center justify-between py-2.5 first:pt-0 last:pb-0"
+                class="py-2.5 first:pt-0 last:pb-0"
               >
-                <div class="flex items-center gap-2 min-w-0">
-                  <span class="rounded bg-parchment px-2 py-0.5 text-fine font-medium text-ink shrink-0">
-                    {{ g.relation || "监护人" }}
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center gap-2 min-w-0">
+                    <span class="rounded bg-parchment px-2 py-0.5 text-fine font-medium text-ink shrink-0">
+                      {{ g.relation || "监护人" }}
+                    </span>
+                    <span class="truncate text-caption font-medium text-ink">{{ g.name }}</span>
+                    <span
+                      v-if="g.is_primary"
+                      class="rounded-pill bg-primary-soft px-2 py-0.5 text-[11px] text-primary shrink-0"
+                    >
+                      主联系
+                    </span>
+                  </div>
+                  <span class="text-caption text-muted shrink-0">{{ g.phone || "—" }}</span>
+                </div>
+                <div
+                  v-if="g.occupation || g.tags?.length"
+                  class="mt-1.5 flex flex-wrap items-center gap-1.5"
+                >
+                  <span v-if="g.occupation" class="text-fine text-weak">
+                    职业 {{ g.occupation }}
                   </span>
-                  <span class="truncate text-caption font-medium text-ink">{{ g.name }}</span>
                   <span
-                    v-if="g.is_primary"
-                    class="rounded-pill bg-primary-soft px-2 py-0.5 text-[11px] text-primary shrink-0"
+                    v-for="tag in g.tags ?? []"
+                    :key="tag"
+                    class="rounded-pill bg-parchment px-2 py-0.5 text-[11px] text-muted"
                   >
-                    主联系
+                    {{ tag }}
                   </span>
                 </div>
-                <span class="text-caption text-muted shrink-0">{{ g.phone || "—" }}</span>
               </div>
             </div>
             <p v-else class="py-2 text-caption text-weak">暂未登记监护人信息</p>
@@ -312,6 +348,15 @@ function goBack() {
                 @click="activeTab = 'photos'"
               >
                 图片记录 ({{ photos.length }})
+              </button>
+              <button
+                type="button"
+                data-test="tab-scores"
+                class="rounded-sm px-3.5 py-1.5 text-caption font-medium transition-colors"
+                :class="activeTab === 'scores' ? 'bg-ink text-canvas' : 'text-weak hover:text-ink hover:bg-pearl'"
+                @click="activeTab = 'scores'"
+              >
+                成绩 ({{ examCount }})
               </button>
             </div>
             <div v-if="activeTab === 'behaviors'">
@@ -341,6 +386,7 @@ function goBack() {
               :records="behaviors"
               :loading="loading"
               @add="openQuickBehavior"
+              @remove="handleRemoveBehavior"
             />
           </div>
 
@@ -357,6 +403,11 @@ function goBack() {
             <p v-if="!loading && !photos.length" class="py-6 text-center text-caption text-weak">
               还没有图片记录，点上面的「添加图片」从本地选一张。
             </p>
+          </div>
+
+          <!-- Tab 内容：成绩（班级成绩导入后自动关联） -->
+          <div v-else-if="activeTab === 'scores'">
+            <StudentScorePanel :student-id="student.id" />
           </div>
         </AppCard>
       </div>

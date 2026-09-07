@@ -47,9 +47,9 @@ export default defineAgentTool({
         type: "string",
         description: "出生日期（YYYY-MM-DD）",
       },
-      enroll_date: {
+      id_card: {
         type: "string",
-        description: "入学日期（YYYY-MM-DD）",
+        description: "身份证号（15 或 18 位，选填）",
       },
       guardian_name: {
         type: "string",
@@ -114,8 +114,8 @@ export default defineAgentTool({
           typeof args.birth_date === "string" && args.birth_date.trim() ? args.birth_date.trim() : null,
         student_no: studentNo,
         grade_class: typeof args.grade_class === "string" ? args.grade_class.trim() : "",
-        enroll_date:
-          typeof args.enroll_date === "string" && args.enroll_date.trim() ? args.enroll_date.trim() : null,
+        id_card:
+          typeof args.id_card === "string" && args.id_card.trim() ? args.id_card.trim() : null,
         address:
           typeof args.address === "string" && args.address.trim() ? args.address.trim() : null,
         status:
@@ -167,12 +167,12 @@ export default defineAgentTool({
             : existing.student_no,
         grade_class:
           typeof args.grade_class === "string" ? args.grade_class.trim() : existing.grade_class,
-        enroll_date:
-          args.enroll_date !== undefined
-            ? args.enroll_date
-              ? String(args.enroll_date).trim()
+        id_card:
+          args.id_card !== undefined
+            ? args.id_card
+              ? String(args.id_card).trim()
               : null
-            : existing.enroll_date,
+            : existing.id_card,
         address:
           args.address !== undefined
             ? args.address
