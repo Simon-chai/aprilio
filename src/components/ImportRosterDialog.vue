@@ -303,13 +303,15 @@ defineExpose({ loadText, loadTable, analyzeFromTable });
       </div>
 
       <div class="scroll-thin relative min-h-0 flex-1 overflow-y-auto pr-1">
-        <!-- AI 分析中：页面内叠加动效（非弹窗），底纹扫描 + 旋转环 + 步骤轮播 + 已用时长 -->
-        <AnalyzingOverlay
-          :show="analyzing"
-          title="智能识别中"
-          :steps="['解析表格结构…', '识别列语义…', 'AI 分析姓名列…']"
-        />
-
+        <!-- AI 分析中：动画独占舞台（内容区此时很矮，叠在原内容上会被裁切/半透明透底） -->
+        <div v-if="analyzing" data-test="analyzing-stage" class="relative min-h-[320px]">
+          <AnalyzingOverlay
+            :show="analyzing"
+            title="智能识别中"
+            :steps="['解析表格结构…', '识别列语义…', 'AI 分析姓名列…']"
+          />
+        </div>
+        <template v-else>
         <!-- 模式切换 -->
         <div class="flex items-center gap-4">
           <div class="inline-flex rounded-md border border-hairline bg-parchment p-1">
@@ -495,6 +497,7 @@ defineExpose({ loadText, loadTable, analyzeFromTable });
             正在返回班级详情，无需其他操作…
           </p>
         </div>
+        </template>
       </div>
 
       <div class="mt-5 flex shrink-0 items-center justify-end gap-3">

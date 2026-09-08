@@ -874,9 +874,13 @@ export async function runSmartImportTable(
     nameColumn = resolveColumn(table, options.nameColumn);
     if (nameColumn < 0) {
       const listing = table.headers.map((h, i) => `${i + 1}.${h}`).join("，");
+      const hint =
+        typeof options.nameColumn === "number" || /^\d+$/.test(String(options.nameColumn).trim())
+          ? "（列号从 1 开始，第 1 列请传 1）"
+          : "";
       return {
         status: "error",
-        message: `找不到姓名列「${String(options.nameColumn)}」。可用列：${listing}`,
+        message: `找不到姓名列「${String(options.nameColumn)}」${hint}。可用列：${listing}`,
       };
     }
     pinned = true;

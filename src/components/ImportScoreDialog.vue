@@ -263,7 +263,9 @@ async function doImport() {
       className: props.presetClass || undefined,
       examName: examName.value.trim() || undefined,
       examDate: examDate.value || undefined,
-      nameColumn: selectedColumn.value >= 0 ? selectedColumn.value : undefined,
+      // options.nameColumn 口径是「从 1 起的列号」（与 Agent 工具、报错提示一致）；
+      // 对话框内部 selectedColumn 是 0 起下标——直接传会把第一列（姓名）判成找不到
+      nameColumn: selectedColumn.value >= 0 ? selectedColumn.value + 1 : undefined,
       fileName: fileLabel.value || undefined,
     });
     if (outcome.status === "ok") {
@@ -306,12 +308,15 @@ defineExpose({ loadText, loadTable, analyzeFromTable });
       </div>
 
       <div class="scroll-thin relative min-h-0 flex-1 overflow-y-auto pr-1">
-        <!-- AI 分析中：页面内叠加动效（非弹窗） -->
-        <AnalyzingOverlay
-          :show="analyzing"
-          title="智能识别中"
-          :steps="['解析成绩单结构…', '识别科目列…', 'AI 分析列含义…']"
-        />
+        <!-- AI 分析中：动画独占舞台（内容区此时很矮，叠在原内容上会被裁切/半透明透底） -->
+        <div v-if="analyzing" data-test="analyzing-stage" class="relative min-h-[320px]">
+          <AnalyzingOverlay
+            :show="analyzing"
+            title="智能识别中"
+            :steps="['解析成绩单结构…', '识别科目列…', 'AI 分析列含义…']"
+          />
+        </div>
+        <template v-else>
         <p class="text-fine text-weak">
           选择一份成绩单（XLSX / XLS / CSV / TSV / TXT，浏览器演示态仅 CSV）：自动识别姓名列与科目列，
           从标题行提取考试名与考试时间；同一班级同考试名同时间只保留一个批次，重复导入仅更新成绩。
@@ -466,8 +471,8 @@ defineExpose({ loadText, loadTable, analyzeFromTable });
             <li v-for="(f, i) in result.failed.slice(0, 5)" :key="`f${i}`">{{ f.name }}：{{ f.reason }}</li>
           </ul>
         </div>
+        </template>
       </div>
-
       <div class="mt-5 flex shrink-0 items-center justify-end gap-3">
         <AppButton variant="pearl" @click="emit('close')">{{ result ? "关闭" : "取消" }}</AppButton>
         <AppButton :disabled="!canImport" data-test="score-import-btn" @click="doImport">

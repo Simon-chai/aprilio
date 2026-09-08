@@ -288,6 +288,30 @@ describe("runSmartScoreImport", () => {
     if (pinned.status === "ok" && pinned.exam.id) await deleteExam(pinned.exam.id);
   });
 
+  it("nameColumn 列号按 1 起口径；传 0（0 起口径）报错并提示口径", async () => {
+    const table = parseRosterTable(SCORE_SHEET);
+
+    // 0 不是合法列号（列号从 1 开始）→ 报错，且提示里带口径说明，便于 Agent 自我纠正
+    const zero = await runSmartScoreImport(table, { config: NO_AI_CONFIG, nameColumn: 0 });
+    expect(zero.status).toBe("error");
+    if (zero.status !== "error") return;
+    expect(zero.message).toContain("找不到姓名列「0」");
+    expect(zero.message).toContain("列号从 1 开始");
+    expect(zero.message).toContain("1.姓名");
+
+    // 第 1 列用 1 指定 → 精确钉住姓名列（下标 0），导入成功
+    const one = await runSmartScoreImport(table, {
+      config: NO_AI_CONFIG,
+      nameColumn: 1,
+      className: TEST_CLASS,
+      examName: "口径测试",
+      examDate: "2026-06-21",
+    });
+    expect(one.status).toBe("ok");
+    if (one.status === "ok" && one.exam.id) await deleteExam(one.exam.id);
+    await cleanupTestClass();
+  });
+
   it("combines AI structure detection with rule results", async () => {
     await cleanupTestClass();
     try {
