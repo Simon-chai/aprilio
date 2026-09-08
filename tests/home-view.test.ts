@@ -30,7 +30,18 @@ vi.mock("../src/lib/db", async (importOriginal) => {
   return { ...actual, ...dbMocks };
 });
 
+// 课表背景解析打桩：非 Tauri 环境拿不到缓存目录，把 bg_ 文件解析成可断言的地址
+vi.mock("../src/lib/backgrounds", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/lib/backgrounds")>();
+  return {
+    ...actual,
+    backgroundCacheUrl: (file: string) => `cached://${file}`,
+    backgroundsFileUrl: (file: string) => `cached://${file}`,
+  };
+});
+
 import HomeView from "../src/views/HomeView.vue";
+import BackgroundPickerDialog from "../src/components/BackgroundPickerDialog.vue";
 import { emitPageAction } from "../src/agent/page-action-bus";
 import { profile } from "../src/lib/profile";
 import { DEFAULT_PROFILE } from "../src/types";
@@ -210,6 +221,40 @@ describe("HomeView today panel", () => {
 
     await wrapper.get('[data-test="panel-scrim"]').trigger("click");
     expect(wrapper.find('[data-test="today-panel"]').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("switches the panel background from the library and keeps the old one in history", async () => {
+    const { backgroundLibrary, registerLocalBackground } = await import(
+      "../src/lib/backgrounds"
+    );
+    await registerLocalBackground("timetable_bg", "bg_history.png");
+    const before = backgroundLibrary.value.length;
+
+    const wrapper = await mountWithMondayLessons();
+    profile.value = { ...DEFAULT_PROFILE, timetable_bg: "" };
+    await wrapper.get('[data-test="timetable-toggle"]').trigger("click");
+    await wrapper.get('[data-test="panel-bg-btn"]').trigger("click");
+
+    const picker = wrapper.findComponent(BackgroundPickerDialog);
+    expect(picker.props("open")).toBe(true);
+
+    picker.vm.$emit("select", "bg_history.png", false);
+    await vi.advanceTimersByTimeAsync(420);
+    expect(profile.value.timetable_bg).toBe("bg_history.png");
+
+    // 背景立即铺上首页课表面板（深色遮罩 + 图）
+    const panelStyle = wrapper.get('[data-test="today-panel"]').attributes("style") ?? "";
+    expect(panelStyle).toContain("cached://bg_history.png");
+
+    // 移除背景只清引用：图仍在图库里，随时可以再切回来
+    picker.vm.$emit("clear");
+    await vi.advanceTimersByTimeAsync(420);
+    expect(profile.value.timetable_bg).toBe("");
+    expect(wrapper.get('[data-test="today-panel"]').attributes("style") ?? "").not.toContain(
+      "cached://bg_history.png",
+    );
+    expect(backgroundLibrary.value).toHaveLength(before);
     wrapper.unmount();
   });
 

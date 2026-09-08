@@ -37,7 +37,7 @@ import {
   saveTimetableMySubjects,
 } from "../lib/db";
 import { currentSemester, resolveClassMySubjects, weekdayOf } from "../lib/timetable";
-import { ensureProfile, profile } from "../lib/profile";
+import { ensureProfile, profile, timetableBgSurfaceClass, timetableBgSurfaceStyle } from "../lib/profile";
 import { getPhotosDir, importPhoto, photoUrl } from "../lib/photos";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import type { RosterImportResult, RosterTable } from "../lib/roster";
@@ -716,19 +716,28 @@ function goStudentDetail(row: StudentRow) {
             v-if="timetableView === 'calendar'"
             :class-name="name"
             :timetable="timetable"
+            :surface-style="timetableBgSurfaceStyle"
+            :surface-class="timetableBgSurfaceClass"
             @edit="timetableView = 'grid'"
           />
-          <TimetableGrid
+          <div
             v-else
-            :timetable="timetable"
-            :slots="timetable.slots"
-            editable
-            :my-subjects="profile.my_subjects ?? []"
-            :class-marked="timetable.my_subjects"
-            :conflict-rows="conflictRows"
-            :today="TIMETABLE_TODAY"
-            @changed="refreshTimetable"
-          />
+            class="rounded-lg border border-hairline bg-canvas p-4"
+            :class="timetableBgSurfaceClass"
+            :style="timetableBgSurfaceStyle"
+            data-test="class-timetable-surface"
+          >
+            <TimetableGrid
+              :timetable="timetable"
+              :slots="timetable.slots"
+              editable
+              :my-subjects="profile.my_subjects ?? []"
+              :class-marked="timetable.my_subjects"
+              :conflict-rows="conflictRows"
+              :today="TIMETABLE_TODAY"
+              @changed="refreshTimetable"
+            />
+          </div>
           <ImportTimetableDialog
             :open="timetableImportOpen"
             :preset-class="name"

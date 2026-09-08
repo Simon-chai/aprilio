@@ -24,3 +24,6 @@
 - 日志：GUI 进程走 tauri-plugin-log（target: ai/photos/rag，见 docs/LOGGING.md）；
   MCP serve 模式无 plugin-log，诊断走 stderr（`[aprilio-mcp]` 前缀，不落文件）
 - 隐私红线：日志不记 API 密钥、学生隐私字段全文、语义搜索 query 全文
+- 背景图库（docs/BACKGROUNDS.md）：索引落 localStorage；本地上传缓存进 `photos/`（img_ 前缀），
+  网络图走 Rust `download_background` 缓存进 `backgrounds/`（bg_ 前缀）；换图只改引用不删历史文件。
+  新增 Rust 命令要挂 `lib.rs` 的 generate_handler，新目录要加 tauri.conf.json 的 assetProtocol scope

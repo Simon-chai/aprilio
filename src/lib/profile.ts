@@ -2,15 +2,23 @@ import { computed, ref } from "vue";
 import defaultAvatar from "../assets/avatar-teacher.png";
 import defaultHero from "../assets/hero-classroom.png";
 import { DEFAULT_PROFILE } from "../types";
-import type { Profile } from "../types";
+import type { BackgroundKind, Profile } from "../types";
 import { getProfile, isTauri, saveProfile as saveProfileRecord } from "./db";
 import {
   classifyProfileSaveError,
   profileSaveErrorDiagnostic,
 } from "./error-message";
-import { deletePhotoFile, getPhotosDir, importPhoto, photoUrl } from "./photos";
+import { getPhotosDir, importPhoto, photoUrl } from "./photos";
+import {
+  BG_FILE_PREFIX,
+  backgroundCacheUrl,
+  discardBackgroundFile,
+  ensureBackgroundLibrary,
+  registerLocalBackground,
+} from "./backgrounds";
+import { readImageAsDataUrl } from "./image";
 
-export type ProfileImageKind = "avatar" | "hero" | "timetable_bg";
+export type ProfileImageKind = BackgroundKind;
 
 export interface ProfileImageSelection {
   value: string;
@@ -75,6 +83,7 @@ export function ensureProfile(): Promise<void> {
       const [p, dir] = await Promise.all([
         readProfile().catch(() => ({ ...DEFAULT_PROFILE })),
         getPhotosDir().catch(() => ""),
+        ensureBackgroundLibrary().catch(() => undefined),
       ]);
       profile.value = { ...DEFAULT_PROFILE, ...p };
       photosDir.value = dir;
@@ -141,10 +150,12 @@ export function resetProfile(): void {
 /* 图片                                                                */
 /* ------------------------------------------------------------------ */
 
-/** 存的是文件名就拼图片目录；浏览器演示态存的是 dataURL，直接用 */
+/** 存的是文件名就拼缓存目录；浏览器演示态存的是 dataURL，直接用 */
 function resolve(value: string): string {
   if (!value) return "";
   if (/^(data|blob|https?):/.test(value)) return value;
+  // bg_ 前缀 = 网络图片下载缓存（独立目录），其余是本地上传 / 历史数据（照片目录）
+  if (value.startsWith(BG_FILE_PREFIX)) return backgroundCacheUrl(value);
   if (!photosDir.value) return "";
   return photoUrl(photosDir.value, value);
 }
@@ -162,59 +173,32 @@ export const heroSrc = computed(() => profileImageSrc(profile.value.hero, "hero"
 /** 首页课表面板背景图：没有默认图，未设置时为空串（面板退回纯毛玻璃） */
 export const timetableBgSrc = computed(() => resolve(profile.value.timetable_bg));
 
+/**
+ * 课表卡片背景样式（我的课表页 / 班级课表 / 万年历等浅色表面共用）：
+ * 白雾打底压住图片亮度，网格黑字仍可读；未设置返回 undefined（保持纯色卡片）。
+ */
+export const timetableBgSurfaceStyle = computed<Record<string, string> | undefined>(() => {
+  const src = timetableBgSrc.value;
+  if (!src) return undefined;
+  return {
+    backgroundImage: `linear-gradient(rgba(255,255,255,0.86), rgba(255,255,255,0.86)), url(${src})`,
+    backgroundSize: "cover",
+    backgroundPosition: "center",
+  };
+});
+
+/**
+ * 与 timetableBgSurfaceStyle 配套的比例约束：有背景图时统一 16:9，
+ * 与裁剪窗口比例一致 —— 裁剪窗口里看到的就是各课表位置显示的区域。
+ * CSS aspect-ratio 只是最小比例（内容更高时盒子随之长高），不裁内容、不加滚动条。
+ */
+export const timetableBgSurfaceClass = computed(() =>
+  timetableBgSurfaceStyle.value ? "aspect-[16/9]" : ""
+);
+
 /** 是否用了自定义图片（决定编辑页要不要显示"恢复默认"） */
 export const hasCustomAvatar = computed(() => profile.value.avatar !== "");
 export const hasCustomHero = computed(() => profile.value.hero !== "");
-
-function readAsDataUrl(file: File, max: number, square: boolean): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error("读取文件失败"));
-    reader.onabort = () => reject(new Error("读取文件已中止"));
-    reader.onload = () => {
-      try {
-        const img = new Image();
-        img.onerror = () => reject(new Error("这不是有效的图片"));
-        img.onload = () => {
-          try {
-            let { width: sw, height: sh } = img;
-            let sx = 0;
-            let sy = 0;
-            if (square) {
-              // 居中裁正方，头像不会被拉伸
-              const side = Math.min(sw, sh);
-              sx = Math.round((sw - side) / 2);
-              sy = Math.round((sh - side) / 2);
-              sw = side;
-              sh = side;
-            }
-            const scale = Math.min(1, max / Math.max(sw, sh));
-            const w = Math.max(1, Math.round(sw * scale));
-            const h = Math.max(1, Math.round(sh * scale));
-
-            const canvas = document.createElement("canvas");
-            canvas.width = w;
-            canvas.height = h;
-            const ctx = canvas.getContext("2d");
-            if (!ctx) throw new Error("无法处理图片");
-            ctx.drawImage(img, sx, sy, sw, sh, 0, 0, w, h);
-            resolve(canvas.toDataURL("image/jpeg", 0.86));
-          } catch (error) {
-            reject(error);
-          }
-        };
-        img.src = String(reader.result);
-      } catch (error) {
-        reject(error);
-      }
-    };
-    try {
-      reader.readAsDataURL(file);
-    } catch (error) {
-      reject(error);
-    }
-  });
-}
 
 /** 浏览器态的选图：隐藏 file input + canvas 降采样，避免 localStorage 爆掉 */
 function pickLocal(square: boolean): Promise<string | null> {
@@ -243,11 +227,7 @@ function pickLocal(square: boolean): Promise<string | null> {
     input.addEventListener("change", () => {
       const file = input.files?.[0];
       if (!file) return done(null);
-      try {
-        void readAsDataUrl(file, square ? 512 : 1920, square).then(done, fail);
-      } catch (error) {
-        fail(error);
-      }
+      readImageAsDataUrl(file, square ? 512 : 1920, square).then(done, fail);
     });
 
     try {
@@ -266,10 +246,14 @@ export async function selectProfileImage(
     : await pickLocal(kind === "avatar");
   if (!value) return null;
 
+  // 选中的图立刻进图库：换下来的旧图留在历史里，未保存就离开时才清掉这张
+  void registerLocalBackground(kind, value).catch(() => undefined);
+
   return isTauri() ? { value, fileName: value } : { value };
 }
 
+/** 丢弃一张未采用的图：图库索引与缓存文件一起清掉 */
 export async function discardSelectedProfileImage(fileName: string): Promise<void> {
-  if (!isTauri() || !fileName || /^(data|blob|https?):/.test(fileName)) return;
-  await deletePhotoFile(fileName);
+  if (!fileName) return;
+  await discardBackgroundFile(fileName);
 }

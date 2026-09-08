@@ -13,6 +13,7 @@ import {
 } from "../lib/ai";
 import { clearAll, getStats, isTauri } from "../lib/db";
 import { getPhotosDir } from "../lib/photos";
+import { clearBackgroundLibrary } from "../lib/backgrounds";
 import type { Stats } from "../types";
 
 const photosDir = ref("");
@@ -50,6 +51,8 @@ async function onClear() {
   const ok = window.confirm("将清空全部学生与图片记录，且无法撤销。确认继续？");
   if (!ok) return;
   await clearAll();
+  // 背景图库是本地索引 + 缓存文件，清数据时一并清掉，避免留下孤儿文件
+  await clearBackgroundLibrary();
   await refresh();
 }
 </script>

@@ -1,6 +1,6 @@
 import { flushPromises, mount } from "@vue/test-utils";
 import { createMemoryHistory, createRouter } from "vue-router";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import ClassDetailView from "../src/views/ClassDetailView.vue";
 import StudentDetailView from "../src/views/StudentDetailView.vue";
 import ImportRosterDialog from "../src/components/ImportRosterDialog.vue";
@@ -9,6 +9,17 @@ import QuickBehaviorPopover from "../src/components/QuickBehaviorPopover.vue";
 import AppButton from "../src/components/ui/AppButton.vue";
 import { deleteStudent, listBehaviorDimensions, addBehaviorRecord, listBehaviorRecordsByClass, listStudents } from "../src/lib/db";
 import { localDateStr } from "../src/lib/format";
+import { DEFAULT_PROFILE } from "../src/types";
+
+// 课表背景解析打桩：非 Tauri 环境拿不到缓存目录，把 bg_ 文件解析成可断言的地址
+vi.mock("../src/lib/backgrounds", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/lib/backgrounds")>();
+  return {
+    ...actual,
+    backgroundCacheUrl: (file: string) => `cached://${file}`,
+    backgroundsFileUrl: (file: string) => `cached://${file}`,
+  };
+});
 
 describe("ClassDetailView.vue", () => {
   function createTestRouter() {
@@ -365,5 +376,37 @@ describe("ClassDetailView.vue", () => {
     await wrapper.get('[data-test="timetable-view-grid"]').trigger("click");
     await flushPromises();
     expect(wrapper.findAll('button[data-test="timetable-cell"]').length).toBeGreaterThan(0);
+  });
+
+  it("paints the profile timetable background behind the class timetable surfaces", async () => {
+    const { profile } = await import("../src/lib/profile");
+    profile.value = { ...DEFAULT_PROFILE, timetable_bg: "bg_class.png" };
+    const router = createTestRouter();
+    await router.push("/classes/三年级二班");
+    await router.isReady();
+
+    const wrapper = mount(ClassDetailView, {
+      props: { name: "三年级二班" },
+      global: { plugins: [router] },
+    });
+    await flushPromises();
+
+    await wrapper.get('[data-test="tab-timetable"]').trigger("click");
+    await flushPromises();
+
+    // 周网格表面：背景 + 16:9 比例（与裁剪窗口一致）
+    const gridSurface = wrapper.get('[data-test="class-timetable-surface"]');
+    expect(gridSurface.attributes("style") ?? "").toContain("cached://bg_class.png");
+    expect(gridSurface.classes()).toContain("aspect-[16/9]");
+
+    // 切到日历视图：万年历卡片同一份背景与比例
+    await wrapper.get('[data-test="timetable-view-calendar"]').trigger("click");
+    await flushPromises();
+    const calendarCard = wrapper.get("div.rounded-lg.border.bg-canvas");
+    expect(calendarCard.attributes("style") ?? "").toContain("cached://bg_class.png");
+    expect(calendarCard.classes()).toContain("aspect-[16/9]");
+
+    profile.value = { ...DEFAULT_PROFILE };
+    wrapper.unmount();
   });
 });

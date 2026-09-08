@@ -46,6 +46,10 @@ import type { CalendarEvent, CalendarEventType, Timetable, TimetableException, T
 const props = defineProps<{
   className: string;
   timetable: (Timetable & { slots: TimetableSlot[] }) | null;
+  /** 课表背景图样式（个人资料里设置的课表背景），铺在万年历卡片表面；未设置不传 */
+  surfaceStyle?: Record<string, string>;
+  /** 与 surfaceStyle 配套的比例约束（有背景图时统一 16:9）；未设置不传 */
+  surfaceClass?: string;
 }>();
 
 const emit = defineEmits<{ edit: [] }>();
@@ -279,7 +283,7 @@ const MAX_CELL_ITEMS = 3;
 <template>
   <div class="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
     <!-- 万年历网格 -->
-    <div class="rounded-lg border border-hairline bg-canvas p-4">
+    <div class="rounded-lg border border-hairline bg-canvas p-4" :class="props.surfaceClass" :style="props.surfaceStyle">
       <!-- 月份导航：右上角为「编辑课表」唯一入口 -->
       <div class="mb-3 flex items-center justify-between">
         <div class="flex items-center gap-1">

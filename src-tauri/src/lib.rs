@@ -1,4 +1,5 @@
 mod ai;
+mod backgrounds;
 mod capabilities;
 mod db;
 pub mod mcp_server;
@@ -445,6 +446,11 @@ pub fn run() {
       photos::photos_dir,
       photos::import_photo,
       photos::delete_photo_file,
+      backgrounds::backgrounds_dir,
+      backgrounds::download_background,
+      backgrounds::read_image_bytes,
+      backgrounds::save_background_data_url,
+      backgrounds::delete_background_file,
       rag::rag_reindex,
       rag::semantic_search,
       roster::roster_read_text,

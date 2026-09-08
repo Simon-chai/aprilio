@@ -50,3 +50,5 @@ encoding_rs = "0.8"
 # 花名册表格通道（roster.rs）：xlsx/xls/xlsb/xlsm/ods 解码为二维矩阵
 # 精确锁定：pre-1.0 有破坏性变更惯例（docs/EXCEL_PARSING_EVALUATION.md）
 calamine = "=0.36.1"
+# 背景图字节流（download_background / read_image_bytes / save_background_data_url 的 base64 编解码）
+base64 = "0.22"

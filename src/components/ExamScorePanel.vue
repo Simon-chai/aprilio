@@ -160,37 +160,40 @@ function fmtDate(d: string): string {
 
 <template>
   <div class="space-y-4" data-test="exam-score-panel">
-    <!-- 工具行：导入 + 视角切换 -->
-    <div class="flex flex-wrap items-center gap-3">
-      <AppIconButton label="导入成绩" data-test="import-score-btn" @click="importOpen = true">
-        <!-- 语义图标：文件上有对勾勾线，表示成绩单批量导入 -->
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-          <path d="M14 2v6h6" />
-          <path d="M9 15l2 2 4-4" />
-        </svg>
-      </AppIconButton>
+    <!-- 工具行：视角切换 → 「导入成绩」紧挨其右 → 说明文字 -->
+    <div class="flex flex-wrap items-center gap-3" data-test="score-toolbar">
+      <div class="flex flex-wrap items-center gap-2" data-test="score-toolbar-actions">
+        <div class="inline-flex rounded-md border border-hairline bg-parchment p-1">
+          <button
+            type="button"
+            data-test="view-exams-btn"
+            class="rounded-[6px] px-3 py-1.5 text-caption transition-colors"
+            :class="view === 'exams' ? 'bg-canvas font-medium text-primary' : 'text-weak hover:text-ink'"
+            @click="view = 'exams'"
+          >
+            按考试
+          </button>
+          <button
+            type="button"
+            data-test="view-overview-btn"
+            class="rounded-[6px] px-3 py-1.5 text-caption transition-colors"
+            :class="view === 'overview' ? 'bg-canvas font-medium text-primary' : 'text-weak hover:text-ink'"
+            @click="view = 'overview'"
+          >
+            按学生总览
+          </button>
+        </div>
 
-      <div class="inline-flex rounded-md border border-hairline bg-parchment p-1">
-        <button
-          type="button"
-          data-test="view-exams-btn"
-          class="rounded-[6px] px-3 py-1.5 text-caption transition-colors"
-          :class="view === 'exams' ? 'bg-canvas font-medium text-primary' : 'text-weak hover:text-ink'"
-          @click="view = 'exams'"
-        >
-          按考试
-        </button>
-        <button
-          type="button"
-          data-test="view-overview-btn"
-          class="rounded-[6px] px-3 py-1.5 text-caption transition-colors"
-          :class="view === 'overview' ? 'bg-canvas font-medium text-primary' : 'text-weak hover:text-ink'"
-          @click="view = 'overview'"
-        >
-          按学生总览
-        </button>
+        <AppIconButton label="导入成绩" data-test="import-score-btn" @click="importOpen = true">
+          <!-- 语义图标：文件上有对勾勾线，表示成绩单批量导入 -->
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+            <path d="M14 2v6h6" />
+            <path d="M9 15l2 2 4-4" />
+          </svg>
+        </AppIconButton>
       </div>
+
       <span class="text-fine text-weak">
         {{ view === "exams" ? "每次考试一份成绩单批次" : "每个学生每次考试的总分" }}
       </span>
@@ -202,7 +205,7 @@ function fmtDate(d: string): string {
     <EmptyState
       v-if="!loading && !exams.length"
       title="暂无考试成绩"
-      description="点击上方「导入成绩」图标，把一份成绩单导入为一次考试（可指定考试名与考试时间）"
+      description="点击「按学生总览」右侧的「导入成绩」图标，把一份成绩单导入为一次考试（可指定考试名与考试时间）"
     />
 
     <!-- 视角 1：按考试 -->

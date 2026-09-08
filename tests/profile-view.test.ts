@@ -26,6 +26,7 @@ const profileMocks = vi.hoisted(() => {
 vi.mock("../src/lib/profile", () => profileMocks);
 
 import ProfileView from "../src/views/ProfileView.vue";
+import BackgroundPickerDialog from "../src/components/BackgroundPickerDialog.vue";
 import { DEFAULT_PROFILE, PROFILE_TITLES, type Profile } from "../src/types";
 
 const mountedHosts: VueWrapper[] = [];
@@ -48,6 +49,15 @@ function restoreButtonOf(wrapper: VueWrapper, index = 0) {
 
 function draftOf(wrapper: VueWrapper): Profile {
   return (wrapper.vm as unknown as { draft: Profile }).draft;
+}
+
+/** 点「更换」打开选择器，再点弹窗里的「本地上传」（挂起的选图不会被 flushPromises 结算） */
+async function startLibraryUpload(wrapper: VueWrapper, changeIndex = 0) {
+  await changeButtonOf(wrapper, changeIndex).trigger("click");
+  const picker = wrapper.findComponent(BackgroundPickerDialog);
+  await picker.get('[data-test="bg-picker-local"]').trigger("click");
+  await flushPromises();
+  return picker;
 }
 
 function deferred<T>() {
@@ -274,7 +284,7 @@ describe("profile editor", () => {
     await wrapper.get("#profile-name").setValue("Keep this name");
     profileMocks.selectProfileImage.mockResolvedValueOnce(null);
 
-    await changeButtonOf(wrapper).trigger("click");
+    await startLibraryUpload(wrapper);
     await flushPromises();
 
     expect((wrapper.get("#profile-name").element as HTMLInputElement).value).toBe("Keep this name");
@@ -282,15 +292,17 @@ describe("profile editor", () => {
     expect(profileMocks.discardSelectedProfileImage).not.toHaveBeenCalled();
   });
 
-  it("shows image selection errors without contaminating the draft", async () => {
+  it("shows image selection errors inside the picker without contaminating the draft", async () => {
     const { wrapper } = await mountEditor();
     await wrapper.get("#profile-name").setValue("Safe name");
     profileMocks.selectProfileImage.mockRejectedValueOnce(new Error("image read failed"));
 
     await changeButtonOf(wrapper).trigger("click");
+    const picker = wrapper.findComponent(BackgroundPickerDialog);
+    await picker.get('[data-test="bg-picker-local"]').trigger("click");
     await flushPromises();
 
-    expect(wrapper.get('[role="alert"]').text()).toContain("image read failed");
+    expect(wrapper.get('[data-test="bg-picker-error"]').text()).toContain("image read failed");
     expect((wrapper.get("#profile-name").element as HTMLInputElement).value).toBe("Safe name");
     expect(profileMocks.profile.value).toEqual(DEFAULT_PROFILE);
   });
@@ -300,9 +312,13 @@ describe("profile editor", () => {
     profileMocks.selectProfileImage.mockRejectedValueOnce(null);
 
     await changeButtonOf(wrapper).trigger("click");
+    await wrapper
+      .findComponent(BackgroundPickerDialog)
+      .get('[data-test="bg-picker-local"]')
+      .trigger("click");
     await flushPromises();
 
-    const alert = wrapper.get('[role="alert"]').text();
+    const alert = wrapper.get('[data-test="bg-picker-error"]').text();
     expect(alert).not.toMatch(/null|undefined/);
     expect(alert).not.toBe("");
   });
@@ -313,10 +329,8 @@ describe("profile editor", () => {
       .mockResolvedValueOnce({ value: "first-avatar.png", fileName: "first-avatar.png" })
       .mockResolvedValueOnce({ value: "second-avatar.png", fileName: "second-avatar.png" });
 
-    await changeButtonOf(wrapper).trigger("click");
-    await flushPromises();
-    await changeButtonOf(wrapper).trigger("click");
-    await flushPromises();
+    await startLibraryUpload(wrapper);
+    await startLibraryUpload(wrapper);
 
     expect(profileMocks.discardSelectedProfileImage).toHaveBeenCalledOnce();
     expect(profileMocks.discardSelectedProfileImage).toHaveBeenCalledWith("first-avatar.png");
@@ -331,8 +345,7 @@ describe("profile editor", () => {
       fileName: "hero-draft.jpg",
     });
 
-    await changeButtonOf(wrapper, 1).trigger("click");
-    await flushPromises();
+    await startLibraryUpload(wrapper, 1);
     await restoreButtonOf(wrapper).trigger("click");
     await flushPromises();
 
@@ -395,7 +408,7 @@ describe("profile editor", () => {
     profileMocks.selectProfileImage.mockReturnValueOnce(selection.promise);
     const { router, wrapper } = await mountEditor();
 
-    await changeButtonOf(wrapper).trigger("click");
+    await startLibraryUpload(wrapper);
     await router.push("/other");
 
     expect(router.currentRoute.value.path).toBe("/profile");
@@ -411,7 +424,7 @@ describe("profile editor", () => {
     profileMocks.selectProfileImage.mockReturnValueOnce(selection.promise);
     const { host, wrapper } = await mountEditor();
 
-    await changeButtonOf(wrapper).trigger("click");
+    await startLibraryUpload(wrapper);
     host.unmount();
 
     selection.resolve({ value: "late-avatar.png", fileName: "late-avatar.png" });
@@ -426,7 +439,7 @@ describe("profile editor", () => {
     profileMocks.selectProfileImage.mockReturnValueOnce(selection.promise);
     const { router, wrapper } = await mountEditor();
 
-    await changeButtonOf(wrapper).trigger("click");
+    await startLibraryUpload(wrapper);
     selection.resolve(null);
     await flushPromises();
     await router.push("/other");
@@ -440,7 +453,7 @@ describe("profile editor", () => {
     profileMocks.selectProfileImage.mockReturnValueOnce(selection.promise);
     const { router, wrapper } = await mountEditor();
 
-    await changeButtonOf(wrapper).trigger("click");
+    await startLibraryUpload(wrapper);
     selection.reject(new Error("picker failed"));
     await flushPromises();
     await router.push("/other");
@@ -455,8 +468,7 @@ describe("profile editor", () => {
       value: "temporary-avatar.png",
       fileName: "temporary-avatar.png",
     });
-    await changeButtonOf(wrapper).trigger("click");
-    await flushPromises();
+    await startLibraryUpload(wrapper);
 
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     await router.push("/other");
@@ -478,8 +490,7 @@ describe("profile editor", () => {
       value: "saved-avatar.png",
       fileName: "saved-avatar.png",
     });
-    await changeButtonOf(wrapper).trigger("click");
-    await flushPromises();
+    await startLibraryUpload(wrapper);
 
     await saveButtonOf(wrapper).trigger("click");
     await flushPromises();
@@ -496,7 +507,7 @@ describe("profile editor", () => {
     const { wrapper } = await mountEditor();
 
     await wrapper.get("#profile-name").setValue("draft-name");
-    await changeButtonOf(wrapper).trigger("click");
+    await startLibraryUpload(wrapper);
 
     const saveButton = saveButtonOf(wrapper);
     expect(saveButton.attributes("disabled")).toBeDefined();
@@ -525,13 +536,11 @@ describe("profile editor", () => {
       .mockResolvedValueOnce({ value: "new-avatar.png", fileName: "new-avatar.png" });
     const { wrapper } = await mountEditor();
 
-    await changeButtonOf(wrapper).trigger("click");
-    await flushPromises();
+    await startLibraryUpload(wrapper);
 
     const cleanup = deferred<void>();
     profileMocks.discardSelectedProfileImage.mockReturnValueOnce(cleanup.promise);
-    await changeButtonOf(wrapper).trigger("click");
-    await flushPromises();
+    await startLibraryUpload(wrapper);
 
     const saveButton = saveButtonOf(wrapper);
     expect(profileMocks.discardSelectedProfileImage).toHaveBeenCalledWith("old-avatar.png");
@@ -565,8 +574,7 @@ describe("profile editor", () => {
     });
     const { wrapper } = await mountEditor();
 
-    await changeButtonOf(wrapper, 1).trigger("click");
-    await flushPromises();
+    await startLibraryUpload(wrapper, 1);
 
     const cleanup = deferred<void>();
     profileMocks.discardSelectedProfileImage.mockReturnValueOnce(cleanup.promise);
@@ -589,15 +597,13 @@ describe("profile editor", () => {
       .mockResolvedValueOnce({ value: "new-avatar.png", fileName: "new-avatar.png" });
     const { wrapper } = await mountEditor();
 
-    await changeButtonOf(wrapper).trigger("click");
-    await flushPromises();
+    await startLibraryUpload(wrapper);
     profileMocks.discardSelectedProfileImage
       .mockRejectedValueOnce(new Error("old file cleanup failed"))
       .mockRejectedValueOnce(new Error("new file cleanup failed"))
       .mockResolvedValue(undefined);
 
-    await changeButtonOf(wrapper).trigger("click");
-    await flushPromises();
+    await startLibraryUpload(wrapper);
 
     expect(profileMocks.discardSelectedProfileImage).toHaveBeenNthCalledWith(1, "old-avatar.png");
     expect(profileMocks.discardSelectedProfileImage).toHaveBeenNthCalledWith(2, "new-avatar.png");
@@ -645,8 +651,7 @@ describe("profile editor", () => {
     });
     const { router, wrapper } = await mountEditor();
 
-    await changeButtonOf(wrapper).trigger("click");
-    await flushPromises();
+    await startLibraryUpload(wrapper);
     await wrapper.get("#profile-name").setValue("Pending draft");
 
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
@@ -682,8 +687,7 @@ describe("profile editor", () => {
     });
     const { host, wrapper } = await mountEditor();
 
-    await changeButtonOf(wrapper).trigger("click");
-    await flushPromises();
+    await startLibraryUpload(wrapper);
 
     const selection = deferred<{ value: string; fileName: string }>();
     const cleanup = deferred<void>();
@@ -693,7 +697,10 @@ describe("profile editor", () => {
       return Promise.resolve();
     });
 
-    const choosing = changeButtonOf(wrapper).trigger("click");
+    // 第一次上传已关闭弹窗：再点一次「更换」重新打开后发起挂起的第二次选图
+    await changeButtonOf(wrapper).trigger("click");
+    const picker = wrapper.findComponent(BackgroundPickerDialog);
+    const choosing = picker.get('[data-test="bg-picker-local"]').trigger("click");
     selection.resolve({ value: "late-avatar.png", fileName: "late-avatar.png" });
     await flushPromises();
     expect(profileMocks.discardSelectedProfileImage).toHaveBeenCalledOnce();
@@ -717,10 +724,8 @@ describe("profile editor", () => {
       .mockResolvedValueOnce({ value: "pending-hero.png", fileName: "pending-hero.png" });
     const { host, wrapper } = await mountEditor();
 
-    await changeButtonOf(wrapper).trigger("click");
-    await flushPromises();
-    await changeButtonOf(wrapper, 1).trigger("click");
-    await flushPromises();
+    await startLibraryUpload(wrapper);
+    await startLibraryUpload(wrapper, 1);
 
     const avatarCleanup = deferred<void>();
     const heroCleanup = deferred<void>();
@@ -757,8 +762,7 @@ describe("profile editor", () => {
       fileName: "saved-avatar.png",
     });
     const { host, wrapper } = await mountEditor();
-    await changeButtonOf(wrapper).trigger("click");
-    await flushPromises();
+    await startLibraryUpload(wrapper);
 
     const save = deferred<void>();
     profileMocks.saveProfileChanges.mockImplementationOnce(async (next: Profile) => {
@@ -784,8 +788,7 @@ describe("profile editor", () => {
       fileName: "failed-save-avatar.png",
     });
     const { host, wrapper } = await mountEditor();
-    await changeButtonOf(wrapper).trigger("click");
-    await flushPromises();
+    await startLibraryUpload(wrapper);
 
     const save = deferred<void>();
     profileMocks.saveProfileChanges.mockImplementationOnce(async () => {
@@ -870,5 +873,34 @@ describe("profile subject editor (任教学科)", () => {
     expect(wrapper.findAll('button[data-test="subject-chip"]').filter((b) => b.text() === "写字")).toHaveLength(1);
     await chip.trigger("click");
     expect(chip.classes()).not.toContain("bg-ink");
+  });
+
+  it("applies an image chosen from the library to the draft without saving it yet", async () => {
+    const { wrapper } = await mountEditor();
+
+    // 「更换」即选择器：本地上传 / 网络链接 / 历史切换在同一处
+    await changeButtonOf(wrapper, 1).trigger("click");
+    const picker = wrapper.findComponent(BackgroundPickerDialog);
+    expect(picker.props("open")).toBe(true);
+    expect(picker.props("kind")).toBe("hero");
+
+    // 从历史里切一张（fresh=false）：只改草稿，保存才落库
+    picker.vm.$emit("select", "img_history.png", false);
+    await flushPromises();
+
+    expect(draftOf(wrapper).hero).toBe("img_history.png");
+    expect(profileMocks.saveProfileChanges).not.toHaveBeenCalled();
+  });
+
+  it("clears the current background when the library asks to remove it", async () => {
+    profileMocks.profile.value = { ...DEFAULT_PROFILE, timetable_bg: "img_old.png" };
+    const { wrapper } = await mountEditor();
+
+    await changeButtonOf(wrapper, 2).trigger("click");
+    const picker = wrapper.findComponent(BackgroundPickerDialog);
+    picker.vm.$emit("clear");
+    await flushPromises();
+
+    expect(draftOf(wrapper).timetable_bg).toBe("");
   });
 });

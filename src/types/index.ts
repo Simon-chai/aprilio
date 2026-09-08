@@ -53,6 +53,31 @@ export interface Profile {
   timetable_bg: string;
 }
 
+/** 背景图用途：与个人资料里的三类图片一一对应 */
+export type BackgroundKind = "avatar" | "hero" | "timetable_bg";
+
+/** 背景图来源：本地上传 / 网络 URL（两种都会缓存到本地再用） */
+export type BackgroundSource = "local" | "url";
+
+/**
+ * 背景图库索引项。索引本身只存元信息（本地索引：浏览器/桌面端都落 localStorage），
+ * 图片文件另存本地缓存目录（桌面端 backgrounds/，浏览器演示态退化为 dataURL）。
+ */
+export interface BackgroundImage {
+  id: string;
+  kind: BackgroundKind;
+  /** 本地缓存标识：桌面端为缓存文件名，浏览器演示态为 dataURL */
+  file: string;
+  source: BackgroundSource;
+  /** URL 来源保留原始地址（便于核对 / 重新下载）；本地上传为空串 */
+  origin_url: string;
+  /** 展示名：原文件名或 URL 末段 */
+  name: string;
+  added_at: string;
+  /** 最近一次被设为当前背景的时刻；图库按它倒序展示 */
+  used_at: string;
+}
+
 /** 身份枚举：个人资料页下拉选择 */
 export const PROFILE_TITLES = ["学校管理", "教师", "家长", "学生", "其他"] as const;
 export type ProfileTitle = (typeof PROFILE_TITLES)[number];

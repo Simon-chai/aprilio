@@ -10,6 +10,16 @@ import { DEFAULT_PROFILE } from "../src/types";
 // AI 标题生成打桩：默认不生成（null = 未配置模型路径），个别用例再改为返回标题
 vi.mock("../src/lib/memo-ai", () => ({ summarizeMemoTitle: vi.fn() }));
 
+// 课表背景解析打桩：非 Tauri 环境拿不到缓存目录，把 bg_ 文件解析成可断言的地址
+vi.mock("../src/lib/backgrounds", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/lib/backgrounds")>();
+  return {
+    ...actual,
+    backgroundCacheUrl: (file: string) => `cached://${file}`,
+    backgroundsFileUrl: (file: string) => `cached://${file}`,
+  };
+});
+
 afterEach(() => {
   vi.useRealTimers();
 });
@@ -294,5 +304,27 @@ describe("MyTimetableView.vue", () => {
     expect(wrapper.find('[data-test="memo-pop"]').exists()).toBe(false);
     wrapper.unmount();
     profile.value = { ...DEFAULT_PROFILE };
+  });
+
+  it("paints the profile timetable background onto the week surface and clears it after removal", async () => {
+    profile.value = { ...DEFAULT_PROFILE, timetable_bg: "bg_test.png" };
+    const wrapper = mountView();
+    await flushPromises();
+
+    const surface = wrapper.get('[data-test="week-timetable-surface"]');
+    const style = surface.attributes("style") ?? "";
+    expect(style).toContain("cached://bg_test.png");
+    // 白雾打底：黑字网格仍可读
+    expect(style).toContain("linear-gradient");
+    // 16:9 与裁剪窗口比例一致：各课表位置显示的取景区域统一
+    expect(surface.classes()).toContain("aspect-[16/9]");
+
+    // 清空背景：表面回到纯色卡片，比例约束一并去掉
+    profile.value = { ...DEFAULT_PROFILE };
+    await flushPromises();
+    const cleared = wrapper.get('[data-test="week-timetable-surface"]');
+    expect(cleared.attributes("style")).toBeUndefined();
+    expect(cleared.classes()).not.toContain("aspect-[16/9]");
+    wrapper.unmount();
   });
 });

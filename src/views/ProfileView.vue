@@ -4,6 +4,8 @@ import { onBeforeRouteLeave, useRouter } from "vue-router";
 import AppButton from "../components/ui/AppButton.vue";
 import AppCard from "../components/ui/AppCard.vue";
 import AppLink from "../components/ui/AppLink.vue";
+import BackgroundPickerDialog from "../components/BackgroundPickerDialog.vue";
+import { ensureBackgroundLibrary, markBackgroundUsed } from "../lib/backgrounds";
 import { useClock } from "../composables/useClock";
 import {
   discardSelectedProfileImage,
@@ -11,13 +13,12 @@ import {
   profile,
   profileImageSrc,
   saveProfileChanges,
-  selectProfileImage,
   type ProfileImageKind,
 } from "../lib/profile";
 import { profileSaveErrorMessage } from "../lib/error-message";
 import { listTimetableSubjects } from "../lib/db";
 import { SUBJECT_PRESETS } from "../lib/timetable";
-import type { Profile } from "../types";
+import type { BackgroundKind, Profile } from "../types";
 import { PROFILE_TITLES } from "../types";
 
 const router = useRouter();
@@ -35,6 +36,12 @@ const error = ref("");
 const pendingFiles = new Map<ProfileImageKind, Set<string>>();
 const selectionCount = ref(0);
 const leaving = ref(false);
+/* 图片选择器：点「更换 / 选择图片」直接打开，本地上传与网络链接在同一处 */
+const pickerOpen = ref(false);
+const pickerKind = ref<BackgroundKind>("avatar");
+const pickerBusy = ref(false);
+/** 图片操作进行中（含弹窗内的上传/下载）：统一用于禁用控件与拦截离开 */
+const imageBusy = computed(() => selectionCount.value > 0 || pickerBusy.value);
 let ready = false;
 let unmounted = false;
 let activeSave: Promise<boolean> | null = null;
@@ -124,6 +131,7 @@ onMounted(async () => {
   loading.value = false;
   ready = true;
   void loadSubjectCandidates();
+  void ensureBackgroundLibrary();
 });
 
 watch(
@@ -177,68 +185,8 @@ async function clearPending(kind: ProfileImageKind): Promise<void> {
   }
 }
 
-async function chooseImage(kind: ProfileImageKind): Promise<void> {
-  if (loading.value || saving.value || leaving.value || selectionCount.value > 0) return;
-  error.value = "";
-  selectionCount.value += 1;
-  const operation = (async () => {
-    let selected: { value: string; fileName?: string } | null = null;
-
-    try {
-      selected = await selectProfileImage(kind);
-      if (!selected) return;
-
-      if (unmounted) {
-        if (selected.fileName) {
-          await discardSelectedProfileImage(selected.fileName).catch(() => undefined);
-        }
-        return;
-      }
-
-      try {
-        await clearPending(kind);
-      } catch (cause) {
-        if (selected.fileName) {
-          try {
-            await discardSelectedProfileImage(selected.fileName);
-          } catch {
-            trackPending(kind, selected.fileName);
-          }
-        }
-        throw cause;
-      }
-
-      if (unmounted) {
-        if (selected.fileName) {
-          await discardSelectedProfileImage(selected.fileName).catch(() => undefined);
-        }
-        return;
-      }
-
-      draft[kind] = selected.value;
-      if (selected.fileName) trackPending(kind, selected.fileName);
-    } catch (cause) {
-      if (!unmounted) {
-        error.value = messageOf(
-          cause,
-          "\u56FE\u7247\u9009\u62E9\u5931\u8D25\uFF0C\u8BF7\u91CD\u8BD5\u3002",
-        );
-      }
-    } finally {
-      selectionCount.value -= 1;
-    }
-  })();
-  imageOperation = operation;
-
-  try {
-    await operation;
-  } finally {
-    if (imageOperation === operation) imageOperation = null;
-  }
-}
-
 async function restoreImage(kind: ProfileImageKind): Promise<void> {
-  if (loading.value || saving.value || leaving.value || selectionCount.value > 0) return;
+  if (loading.value || saving.value || leaving.value || imageBusy.value) return;
   error.value = "";
   selectionCount.value += 1;
   const operation = (async () => {
@@ -266,12 +214,68 @@ async function restoreImage(kind: ProfileImageKind): Promise<void> {
   }
 }
 
+/**
+ * 「更换 / 选择图片」的唯一入口：打开选择器。
+ * 本地上传与粘贴网络链接在同一个弹窗里，历史图片也在里面切换，不再有第二个入口。
+ */
+function chooseImage(kind: ProfileImageKind): void {
+  if (loading.value || saving.value || leaving.value || imageBusy.value) return;
+  error.value = "";
+  pickerKind.value = kind;
+  pickerOpen.value = true;
+}
+
+/**
+ * 选择器里挑中的图：先清掉上一张未采用的，再应用到草稿（保存后才真正落库）。
+ * fresh = 本次新上传/新下载的图（未保存离开时要清掉），从历史里切的不需要清理。
+ */
+async function onPickerSelect(file: string, fresh: boolean): Promise<void> {
+  const kind = pickerKind.value as ProfileImageKind;
+  if (unmounted) {
+    if (fresh && file) void discardSelectedProfileImage(file).catch(() => undefined);
+    return;
+  }
+  selectionCount.value += 1;
+  const operation = (async () => {
+    try {
+      await clearPending(kind);
+      draft[kind] = file;
+      markBackgroundUsed(kind, file);
+      if (fresh && file) trackPending(kind, file);
+    } catch (cause) {
+      // 旧图清理失败时不应用新图：新图挂到 pending，离开时随其他未采用图一并重试
+      if (fresh && file) {
+        try {
+          await discardSelectedProfileImage(file);
+        } catch {
+          trackPending(kind, file);
+        }
+      }
+      if (!unmounted) error.value = messageOf(cause, "图片清理失败，请重试。");
+    } finally {
+      selectionCount.value -= 1;
+    }
+  })();
+  imageOperation = operation;
+
+  try {
+    await operation;
+  } finally {
+    if (imageOperation === operation) imageOperation = null;
+  }
+}
+
+function onPickerClear(): void {
+  const kind = pickerKind.value as ProfileImageKind;
+  draft[kind] = "";
+}
+
 async function saveChanges(): Promise<void> {
   if (
     loading.value ||
     saving.value ||
     leaving.value ||
-    selectionCount.value > 0 ||
+    imageBusy.value ||
     cleanupInFlight ||
     !isDirty.value
   ) {
@@ -342,7 +346,7 @@ async function cleanupPending(): Promise<void> {
 }
 
 onBeforeRouteLeave(async () => {
-  if (leaving.value || saving.value || selectionCount.value > 0) return false;
+  if (leaving.value || saving.value || imageBusy.value) return false;
   leaving.value = true;
 
   try {
@@ -411,7 +415,7 @@ onBeforeUnmount(() => {
         {{ saveStatus }}
       </span>
       <AppButton
-        :disabled="loading || saving || leaving || selectionCount > 0 || !isDirty"
+        :disabled="loading || saving || leaving || imageBusy || !isDirty"
         @click="saveChanges"
       >
         <template v-if="saving">&#x4FDD;&#x5B58;&#x4E2D;&#x2026;</template>
@@ -473,7 +477,7 @@ onBeforeUnmount(() => {
                 id="profile-name"
                 ref="nameInput"
                 v-model="draft.name"
-                :disabled="loading || saving || leaving || selectionCount > 0"
+                :disabled="loading || saving || leaving || imageBusy"
                 class="h-9 w-full rounded-sm border border-hairline bg-canvas px-3 text-caption text-ink outline-none transition-colors focus:border-primary-focus"
               />
             </div>
@@ -484,7 +488,7 @@ onBeforeUnmount(() => {
               <select
                 id="profile-title"
                 v-model="draft.title"
-                :disabled="loading || saving || leaving || selectionCount > 0"
+                :disabled="loading || saving || leaving || imageBusy"
                 class="h-9 w-full rounded-sm border border-hairline bg-canvas px-2 text-caption text-ink outline-none transition-colors focus:border-primary-focus"
               >
                 <option value="">&#x672A;&#x8BBE;&#x7F6E;</option>
@@ -499,7 +503,7 @@ onBeforeUnmount(() => {
                 id="profile-motto"
                 v-model="draft.motto"
                 rows="3"
-                :disabled="loading || saving || leaving || selectionCount > 0"
+                :disabled="loading || saving || leaving || imageBusy"
                 class="w-full resize-y rounded-sm border border-hairline bg-canvas px-3 py-2 text-caption leading-6 text-ink outline-none transition-colors focus:border-primary-focus"
                 placeholder="&#x5199;&#x4E00;&#x53E5;&#x4F60;&#x60F3;&#x653E;&#x5728;&#x9996;&#x9875;&#x7684;&#x8BDD;"
               ></textarea>
@@ -526,21 +530,23 @@ onBeforeUnmount(() => {
               </div>
               <AppButton
                 variant="pearl"
-                :disabled="loading || saving || leaving || selectionCount > 0"
+                :disabled="loading || saving || leaving || imageBusy"
                 @click="chooseImage('avatar')"
               >
                 &#x66F4;&#x6362;
               </AppButton>
             </div>
+            <div class="flex items-center gap-3">
               <AppLink
                 v-if="draft.avatar"
                 variant="action"
-                :disabled="loading || saving || leaving || selectionCount > 0"
+                :disabled="loading || saving || leaving || imageBusy"
                 class="text-fine"
                 @click="restoreImage('avatar')"
               >
                 恢复默认头像
               </AppLink>
+            </div>
             <div class="border-t border-divider pt-5">
               <img
                 :src="heroPreview"
@@ -556,21 +562,23 @@ onBeforeUnmount(() => {
                 </div>
                 <AppButton
                   variant="pearl"
-                  :disabled="loading || saving || leaving || selectionCount > 0"
+                  :disabled="loading || saving || leaving || imageBusy"
                   @click="chooseImage('hero')"
                 >
                   &#x66F4;&#x6362;
                 </AppButton>
               </div>
-              <AppLink
-                v-if="draft.hero"
-                variant="action"
-                :disabled="loading || saving || leaving || selectionCount > 0"
-                class="mt-2 text-fine"
-                @click="restoreImage('hero')"
-              >
-                恢复默认首页大图
-              </AppLink>
+              <div class="mt-2 flex items-center gap-3">
+                <AppLink
+                  v-if="draft.hero"
+                  variant="action"
+                  :disabled="loading || saving || leaving || imageBusy"
+                  class="text-fine"
+                  @click="restoreImage('hero')"
+                >
+                  恢复默认首页大图
+                </AppLink>
+              </div>
             </div>
             <div class="border-t border-divider pt-5">
               <div
@@ -592,21 +600,23 @@ onBeforeUnmount(() => {
                 </div>
                 <AppButton
                   variant="pearl"
-                  :disabled="loading || saving || leaving || selectionCount > 0"
+                  :disabled="loading || saving || leaving || imageBusy"
                   @click="chooseImage('timetable_bg')"
                 >
                   {{ hasTimetableBg ? "更换" : "选择图片" }}
                 </AppButton>
               </div>
-              <AppLink
-                v-if="hasTimetableBg"
-                variant="action"
-                :disabled="loading || saving || leaving || selectionCount > 0"
-                class="mt-2 text-fine"
-                @click="restoreImage('timetable_bg')"
-              >
-                移除背景图
-              </AppLink>
+              <div class="mt-2 flex items-center gap-3">
+                <AppLink
+                  v-if="hasTimetableBg"
+                  variant="action"
+                  :disabled="loading || saving || leaving || imageBusy"
+                  class="text-fine"
+                  @click="restoreImage('timetable_bg')"
+                >
+                  移除背景图
+                </AppLink>
+              </div>
             </div>
           </div>
         </AppCard>
@@ -622,7 +632,7 @@ onBeforeUnmount(() => {
               :key="s"
               type="button"
               data-test="subject-chip"
-              :disabled="loading || saving || leaving || selectionCount > 0"
+              :disabled="loading || saving || leaving || imageBusy"
               class="rounded-pill border px-3 py-1 text-fine transition-colors disabled:opacity-40"
               :class="
                 isSelected(s)
@@ -638,22 +648,33 @@ onBeforeUnmount(() => {
             <input
               id="profile-new-subject"
               v-model="newSubject"
-              :disabled="loading || saving || leaving || selectionCount > 0"
+              :disabled="loading || saving || leaving || imageBusy"
               placeholder="自定义科目，如：写字"
               class="h-9 flex-1 rounded-sm border border-hairline bg-canvas px-3 text-caption text-ink outline-none transition-colors focus:border-primary-focus"
               @keydown.enter.prevent="addCustomSubject"
             />
             <AppButton
               variant="pearl"
-              :disabled="loading || saving || leaving || selectionCount > 0 || !newSubject.trim()"
+              :disabled="loading || saving || leaving || imageBusy || !newSubject.trim()"
               @click="addCustomSubject"
             >
               添加
             </AppButton>
           </div>
         </AppCard>
-
       </div>
     </div>
   </div>
+
+  <BackgroundPickerDialog
+    :open="pickerOpen"
+    :kind="pickerKind"
+    :current="draft[pickerKind]"
+    :crop="pickerKind === 'timetable_bg'"
+    data-test="profile-bg-picker"
+    @select="onPickerSelect"
+    @clear="onPickerClear"
+    @busy="pickerBusy = $event"
+    @close="pickerOpen = false"
+  />
 </template>

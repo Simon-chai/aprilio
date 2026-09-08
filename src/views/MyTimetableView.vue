@@ -33,7 +33,7 @@ import {
 } from "../lib/db";
 import { fromDateStr, mondayOf, toDateStr } from "../lib/calendar";
 import { summarizeMemoTitle } from "../lib/memo-ai";
-import { ensureProfile, profile } from "../lib/profile";
+import { ensureProfile, profile, timetableBgSurfaceClass, timetableBgSurfaceStyle } from "../lib/profile";
 import {
   CALENDAR_EVENT_META,
   CALENDAR_EVENT_TYPES,
@@ -401,7 +401,7 @@ onBeforeUnmount(() => {
       <!-- 按科目分块：每个科目仍然是一张完整的节次 × 工作日表 -->
       <template v-if="view === 'blocks'">
         <div v-if="schedule.bySubject.length" class="grid grid-cols-1 gap-5 xl:grid-cols-2">
-          <AppCard v-for="block in schedule.bySubject" :key="block.subject">
+          <AppCard v-for="block in schedule.bySubject" :key="block.subject" :class="timetableBgSurfaceClass" :style="timetableBgSurfaceStyle">
             <div class="mb-3 flex items-baseline justify-between">
               <h2 class="text-body font-semibold text-ink">{{ block.subject }}</h2>
               <span class="text-fine text-weak">每周 {{ block.weekly_count }} 节</span>
@@ -450,7 +450,7 @@ onBeforeUnmount(() => {
 
       <!-- 周课表：带日期的完整节次网格（调课生效）+ 按天日程 -->
       <div v-else class="space-y-5">
-        <div class="rounded-lg border border-hairline bg-canvas p-4">
+        <div class="rounded-lg border border-hairline bg-canvas p-4" :class="timetableBgSurfaceClass" :style="timetableBgSurfaceStyle" data-test="week-timetable-surface">
           <!-- 类型胶囊：备忘类型筛选器——点选后未选中类型的备忘置灰，只高亮命中的格子，再点取消 -->
           <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
             <p class="text-fine text-weak">

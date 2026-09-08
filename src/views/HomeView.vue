@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { RouterLink } from "vue-router";
 import { onPageAction } from "../agent/page-action-bus";
 import FeatureIcon from "../components/FeatureIcon.vue";
+import BackgroundPickerDialog from "../components/BackgroundPickerDialog.vue";
 import { useClock } from "../composables/useClock";
 import { usePagedScroll } from "../composables/usePagedScroll";
 import AppLink from "../components/ui/AppLink.vue";
@@ -36,14 +37,13 @@ import {
 import { fromDateStr, toDateStr } from "../lib/calendar";
 import {
   avatarSrc,
-  discardSelectedProfileImage,
   ensureProfile,
   heroSrc,
-  persistProfile,
   profile,
-  selectProfileImage,
+  saveProfileChanges,
   timetableBgSrc,
 } from "../lib/profile";
+import { ensureBackgroundLibrary, markBackgroundUsed } from "../lib/backgrounds";
 import type { CalendarEvent, CalendarEventType, Stats, TimetablePeriod } from "../types";
 
 const PAGES = 2;
@@ -123,23 +123,24 @@ const panelBgStyle = computed(() => {
   };
 });
 
-async function pickPanelBg() {
-  try {
-    const sel = await selectProfileImage("timetable_bg");
-    if (!sel) return;
-    const old = profile.value.timetable_bg;
-    await persistProfile({ ...profile.value, timetable_bg: sel.value });
-    if (old && old !== sel.value) await discardSelectedProfileImage(old).catch(() => undefined);
-  } catch {
-    /* 选图 / 保存失败静默：面板退回无图 */
-  }
+/* 背景选择器：本地上传 / 网络链接 / 历史切换；换下来的图留在图库里，随时切回 */
+const bgPickerOpen = ref(false);
+
+function openPanelBgPicker(): void {
+  void ensureBackgroundLibrary();
+  bgPickerOpen.value = true;
 }
 
-async function clearPanelBg() {
-  const old = profile.value.timetable_bg;
-  if (!old) return;
-  await persistProfile({ ...profile.value, timetable_bg: "" });
-  await discardSelectedProfileImage(old).catch(() => undefined);
+/** 选图立即生效（首页没有保存按钮）；旧图保留在图库中，不删文件 */
+async function applyPanelBg(file: string): Promise<void> {
+  markBackgroundUsed("timetable_bg", file);
+  await saveProfileChanges({ ...profile.value, timetable_bg: file }).catch(() => undefined);
+}
+
+/** 移除当前背景：只清空引用，图仍在图库里可以再切回来 */
+async function clearPanelBg(): Promise<void> {
+  if (!profile.value.timetable_bg) return;
+  await saveProfileChanges({ ...profile.value, timetable_bg: "" }).catch(() => undefined);
 }
 
 function shortDate(date: string): string {
@@ -643,7 +644,7 @@ const dotClass = (i: number) => {
                   class="flex h-6 w-6 items-center justify-center rounded-pill text-white/60 transition-colors hover:bg-white/15 hover:text-white"
                   aria-label="设置面板背景图"
                   title="设置面板背景图"
-                  @click="pickPanelBg"
+                  @click="openPanelBgPicker"
                 >
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                     <path
@@ -1053,7 +1054,20 @@ const dotClass = (i: number) => {
         @click="goTo(i - 1)"
       />
     </nav>
+
     </div>
+
+    <!-- 课表面板背景选择器：本地上传 / 网络链接 / 历史切换（放在翻页容器外，避免被裁切） -->
+    <BackgroundPickerDialog
+      :open="bgPickerOpen"
+      kind="timetable_bg"
+      :current="profile.timetable_bg"
+      crop
+      data-test="home-bg-picker"
+      @select="applyPanelBg"
+      @clear="clearPanelBg"
+      @close="bgPickerOpen = false"
+    />
   </div>
 </template>
 

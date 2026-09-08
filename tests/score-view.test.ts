@@ -116,6 +116,26 @@ describe("ExamScorePanel", () => {
     expect(wrapper.find("[data-test='import-score-btn']").exists()).toBe(true);
     await cleanup();
   });
+
+  it("「导入成绩」紧挨视角切换右侧：与「按学生总览」同组且是相邻兄弟", async () => {
+    await cleanup();
+    const wrapper = mount(ExamScorePanel, { props: { className: CLASS_NAME } });
+    await flushPromises();
+
+    const actions = wrapper.get("[data-test='score-toolbar-actions']");
+    const order = Array.from(actions.element.querySelectorAll("[data-test]")).map((el) =>
+      el.getAttribute("data-test"),
+    );
+    expect(order).toEqual(["view-exams-btn", "view-overview-btn", "import-score-btn"]);
+
+    // 图标紧跟 segmented 控件（相邻兄弟节点），不是行首也不被推到行尾
+    const kids = Array.from(actions.element.children);
+    const toggleIdx = kids.findIndex((el) => el.querySelector("[data-test='view-overview-btn']"));
+    const importIdx = kids.findIndex((el) => el.getAttribute("data-test") === "import-score-btn");
+    expect(toggleIdx).toBeGreaterThanOrEqual(0);
+    expect(importIdx).toBe(toggleIdx + 1);
+    await cleanup();
+  });
 });
 
 describe("StudentScorePanel", () => {

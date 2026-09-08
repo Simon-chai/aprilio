@@ -100,6 +100,29 @@ describe("TimetableCalendar.vue", () => {
     expect(wrapper.text()).toContain("周日");
   });
 
+  it("paints the surface style onto the month grid card when provided", async () => {
+    const wrapper = mount(TimetableCalendar, {
+      props: {
+        className: "三年级二班",
+        timetable,
+        surfaceStyle: { backgroundImage: "url(cached://bg_test.png)" },
+        surfaceClass: "aspect-[16/9]",
+      },
+    });
+    await flushPromises();
+
+    const card = wrapper.get("div.rounded-lg.border.bg-canvas");
+    expect(card.attributes("style")).toContain("cached://bg_test.png");
+    expect(card.classes()).toContain("aspect-[16/9]");
+
+    // 不传 surfaceStyle / surfaceClass：保持纯色卡片、无比例约束
+    const plain = mountCalendar();
+    await flushPromises();
+    const plainCard = plain.get("div.rounded-lg.border.bg-canvas");
+    expect(plainCard.attributes("style")).toBeUndefined();
+    expect(plainCard.classes()).not.toContain("aspect-[16/9]");
+  });
+
   it("shows the selected day's courses with colored subject chips", async () => {
     const wrapper = mountCalendar();
     await flushPromises();
