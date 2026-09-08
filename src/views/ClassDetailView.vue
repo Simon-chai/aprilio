@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import AppButton from "../components/ui/AppButton.vue";
 import AppIconButton from "../components/ui/AppIconButton.vue";
@@ -54,6 +54,46 @@ const behaviorRecords = ref<ClassBehaviorRecord[]>([]);
 const photosDir = ref("");
 const studentNames = ref<Map<number, string>>(new Map());
 const existingClasses = ref<ClassSummary[]>([]);
+
+/* ---------------- 班级名下拉：就地切换其他班级 ---------------- */
+
+const classSwitchOpen = ref(false);
+const classSwitchRoot = ref<HTMLElement | null>(null);
+const classSwitchMenu = ref<HTMLElement | null>(null);
+
+/** 下拉候选：全部班级按名称排序——含当前班级，菜单里高亮打勾，看起来就是「选班级」而不是一串链接 */
+const sortedClasses = computed<ClassSummary[]>(() =>
+  [...existingClasses.value].sort((a, b) => a.name.localeCompare(b.name, "zh")),
+);
+
+/** 展开下拉：滚动到当前班级那一项，班级多时也不会「不知道自己在哪」 */
+async function toggleClassSwitch(): Promise<void> {
+  classSwitchOpen.value = !classSwitchOpen.value;
+  if (!classSwitchOpen.value) return;
+  await nextTick();
+  const active = classSwitchMenu.value?.querySelector<HTMLElement>('[aria-current="page"]');
+  if (active && typeof active.scrollIntoView === "function") {
+    active.scrollIntoView({ block: "nearest" });
+  }
+}
+
+/** 选中班级 → 跳转到该班详情；点当前班级只收起 */
+function switchClass(target: string): void {
+  classSwitchOpen.value = false;
+  if (target === props.name) return;
+  router.push({ name: "class-detail", params: { name: target } });
+}
+
+/** 点击下拉以外的地方收起 */
+function onClassSwitchMouseDown(e: MouseEvent): void {
+  if (classSwitchOpen.value && !classSwitchRoot.value?.contains(e.target as Node)) {
+    classSwitchOpen.value = false;
+  }
+}
+
+function onClassSwitchKeydown(e: KeyboardEvent): void {
+  if (e.key === "Escape") classSwitchOpen.value = false;
+}
 
 const keyword = ref("");
 const activeTab = ref<"students" | "photos" | "behaviors" | "scores" | "timetable">("students");
@@ -119,24 +159,35 @@ async function toggleMySubject(subject: string): Promise<void> {
   }
 }
 
-async function openTimetableTab() {
-  activeTab.value = "timetable";
-  if (timetable.value || timetableLoading.value) return;
+/** 课表请求序号：班级切换时，旧班级的响应不能覆盖新班级的课表 */
+let timetableSeq = 0;
+
+async function loadTimetable(): Promise<void> {
+  const seq = ++timetableSeq;
+  const target = props.name;
   timetableLoading.value = true;
   timetableError.value = "";
   try {
     await ensureProfile().catch(() => undefined);
-    await findOrCreateTimetable(props.name, TIMETABLE_SEMESTER);
+    await findOrCreateTimetable(target, TIMETABLE_SEMESTER);
     const [withSlots] = await Promise.all([
-      getTimetableWithSlots(props.name, TIMETABLE_SEMESTER),
+      getTimetableWithSlots(target, TIMETABLE_SEMESTER),
       loadConflictRows(),
     ]);
+    if (seq !== timetableSeq) return;
     timetable.value = withSlots;
   } catch (e) {
+    if (seq !== timetableSeq) return;
     timetableError.value = `课表加载失败：${e instanceof Error ? e.message : String(e)}`;
   } finally {
-    timetableLoading.value = false;
+    if (seq === timetableSeq) timetableLoading.value = false;
   }
+}
+
+async function openTimetableTab(): Promise<void> {
+  activeTab.value = "timetable";
+  if (timetable.value || timetableLoading.value) return;
+  await loadTimetable();
 }
 
 async function refreshTimetable() {
@@ -317,11 +368,19 @@ watch(photoFilter, async () => {
 watch(() => props.name, () => {
   timetable.value = null;
   timetableError.value = "";
-  refresh();
+  void refresh();
+  // 停留在课程表 Tab 时切换班级：必须重新拉新班级的课表，否则 Tab 整块空白
+  if (activeTab.value === "timetable") void loadTimetable();
 });
 
-onMounted(refresh);
+onMounted(() => {
+  document.addEventListener("mousedown", onClassSwitchMouseDown);
+  document.addEventListener("keydown", onClassSwitchKeydown);
+  void refresh();
+});
 onBeforeUnmount(() => {
+  document.removeEventListener("mousedown", onClassSwitchMouseDown);
+  document.removeEventListener("keydown", onClassSwitchKeydown);
   clearTimeout(timer);
   clearTimeout(toastTimer);
 });
@@ -397,7 +456,103 @@ function goStudentDetail(row: StudentRow) {
           <div class="min-w-0">
             <div class="flex items-baseline gap-3 flex-wrap">
               <div class="flex items-center gap-2">
-                <h1 class="text-display font-semibold text-ink truncate">{{ name }}</h1>
+                <!-- 班级名即切换入口：点击下拉列出其他班级，选中跳转 -->
+                <div ref="classSwitchRoot" class="relative min-w-0">
+                  <h1 class="flex min-w-0 items-center">
+                    <!-- 触发器做成「下拉选择器」外形：边框 + 班级徽标 + 箭头，展开时主色描边 -->
+                    <button
+                      type="button"
+                      data-test="class-switch-trigger"
+                      class="flex min-w-0 items-center gap-2 rounded-md border py-1 pl-2 pr-2.5 transition-colors"
+                      :class="
+                        classSwitchOpen
+                          ? 'border-primary bg-primary-soft/50 ring-2 ring-primary/15'
+                          : 'border-hairline bg-canvas hover:border-primary hover:bg-primary-soft/30'
+                      "
+                      aria-haspopup="listbox"
+                      :aria-expanded="classSwitchOpen"
+                      @click="toggleClassSwitch"
+                    >
+                      <span
+                        class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-fine font-semibold"
+                        :class="classSwitchOpen ? 'bg-primary text-white' : 'bg-primary-soft text-primary'"
+                      >
+                        {{ name.slice(0, 1) }}
+                      </span>
+                      <span class="text-airy font-semibold text-ink truncate">{{ name }}</span>
+                      <svg
+                        class="shrink-0 transition-transform"
+                        :class="classSwitchOpen ? 'rotate-180 text-primary' : 'text-faint'"
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path d="m6 9 6 6 6-6" />
+                      </svg>
+                    </button>
+                  </h1>
+                  <!-- 班级选择器：列出全部班级，当前项主色高亮 + 打勾 -->
+                  <div
+                    v-if="classSwitchOpen"
+                    ref="classSwitchMenu"
+                    data-test="class-switch-menu"
+                    role="listbox"
+                    class="scroll-thin absolute left-0 top-full z-30 mt-1.5 max-h-80 w-64 overflow-y-auto rounded-lg border border-hairline bg-canvas p-1.5 shadow-lg"
+                  >
+                    <button
+                      v-for="c in sortedClasses"
+                      :key="c.name"
+                      type="button"
+                      role="option"
+                      data-test="class-switch-option"
+                      :aria-current="c.name === name ? 'page' : undefined"
+                      :aria-selected="c.name === name"
+                      class="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors"
+                      :class="c.name === name ? 'bg-primary-soft/60' : 'hover:bg-pearl'"
+                      @click="switchClass(c.name)"
+                    >
+                      <span
+                        class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-fine font-semibold"
+                        :class="c.name === name ? 'bg-primary text-white' : 'bg-pearl text-muted'"
+                      >
+                        {{ c.name.slice(0, 1) }}
+                      </span>
+                      <span class="min-w-0 flex-1">
+                        <span
+                          class="block truncate text-caption"
+                          :class="c.name === name ? 'font-semibold text-ink' : 'text-ink'"
+                        >
+                          {{ c.name }}
+                        </span>
+                        <span class="block text-fine text-faint">{{ c.studentCount }} 名学生</span>
+                      </span>
+                      <svg
+                        v-if="c.name === name"
+                        class="shrink-0 text-primary"
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2.5"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path d="M20 6 9 17l-5-5" />
+                      </svg>
+                    </button>
+                    <p v-if="!sortedClasses.length" class="px-2 py-1.5 text-fine text-faint">
+                      暂无班级
+                    </p>
+                  </div>
+                </div>
                 <button
                   type="button"
                   class="flex h-7 w-7 items-center justify-center rounded-md text-weak hover:bg-pearl hover:text-ink transition-colors"
@@ -651,30 +806,28 @@ function goStudentDetail(row: StudentRow) {
         <p v-else-if="timetableLoading" class="text-caption text-weak">正在载入课表…</p>
         <template v-else-if="timetable">
           <div class="flex flex-wrap items-center justify-between gap-2">
-            <div class="inline-flex rounded-md border border-hairline bg-parchment p-1">
-              <button
-                type="button"
-                data-test="timetable-view-grid"
-                class="rounded-[6px] px-3 py-1.5 text-caption transition-colors"
-                :class="timetableView === 'grid' ? 'bg-canvas font-medium text-primary' : 'text-weak hover:text-ink'"
-                @click="timetableView = 'grid'"
-              >
-                课表
-              </button>
-              <button
-                type="button"
-                data-test="timetable-view-calendar"
-                class="rounded-[6px] px-3 py-1.5 text-caption transition-colors"
-                :class="timetableView === 'calendar' ? 'bg-canvas font-medium text-primary' : 'text-weak hover:text-ink'"
-                @click="timetableView = 'calendar'"
-              >
-                日历
-              </button>
-            </div>
-            <div class="flex items-center gap-3">
-              <p v-if="timetableView === 'grid'" class="text-fine text-weak">
-                换课 / 停课 / 日程在日历视图维护
-              </p>
+            <div class="flex items-center gap-2">
+              <div class="inline-flex rounded-md border border-hairline bg-parchment p-1">
+                <button
+                  type="button"
+                  data-test="timetable-view-grid"
+                  class="rounded-[6px] px-3 py-1.5 text-caption transition-colors"
+                  :class="timetableView === 'grid' ? 'bg-canvas font-medium text-primary' : 'text-weak hover:text-ink'"
+                  @click="timetableView = 'grid'"
+                >
+                  课表
+                </button>
+                <button
+                  type="button"
+                  data-test="timetable-view-calendar"
+                  class="rounded-[6px] px-3 py-1.5 text-caption transition-colors"
+                  :class="timetableView === 'calendar' ? 'bg-canvas font-medium text-primary' : 'text-weak hover:text-ink'"
+                  @click="timetableView = 'calendar'"
+                >
+                  日历
+                </button>
+              </div>
+              <!-- 导入课表紧贴「日历」切换项右侧：导入的是这张课表，入口跟着视图切换走 -->
               <AppButton
                 variant="pearl"
                 data-test="timetable-import-btn"
@@ -683,6 +836,9 @@ function goStudentDetail(row: StudentRow) {
                 导入课表
               </AppButton>
             </div>
+            <p v-if="timetableView === 'grid'" class="text-fine text-weak">
+              换课 / 停课 / 日程在日历视图维护
+            </p>
           </div>
           <!-- 我的科目标记：点胶囊即存，勾选科目的格子高亮内描边 -->
           <div

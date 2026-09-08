@@ -160,15 +160,28 @@ describe("MyTimetableView.vue", () => {
     // 第一个格子 = 周一第 1 节：点开格内编辑器
     const cell = wrapper.get('[data-test="week-cell"]');
     await cell.trigger("click");
-    const input = wrapper.get('[data-test="week-cell-editor"] [data-test="week-cell-input"]');
+    const editor = wrapper.get('[data-test="week-cell-editor"]');
+    const input = editor.get('[data-test="week-cell-input"]');
     expect((input.element as HTMLInputElement).placeholder).toBe("记待办，回车");
+
+    // 空草稿时保存按钮不可点；输入后变为可点
+    const saveBtn = editor.get('[data-test="week-memo-save"]');
+    expect((saveBtn.element as HTMLButtonElement).disabled).toBe(true);
     await input.setValue("带三角板");
+    expect((saveBtn.element as HTMLButtonElement).disabled).toBe(false);
+
+    // 回车保存：备忘落回该格子里，编辑器保持打开可连续记
     await input.trigger("keydown.enter");
     await flushPromises();
-
-    // 备忘落回该格子里，编辑器保持打开可连续记
     expect(cell.text()).toContain("带三角板");
     expect(wrapper.find('[data-test="week-cell-editor"]').exists()).toBe(true);
+
+    // 再记一条走保存按钮（不按回车）：保存成功后卡片自动收起
+    await input.setValue("收作业");
+    await saveBtn.trigger("click");
+    await flushPromises();
+    expect(cell.text()).toContain("收作业");
+    expect(wrapper.find('[data-test="week-cell-editor"]').exists()).toBe(false);
     wrapper.unmount();
     profile.value = { ...DEFAULT_PROFILE };
   });
@@ -202,6 +215,13 @@ describe("MyTimetableView.vue", () => {
     // 悬浮「考试」选项 → 悬浮小卡片显示对应类型文案
     await options[2]!.trigger("mouseenter");
     expect(document.body.querySelector('[data-test="event-type-tip"]')?.textContent).toContain("考试");
+
+    // 真实点击先派发 mousedown：菜单 teleport 在 body 下，不能被宿主的「点空白收起」当成外部点击
+    // （回归：以前选中类型会连带把整个格内编辑器收掉）
+    await options[2]!.trigger("mousedown");
+    await nextTick();
+    expect(wrapper.find('[data-test="week-cell-editor"]').exists()).toBe(true);
+    expect(document.body.querySelector('[data-test="event-type-menu"]')).not.toBeNull();
 
     // 选「考试」→ 菜单收起、输入框 placeholder 联动
     await options[2]!.trigger("click");

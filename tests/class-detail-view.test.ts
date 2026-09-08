@@ -99,6 +99,51 @@ describe("ClassDetailView.vue", () => {
     expect(addPhotoIconBtn.find("span[role='tooltip']").text()).toContain("添加班级照片");
   });
 
+  it("switches to another class from the class-name dropdown", async () => {
+    const router = createTestRouter();
+    await router.push("/classes/三年级二班");
+    await router.isReady();
+
+    const wrapper = mount(ClassDetailView, {
+      props: { name: "三年级二班" },
+      global: {
+        plugins: [router],
+      },
+    });
+    await flushPromises();
+
+    // 默认收起，触发器带 aria-expanded 状态
+    const trigger = wrapper.get('[data-test="class-switch-trigger"]');
+    expect(trigger.attributes("aria-expanded")).toBe("false");
+    expect(wrapper.find('[data-test="class-switch-menu"]').exists()).toBe(false);
+
+    // 点班级名展开：列出全部班级，当前班级唯一高亮打勾（选择器语义，而非一串链接）
+    await trigger.trigger("click");
+    expect(trigger.attributes("aria-expanded")).toBe("true");
+    const menu = wrapper.get('[data-test="class-switch-menu"]');
+    const options = menu.findAll('[data-test="class-switch-option"]');
+    expect(options.length).toBeGreaterThan(1);
+    const current = menu.findAll('[data-test="class-switch-option"][aria-current="page"]');
+    expect(current).toHaveLength(1);
+    expect(current[0]!.text()).toContain("三年级二班");
+    const target = options.find((o) => o.text().includes("三年级一班"));
+    expect(target).toBeDefined();
+
+    // 选中即跳转到该班详情
+    await target!.trigger("click");
+    await flushPromises();
+    expect(router.currentRoute.value.name).toBe("class-detail");
+    expect(router.currentRoute.value.params.name).toBe("三年级一班");
+
+    // Esc 收起（测试未 attachTo，document 监听需直接派发）
+    await wrapper.get('[data-test="class-switch-trigger"]').trigger("click");
+    expect(wrapper.find('[data-test="class-switch-menu"]').exists()).toBe(true);
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    await flushPromises();
+    expect(wrapper.find('[data-test="class-switch-menu"]').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
   it("displays students belonging to 三年级二班 and excludes students from other classes", async () => {
     const router = createTestRouter();
     await router.push("/classes/三年级二班");
@@ -364,9 +409,13 @@ describe("ClassDetailView.vue", () => {
     await wrapper.get('[data-test="tab-timetable"]').trigger("click");
     await flushPromises();
 
-    expect(wrapper.findAll('button[data-test="timetable-cell"]').length).toBeGreaterThan(0);
+    expect(wrapper.findAll('[data-test="timetable-cell"]').length).toBeGreaterThan(0);
     expect(wrapper.get('[data-test="timetable-import-btn"]').text()).toContain("导入课表");
     expect(wrapper.text()).toContain("换课 / 停课 / 日程在日历视图维护");
+    // 导入课表紧贴「课表 / 日历」切换组右侧（同一个工具行，切换组里含「日历」）
+    const importBtn = wrapper.get('[data-test="timetable-import-btn"]');
+    const switcher = importBtn.element.previousElementSibling as HTMLElement;
+    expect(switcher.contains(wrapper.get('[data-test="timetable-view-calendar"]').element)).toBe(true);
 
     await wrapper.get('[data-test="timetable-view-calendar"]').trigger("click");
     await flushPromises();
@@ -375,7 +424,97 @@ describe("ClassDetailView.vue", () => {
 
     await wrapper.get('[data-test="timetable-view-grid"]').trigger("click");
     await flushPromises();
-    expect(wrapper.findAll('button[data-test="timetable-cell"]').length).toBeGreaterThan(0);
+    expect(wrapper.findAll('[data-test="timetable-cell"]').length).toBeGreaterThan(0);
+  });
+
+  it("shows a memo recorded from the week-grid header immediately (real db)", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 8, 9, 10, 0, 0)); // 周三：本周一 = 2026-09-07
+    try {
+      const router = createTestRouter();
+      await router.push("/classes/三年级二班");
+      await router.isReady();
+
+      const wrapper = mount(ClassDetailView, {
+        props: { name: "三年级二班" },
+        global: { plugins: [router] },
+      });
+      await flushPromises();
+
+      await wrapper.get('[data-test="tab-timetable"]').trigger("click");
+      await flushPromises();
+
+      await wrapper.findAll('[data-test="grid-day-header"]')[0]!.trigger("click");
+      await wrapper.get('[data-test="grid-day-memo-input"]').setValue("端到端备忘");
+      await wrapper.get('[data-test="grid-memo-save"]').trigger("click");
+      await flushPromises();
+
+      expect(wrapper.findAll('[data-test="grid-day-header"]')[0]!.text()).toContain("端到端备忘");
+      wrapper.unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("shows a memo recorded in the calendar view on the week-grid header (real db)", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 8, 9, 10, 0, 0)); // 周三：本周一 = 2026-09-07
+    try {
+      const router = createTestRouter();
+      await router.push("/classes/三年级二班");
+      await router.isReady();
+
+      const wrapper = mount(ClassDetailView, {
+        props: { name: "三年级二班" },
+        global: { plugins: [router] },
+      });
+      await flushPromises();
+
+      await wrapper.get('[data-test="tab-timetable"]').trigger("click");
+      await flushPromises();
+
+      // 切到日历视图：默认选中今天（周三，本周）
+      await wrapper.get('[data-test="timetable-view-calendar"]').trigger("click");
+      await flushPromises();
+
+      await wrapper.get('[data-test="event-input"]').setValue("跨视图备忘");
+      await wrapper.findAll("button").find((b) => b.text() === "添加")!.trigger("click");
+      await flushPromises();
+      expect(wrapper.text()).toContain("跨视图备忘");
+
+      // 切回课表视图：这条备忘应出现在周三列头
+      await wrapper.get('[data-test="timetable-view-grid"]').trigger("click");
+      await flushPromises();
+
+      const headers = wrapper.findAll('[data-test="grid-day-header"]');
+      expect(headers[2]!.text()).toContain("跨视图备忘");
+      wrapper.unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("reloads the timetable when switching class while staying on the timetable tab", async () => {
+    const router = createTestRouter();
+    await router.push("/classes/三年级二班");
+    await router.isReady();
+
+    const wrapper = mount(ClassDetailView, {
+      props: { name: "三年级二班" },
+      global: { plugins: [router] },
+    });
+    await flushPromises();
+
+    await wrapper.get('[data-test="tab-timetable"]').trigger("click");
+    await flushPromises();
+    expect(wrapper.findAll('[data-test="timetable-cell"]').length).toBeGreaterThan(0);
+
+    // 直接切换班级（等同班级下拉里选另一个班）：课程表 Tab 必须重新加载，而不是整块空白
+    await wrapper.setProps({ name: "三年级一班" });
+    await flushPromises();
+    await flushPromises();
+    expect(wrapper.findAll('[data-test="timetable-cell"]').length).toBeGreaterThan(0);
+    expect(wrapper.text()).not.toContain("正在载入课表");
   });
 
   it("paints the profile timetable background behind the class timetable surfaces", async () => {

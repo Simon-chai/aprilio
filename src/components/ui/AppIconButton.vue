@@ -1,5 +1,5 @@
 <script setup lang="ts">
-defineProps<{ label: string }>();
+defineProps<{ label: string; disabled?: boolean }>();
 
 const emit = defineEmits<{ click: [] }>();
 </script>
@@ -7,7 +7,8 @@ const emit = defineEmits<{ click: [] }>();
 <template>
   <button
     type="button"
-    class="group/icon-btn relative flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-hairline bg-canvas text-weak transition-[color,border-color,transform] duration-150 hover:border-ink hover:text-ink active:scale-[0.95]"
+    class="group/icon-btn relative flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-hairline bg-canvas text-weak transition-[color,border-color,transform] duration-150 hover:border-ink hover:text-ink active:scale-[0.95] disabled:pointer-events-none disabled:opacity-40"
+    :disabled="disabled"
     :aria-label="label"
     @click="emit('click')"
   >

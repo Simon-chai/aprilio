@@ -37,6 +37,7 @@ import {
   SUBJECT_PRESETS,
   WEEKDAY_LABELS,
   defaultPeriods,
+  eventPeriodLabel,
   resolveDaySlots,
   subjectChipClass,
   type EffectiveSlot,
@@ -108,6 +109,13 @@ const eventsByDate = computed<Map<string, CalendarEvent[]>>(() => {
   return map;
 });
 
+/** 某天的日程：按节次升序，全天（period 为空，含记在列头的备忘）沉到末尾 */
+function eventsAt(date: string): CalendarEvent[] {
+  return [...(eventsByDate.value.get(date) ?? [])].sort(
+    (a, b) => (a.period ?? 99) - (b.period ?? 99) || a.id - b.id
+  );
+}
+
 async function reloadMonth() {
   const { start, end } = gridRange(grid.value);
   try {
@@ -142,7 +150,9 @@ watch([viewYear, viewMonth], reloadMonth);
 watch(
   () => props.className,
   () => {
+    // 切班级后回到本月并重新拉该班的日程与调课（组件被复用时不会走 onMounted）
     backToToday();
+    void reloadMonth();
   }
 );
 
@@ -158,15 +168,6 @@ function effectiveSlotsOf(date: string): EffectiveSlot[] {
   return resolveDaySlots(base, exceptionsByDate.value.get(date) ?? []);
 }
 
-/** 去重后的科目名（停课不计入，一天多节同科只显示一次） */
-function subjectsOf(date: string): string[] {
-  const seen: string[] = [];
-  for (const s of effectiveSlotsOf(date)) {
-    if (s.state !== "cancelled" && !seen.includes(s.subject)) seen.push(s.subject);
-  }
-  return seen;
-}
-
 /* ---------------- 日详情面板 ---------------- */
 
 const selectedTitle = computed(() => {
@@ -176,7 +177,7 @@ const selectedTitle = computed(() => {
 });
 
 const selectedCourses = computed(() => effectiveSlotsOf(selectedDate.value));
-const selectedEvents = computed(() => eventsByDate.value.get(selectedDate.value) ?? []);
+const selectedEvents = computed(() => eventsAt(selectedDate.value));
 const hasException = (course: EffectiveSlot) => course.state !== "normal";
 
 async function afterExceptionChange() {
@@ -397,27 +398,10 @@ const MAX_CELL_ITEMS = 3;
               {{ cell.day }}
             </span>
 
-            <!-- 课程（该天实际课程：周课表 + 调课，按科目色小胶囊展示） -->
-            <template v-if="subjectsOf(cell.date).length">
-              <span class="flex items-center gap-1 overflow-hidden">
-                <span
-                  v-for="s in subjectsOf(cell.date).slice(0, 2)"
-                  :key="s"
-                  class="truncate rounded-pill border px-1.5 py-px text-fine leading-4"
-                  :class="subjectChipClass(s)"
-                  :title="s"
-                >
-                  {{ s }}
-                </span>
-                <span v-if="subjectsOf(cell.date).length > 2" class="text-fine text-faint">
-                  +{{ subjectsOf(cell.date).length - 2 }}
-                </span>
-              </span>
-            </template>
-
-            <!-- 日程事件：类型色点 + 内容 -->
-            <template v-for="e in (eventsByDate.get(cell.date) ?? []).slice(0, MAX_CELL_ITEMS - (subjectsOf(cell.date).length ? 1 : 0))" :key="e.id">
+            <!-- 日程事件：类型色点 + 内容（格子里只显示备忘，课程改为悬浮预览） -->
+            <template v-for="e in eventsAt(cell.date).slice(0, MAX_CELL_ITEMS)" :key="e.id">
               <span
+                data-test="calendar-cell-memo"
                 class="flex items-center gap-1 text-fine"
                 :class="e.done ? 'text-faint line-through' : 'text-muted'"
               >
@@ -425,20 +409,53 @@ const MAX_CELL_ITEMS = 3;
                   class="h-1.5 w-1.5 shrink-0 rounded-full"
                   :class="CALENDAR_EVENT_META[e.type]?.dot ?? 'bg-stone-400'"
                 />
+                <span class="shrink-0 text-faint tnum" data-test="calendar-cell-memo-period">
+                  {{ eventPeriodLabel(e) }}
+                </span>
                 <span class="truncate">{{ e.content }}</span>
               </span>
             </template>
             <span
-              v-if="(eventsByDate.get(cell.date) ?? []).length + (subjectsOf(cell.date).length ? 1 : 0) > MAX_CELL_ITEMS"
+              v-if="eventsAt(cell.date).length > MAX_CELL_ITEMS"
               class="text-fine text-faint"
             >
-              +{{ (eventsByDate.get(cell.date) ?? []).length + (subjectsOf(cell.date).length ? 1 : 0) - MAX_CELL_ITEMS }}
+              +{{ eventsAt(cell.date).length - MAX_CELL_ITEMS }}
+            </span>
+
+            <!-- 悬浮预览：当天课程缩略图（逐节列出，套用当天调课例外；停课划线、调/加带徽标） -->
+            <span
+              v-if="effectiveSlotsOf(cell.date).length"
+              data-test="calendar-cell-courses"
+              class="pointer-events-none absolute left-1/2 z-20 w-40 -translate-x-1/2 rounded-md border border-hairline bg-canvas p-2 text-left opacity-0 shadow-lg transition-opacity group-hover:opacity-100"
+              :class="wi === grid.length - 1 ? 'bottom-full mb-1' : 'top-full mt-1'"
+            >
+              <span class="mb-1 flex items-center justify-between text-fine font-medium text-ink">
+                <span>当天课程</span>
+                <span class="tnum text-faint">{{ effectiveSlotsOf(cell.date).length }} 节</span>
+              </span>
+              <span
+                v-for="c in effectiveSlotsOf(cell.date)"
+                :key="c.period"
+                class="flex items-center gap-1 text-fine leading-5"
+              >
+                <span class="tnum shrink-0 text-faint">第{{ c.period }}节</span>
+                <span
+                  class="truncate"
+                  :class="c.state === 'cancelled' ? 'text-faint line-through' : 'text-muted'"
+                  :title="c.note ?? c.subject"
+                >
+                  {{ c.subject }}
+                </span>
+                <span v-if="c.state !== 'normal'" class="shrink-0 text-primary">
+                  {{ EXCEPTION_STATE_LABELS[c.state] }}
+                </span>
+              </span>
             </span>
           </button>
         </template>
       </div>
       <p class="mt-2 text-fine text-weak">
-        {{ props.timetable ? "点任意一天：看当天实际课程、换课/停课/加课、记日程；课程按周课表随月份自动重复" : "点任意一天记日程；课程排好后会自动出现在日历上" }}
+        {{ props.timetable ? "点任意一天：看当天实际课程、换课/停课/加课、记日程；悬浮日期格可预览当天课程" : "点任意一天记日程；课程排好后会自动出现在日历上" }}
       </p>
     </div>
 
@@ -626,6 +643,12 @@ const MAX_CELL_ITEMS = 3;
               :class="CALENDAR_EVENT_META[e.type]?.dot ?? 'bg-stone-400'"
               :title="CALENDAR_EVENT_META[e.type]?.label ?? e.type"
             />
+            <span
+              data-test="event-period-label"
+              class="shrink-0 rounded-pill bg-pearl px-1.5 py-px text-fine leading-4 text-weak tnum"
+            >
+              {{ eventPeriodLabel(e) }}
+            </span>
             <span class="min-w-0 flex-1 truncate text-caption" :class="e.done ? 'text-faint line-through' : 'text-ink'">
               {{ e.content }}
             </span>

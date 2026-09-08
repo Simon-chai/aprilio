@@ -35,10 +35,11 @@ function saveButtonOf(wrapper: VueWrapper) {
   return wrapper.find("header").findAll("button")[1];
 }
 
+/** 三处图片更换入口改成图标按钮后，按语义 data-test 定位（顺序：头像 / 首页大图 / 课表背景） */
+const CHANGE_IMAGE_TESTS = ["change-avatar", "change-hero", "change-timetable-bg"] as const;
+
 function changeButtonOf(wrapper: VueWrapper, index = 0) {
-  return wrapper
-    .findAll("button")
-    .filter((button) => button.classes().includes("bg-pearl"))[index];
+  return wrapper.get(`[data-test="${CHANGE_IMAGE_TESTS[index]}"]`);
 }
 
 function restoreButtonOf(wrapper: VueWrapper, index = 0) {

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import AppButton from "./ui/AppButton.vue";
+import AppIconButton from "./ui/AppIconButton.vue";
 import ImageCropDialog from "./ImageCropDialog.vue";
 import {
   backgroundSrc,
@@ -274,14 +275,19 @@ function labelOf(item: BackgroundImage): string {
 
       <div class="space-y-4">
         <div class="flex flex-wrap items-center gap-3">
-          <AppButton
+          <AppIconButton
             data-test="bg-picker-local"
-            variant="pearl"
+            label="本地上传"
             :disabled="busy"
             @click="pickLocal"
           >
-            本地上传
-          </AppButton>
+            <!-- 语义图标：上传托盘，与「导入花名册」同一套图标 -->
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <path d="M7 8l5-5 5 5" />
+              <path d="M12 3v12" />
+            </svg>
+          </AppIconButton>
           <p class="text-fine text-weak">
             {{ crop ? "支持 png / jpg / webp / gif / bmp · 上传后可裁剪取景" : "支持 png / jpg / webp / gif / bmp" }}
           </p>

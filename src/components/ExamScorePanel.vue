@@ -367,10 +367,11 @@ function fmtDate(d: string): string {
           </label>
           <label class="block">
             <span class="text-caption text-weak">考试时间</span>
+            <!-- 原生日期选择器：点击日历图标即可选日期，无需手敲 YYYY-MM-DD -->
             <input
               v-model="editDate"
               data-test="edit-exam-date"
-              placeholder="YYYY-MM-DD"
+              type="date"
               class="mt-1 h-9 w-full rounded-sm border border-hairline bg-canvas px-3 text-caption text-ink outline-none focus:border-primary-focus"
             />
           </label>

@@ -360,11 +360,12 @@ defineExpose({ loadText, loadTable, analyzeFromTable });
               </label>
               <label class="flex items-center gap-2">
                 <span class="text-caption text-ink">考试时间</span>
+                <!-- 原生日期选择器：点击日历图标即可选日期，无需手敲 YYYY-MM-DD -->
                 <input
                   v-model="examDate"
                   data-test="exam-date-input"
+                  type="date"
                   class="h-8 w-36 rounded-sm border border-hairline bg-canvas px-2 text-caption text-ink outline-none focus:border-primary-focus"
-                  placeholder="YYYY-MM-DD"
                 />
               </label>
               <span v-if="props.presetClass" class="rounded-sm bg-canvas px-2 py-1 text-fine text-muted">

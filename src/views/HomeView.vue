@@ -24,6 +24,7 @@ import {
   buildMySchedule,
   currentSemester,
   defaultPeriods,
+  eventPeriodLabel,
   mergeColumnBlocks,
   mineOfClassResolver,
   periodsUnion,
@@ -805,7 +806,7 @@ const dotClass = (i: number) => {
                     :title="CALENDAR_EVENT_META[e.type]?.label ?? e.type"
                   />
                   <span class="min-w-0 flex-1 truncate text-fine" :class="e.done ? 'text-white/35 line-through' : 'text-white/85'">
-                    <span v-if="e.period" class="mr-1 text-white/50">第{{ e.period }}节</span>{{ e.content }}
+                    <span class="mr-1 text-white/50">{{ eventPeriodLabel(e) }}</span>{{ e.content }}
                   </span>
                   <span v-if="e.class_name" class="shrink-0 text-fine text-white/40">{{ e.class_name }}</span>
                 </li>

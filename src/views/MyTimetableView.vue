@@ -20,6 +20,7 @@ import AppButton from "../components/ui/AppButton.vue";
 import AppCard from "../components/ui/AppCard.vue";
 import AppLink from "../components/ui/AppLink.vue";
 import EventTypeSelect from "../components/EventTypeSelect.vue";
+import MemoHistoryDrawer from "../components/MemoHistoryDrawer.vue";
 import MemoTitle from "../components/MemoTitle.vue";
 import {
   addCalendarEvent,
@@ -74,6 +75,8 @@ const exceptions = ref<TimetableExceptionWithClass[]>([]);
 const events = ref<CalendarEvent[]>([]);
 const view = ref<"blocks" | "week">("week");
 const importOpen = ref(false);
+/** 历史备忘抽屉：过去日期的备忘没有别的入口，从这里回溯 */
+const historyOpen = ref(false);
 const allPeriods = ref<TimetablePeriod[]>(defaultPeriods());
 
 const mySubjects = computed(() => profile.value.my_subjects ?? []);
@@ -154,6 +157,9 @@ const editingCell = ref<{ date: string; period: number | null } | null>(null);
 const draftByCell = ref<Record<string, string>>({});
 
 const cellKey = (date: string, period: number | null) => `${date}|${period ?? "day"}`;
+/** 该格草稿（去首尾空白）：保存按钮据此判断可点状态 */
+const draftText = (date: string, period: number | null) =>
+  (draftByCell.value[cellKey(date, period)] ?? "").trim();
 
 function openEditor(date: string, period: number | null) {
   editingCell.value = { date, period };
@@ -180,7 +186,11 @@ function dayEvents(date: string): CalendarEvent[] {
   return eventsAt(date, null);
 }
 
-async function addEvent() {
+/**
+ * 速记一条备忘。
+ * @param closeAfter 点「保存」按钮时传 true：保存成功后收起卡片；回车保存不传，保持打开可连续记
+ */
+async function addEvent(closeAfter = false) {
   const cell = editingCell.value;
   if (!cell) return;
   const key = cellKey(cell.date, cell.period);
@@ -196,6 +206,7 @@ async function addEvent() {
   } finally {
     eventSaving.value = false;
   }
+  if (closeAfter) closeEditor();
   // AI 快速浏览标题后台生成：已配置模型才生成并回写（未配置 → null，界面显示全文前几个字）
   void summarizeMemoTitle(content).then(async (title) => {
     if (!title || !savedId) return;
@@ -288,6 +299,13 @@ onBeforeUnmount(() => {
           </span>
         </div>
         <div class="flex items-center gap-2 shrink-0">
+          <AppButton
+            variant="pearl"
+            data-test="history-memo-btn"
+            @click="historyOpen = true"
+          >
+            历史备忘
+          </AppButton>
           <AppButton
             variant="pearl"
             data-test="import-timetable-btn"
@@ -491,17 +509,18 @@ onBeforeUnmount(() => {
               @click="openEditor(date, null)"
             >
               <span>{{ dateHeader(date) }} {{ WEEKDAY_LABELS[i] }}</span>
-              <!-- 全天 / 日报事件（不绑节次）：最多展示 2 条，溢出收数 -->
+              <!-- 全天 / 日报事件（不绑节次）：最多展示 2 条，溢出收数。
+                   文字用 text-weak：text-faint（#ccc）在白底上几乎看不见 -->
               <span
                 v-for="e in dayEvents(date).slice(0, 2)"
                 :key="e.id"
-                class="mt-0.5 flex w-full items-center justify-center gap-1 font-normal text-faint"
+                class="mt-0.5 flex w-full items-center justify-center gap-1 font-normal text-weak"
                 :class="isEventDimmed(e) ? 'opacity-40' : ''"
               >
                 <span class="h-1 w-1 shrink-0 rounded-full" :class="CALENDAR_EVENT_META[e.type]?.dot ?? 'bg-stone-400'" />
                 <MemoTitle :event="e" :align="i >= 3 ? 'right' : 'left'" class="min-w-0" />
               </span>
-              <span v-if="dayEvents(date).length > 2" class="font-normal text-faint">+{{ dayEvents(date).length - 2 }}</span>
+              <span v-if="dayEvents(date).length > 2" class="font-normal text-weak">+{{ dayEvents(date).length - 2 }}</span>
               <!-- 全天日程编辑器（从列头打开） -->
               <div
                 v-if="isEditing(date, null)"
@@ -579,7 +598,18 @@ onBeforeUnmount(() => {
                     @keydown.esc.prevent="closeEditor()"
                   />
                 </div>
-                <p class="text-fine text-faint">色点下拉选类型 · 回车保存</p>
+                <div class="flex items-center justify-between gap-2">
+                  <p class="text-fine text-faint">回车或点保存</p>
+                  <button
+                    type="button"
+                    data-test="week-memo-save"
+                    class="h-6 shrink-0 rounded-sm bg-primary px-2 text-fine text-white transition-colors hover:bg-primary-focus disabled:pointer-events-none disabled:opacity-40"
+                    :disabled="!draftText(date, null) || eventSaving"
+                    @click="addEvent(true)"
+                  >
+                    保存
+                  </button>
+                </div>
               </div>
             </div>
             <template v-for="(p, pi) in allPeriods" :key="p.period">
@@ -735,7 +765,18 @@ onBeforeUnmount(() => {
                       @keydown.esc.prevent="closeEditor()"
                     />
                   </div>
-                  <p class="text-fine text-faint">色点下拉选类型 · 回车保存</p>
+                  <div class="flex items-center justify-between gap-2">
+                    <p class="text-fine text-faint">回车或点保存</p>
+                    <button
+                      type="button"
+                      data-test="week-memo-save"
+                      class="h-6 shrink-0 rounded-sm bg-primary px-2 text-fine text-white transition-colors hover:bg-primary-focus disabled:pointer-events-none disabled:opacity-40"
+                      :disabled="!draftText(date, p.period) || eventSaving"
+                      @click="addEvent(true)"
+                    >
+                      保存
+                    </button>
+                  </div>
                 </div>
               </div>
             </template>
@@ -749,4 +790,5 @@ onBeforeUnmount(() => {
     @close="importOpen = false"
     @imported="handleTimetableImported"
   />
+  <MemoHistoryDrawer :open="historyOpen" @close="historyOpen = false" />
 </template>

@@ -94,7 +94,7 @@ describe("TimetableGrid.vue", () => {
 
   it("is readonly without editable cell buttons", () => {
     const wrapper = mountGrid(false);
-    expect(wrapper.findAll('button[data-test="timetable-cell"]')).toHaveLength(0);
+    expect(wrapper.findAll('[data-test="timetable-cell"][role="button"]')).toHaveLength(0);
     expect(wrapper.find('button[data-test="period-editor-btn"]').exists()).toBe(false);
   });
 
@@ -310,6 +310,8 @@ describe("TimetableGrid.vue", () => {
       expect(dbMocks.listClassEventsInRange).toHaveBeenCalledWith("三年级二班", "2026-09-07", "2026-09-11");
       const headers = wrapper.findAll('[data-test="grid-day-header"]');
       expect(headers).toHaveLength(5);
+      // 列头带本周日期，备忘能关联到具体哪一天
+      expect(headers[0]!.get('[data-test="grid-day-date"]').text()).toBe("9/7");
       // 周一列头 3 条全天事件只展示 2 条 + 溢出数；绑节次的不显示
       expect(headers[0]!.findAll('[data-test="grid-day-memo"]')).toHaveLength(2);
       expect(headers[0]!.text()).toContain("收秋游回执");
@@ -317,7 +319,9 @@ describe("TimetableGrid.vue", () => {
       expect(headers[0]!.text()).not.toContain("第四条也溢出");
       expect(headers[0]!.get('[data-test="grid-day-memo-more"]').text()).toBe("+1");
       expect(headers[1]!.text()).toContain("带跳绳");
-      expect(wrapper.text()).not.toContain("绑节次的不进列头");
+      // 绑节次的备忘不进列头，而是落在对应格子里
+      expect(headers[0]!.text()).not.toContain("绑节次的不进列头");
+      expect(wrapper.get('[data-cell="1:2"]').text()).toContain("绑节次的不进列头");
 
       wrapper.unmount();
     });
@@ -330,11 +334,16 @@ describe("TimetableGrid.vue", () => {
       const headers = wrapper.findAll('[data-test="grid-day-header"]');
       await headers[0]!.trigger("click");
       const editor = wrapper.get('[data-test="grid-day-memo-editor"]');
-      expect(editor.text()).toContain("全天 · 周一");
+      expect(editor.text()).toContain("全天 · 9/7 周一");
 
       const input = editor.get('[data-test="grid-day-memo-input"]');
+      const saveBtn = editor.get('[data-test="grid-memo-save"]');
+      // 空草稿时保存按钮不可点，避免落空条目
+      expect((saveBtn.element as HTMLButtonElement).disabled).toBe(true);
+
       await input.setValue("收秋游回执");
-      await input.trigger("keydown.enter");
+      expect((saveBtn.element as HTMLButtonElement).disabled).toBe(false);
+      await saveBtn.trigger("click");
       await flushPromises();
 
       expect(dbMocks.addCalendarEvent).toHaveBeenCalledExactlyOnceWith(
@@ -344,6 +353,25 @@ describe("TimetableGrid.vue", () => {
         "memo",
         null
       );
+      // 保存成功后卡片自动收起
+      expect(wrapper.find('[data-test="grid-day-memo-editor"]').exists()).toBe(false);
+      wrapper.unmount();
+    });
+
+    it("shows the memo in the weekday header right after saving", async () => {
+      useFixedWednesday();
+      const wrapper = mountGrid();
+      await flushPromises();
+
+      const headers = wrapper.findAll('[data-test="grid-day-header"]');
+      await headers[0]!.trigger("click");
+      await wrapper.get('[data-test="grid-day-memo-input"]').setValue("收秋游回执");
+      // 保存后查询返回刚落库的这条
+      dbMocks.listClassEventsInRange.mockResolvedValue([memoEvent({ id: 1, content: "收秋游回执" })]);
+      await wrapper.get('[data-test="grid-memo-save"]').trigger("click");
+      await flushPromises();
+
+      expect(headers[0]!.text()).toContain("收秋游回执");
       wrapper.unmount();
     });
 
@@ -390,6 +418,177 @@ describe("TimetableGrid.vue", () => {
       await wrapper.findAll('[data-test="grid-day-header"]')[0]!.trigger("click");
       expect(wrapper.find('[data-test="grid-day-memo-editor"]').exists()).toBe(false);
 
+      wrapper.unmount();
+    });
+  });
+
+  describe("格子备忘（右键打开）与浮层收起", () => {
+    /** 固定到 2026-09-09（周三）：本周一 = 2026-09-07 */
+    function useFixedWednesday() {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(2026, 8, 9, 10, 0, 0));
+    }
+
+    function cellMemo(overrides: Partial<CalendarEvent> = {}): CalendarEvent {
+      return {
+        id: 1,
+        class_name: "三年级二班",
+        event_date: "2026-09-07",
+        type: "todo",
+        period: 2,
+        content: "收作业本",
+        title: null,
+        done: 0,
+        created_at: "",
+        updated_at: "",
+        ...overrides,
+      };
+    }
+
+    it("opens the cell memo editor on right click and saves a period-bound class event", async () => {
+      useFixedWednesday();
+      const wrapper = mountGrid();
+      await flushPromises();
+
+      await cellOf(wrapper).trigger("contextmenu");
+      const editor = wrapper.get('[data-test="grid-cell-memo-editor"]');
+      expect(editor.text()).toContain("周一 · 第2节");
+      // 左键排课浮层不打开
+      expect(wrapper.find('[data-test="timetable-popover"]').exists()).toBe(false);
+
+      const input = editor.get('[data-test="grid-cell-memo-input"]');
+      const saveBtn = editor.get('[data-test="grid-cell-memo-save"]');
+      expect((saveBtn.element as HTMLButtonElement).disabled).toBe(true);
+      await input.setValue("收作业本");
+      expect((saveBtn.element as HTMLButtonElement).disabled).toBe(false);
+      await saveBtn.trigger("click");
+      await flushPromises();
+
+      expect(dbMocks.addCalendarEvent).toHaveBeenCalledExactlyOnceWith(
+        "三年级二班",
+        "2026-09-07",
+        "收作业本",
+        "memo",
+        2
+      );
+      // 点保存后收起
+      expect(wrapper.find('[data-test="grid-cell-memo-editor"]').exists()).toBe(false);
+      wrapper.unmount();
+    });
+
+    it("renders period-bound memos inside the matching cell", async () => {
+      useFixedWednesday();
+      dbMocks.listClassEventsInRange.mockResolvedValue([cellMemo()]);
+      const wrapper = mountGrid();
+      await flushPromises();
+
+      expect(wrapper.get('[data-cell="1:2"]').text()).toContain("收作业本");
+      expect(wrapper.findAll('[data-test="timetable-cell-memo"]')).toHaveLength(1);
+      wrapper.unmount();
+    });
+
+    it("toggles done and removes a cell memo from the editor", async () => {
+      useFixedWednesday();
+      dbMocks.listClassEventsInRange.mockResolvedValue([cellMemo({ id: 9 })]);
+      const wrapper = mountGrid();
+      await flushPromises();
+
+      await cellOf(wrapper).trigger("contextmenu");
+      const row = wrapper.get('[data-test="grid-cell-memo-row"]');
+
+      await row.get('button[aria-label="标记为已完成"]').trigger("click");
+      await flushPromises();
+      expect(dbMocks.setCalendarEventDone).toHaveBeenCalledExactlyOnceWith(9, true);
+
+      await row.get('button[aria-label="删除备忘"]').trigger("click");
+      await flushPromises();
+      expect(dbMocks.deleteCalendarEvent).toHaveBeenCalledExactlyOnceWith(9);
+      wrapper.unmount();
+    });
+
+    it("keeps the schedule popover and the cell memo editor mutually exclusive", async () => {
+      useFixedWednesday();
+      const wrapper = mountGrid();
+      await flushPromises();
+
+      await cellOf(wrapper).trigger("contextmenu");
+      expect(wrapper.find('[data-test="grid-cell-memo-editor"]').exists()).toBe(true);
+
+      await cellOf(wrapper).trigger("click");
+      expect(wrapper.find('[data-test="grid-cell-memo-editor"]').exists()).toBe(false);
+      expect(wrapper.find('[data-test="timetable-popover"]').exists()).toBe(true);
+
+      await cellOf(wrapper).trigger("contextmenu");
+      expect(wrapper.find('[data-test="timetable-popover"]').exists()).toBe(false);
+      expect(wrapper.find('[data-test="grid-cell-memo-editor"]').exists()).toBe(true);
+      wrapper.unmount();
+    });
+
+    it("does not open the cell memo editor in readonly mode", async () => {
+      useFixedWednesday();
+      const wrapper = mountGrid(false);
+      await flushPromises();
+
+      await cellOf(wrapper).trigger("contextmenu");
+      expect(wrapper.find('[data-test="grid-cell-memo-editor"]').exists()).toBe(false);
+      wrapper.unmount();
+    });
+
+    it("closes the schedule popover on Escape", async () => {
+      const wrapper = mountGrid();
+      await cellOf(wrapper).trigger("click");
+      expect(wrapper.find('[data-test="timetable-popover"]').exists()).toBe(true);
+
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+      await flushPromises();
+      expect(wrapper.find('[data-test="timetable-popover"]').exists()).toBe(false);
+      wrapper.unmount();
+    });
+
+    it("closes the schedule popover when clicking blank space outside", async () => {
+      const wrapper = mountGrid();
+      await cellOf(wrapper).trigger("click");
+      expect(wrapper.find('[data-test="timetable-popover"]').exists()).toBe(true);
+
+      document.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+      await flushPromises();
+      expect(wrapper.find('[data-test="timetable-popover"]').exists()).toBe(false);
+      wrapper.unmount();
+    });
+
+    it("keeps the popover on inside mousedown but closes it on right click", async () => {
+      const wrapper = mountGrid();
+      await cellOf(wrapper).trigger("click");
+      const popover = wrapper.get('[data-test="timetable-popover"]');
+
+      await popover.trigger("mousedown");
+      expect(wrapper.find('[data-test="timetable-popover"]').exists()).toBe(true);
+
+      document.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
+      await flushPromises();
+      expect(wrapper.find('[data-test="timetable-popover"]').exists()).toBe(false);
+      wrapper.unmount();
+    });
+
+    it("labels each memo with its period inside a merged block", async () => {
+      useFixedWednesday();
+      const mergedSlots: TimetableSlot[] = [
+        { id: 1, timetable_id: 7, day_of_week: 2, period: 1, subject: "数学", note: null, updated_at: "" },
+        { id: 2, timetable_id: 7, day_of_week: 2, period: 2, subject: "数学", note: null, updated_at: "" },
+      ];
+      // 2026-09-08 是周二：两块合并成一个跨行块，备忘分属第 1 / 第 2 节
+      dbMocks.listClassEventsInRange.mockResolvedValue([
+        cellMemo({ id: 1, event_date: "2026-09-08", period: 1, content: "第一节备忘" }),
+        cellMemo({ id: 2, event_date: "2026-09-08", period: 2, content: "第二节备忘" }),
+      ]);
+      const wrapper = mount(TimetableGrid, {
+        props: { timetable, slots: mergedSlots, editable: true, mySubjects: [], today: null, currentPeriod: null },
+      });
+      await flushPromises();
+
+      const block = wrapper.get('[data-cell="2:1"]');
+      const labels = block.findAll('[data-test="cell-memo-period"]').map((n) => n.text());
+      expect(labels).toEqual(["第1节", "第2节"]);
       wrapper.unmount();
     });
   });

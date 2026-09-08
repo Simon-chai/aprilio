@@ -4,6 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import AppButton from "../components/ui/AppButton.vue";
 import AppCard from "../components/ui/AppCard.vue";
+import AppIconButton from "../components/ui/AppIconButton.vue";
 import StatusChip from "../components/ui/StatusChip.vue";
 import PhotoGrid from "../components/PhotoGrid.vue";
 import StudentFormDialog from "../components/StudentFormDialog.vue";
@@ -369,13 +370,18 @@ function goBack() {
               </button>
             </div>
             <div v-else-if="activeTab === 'photos'">
-              <button
-                type="button"
-                class="text-caption text-primary transition-opacity hover:opacity-80"
+              <AppIconButton
+                label="从本地导入照片"
+                data-test="add-photo-btn"
                 @click="onAddPhoto"
               >
-                从本地导入
-              </button>
+                <!-- 语义图标：上传托盘，与「导入花名册」同一套图标 -->
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <path d="M7 8l5-5 5 5" />
+                  <path d="M12 3v12" />
+                </svg>
+              </AppIconButton>
             </div>
           </div>
 

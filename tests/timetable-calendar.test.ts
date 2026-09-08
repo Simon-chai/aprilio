@@ -135,8 +135,54 @@ describe("TimetableCalendar.vue", () => {
     const courses = wrapper.findAll('[data-test="day-course"]');
     expect(courses).toHaveLength(4); // 数学/语文/英语/体育
     expect(wrapper.text()).toContain("数学");
-    // 科目色胶囊（预设色板）已上格子与日详情：语文 = rose
+    // 科目色胶囊（预设色板）保留在日详情面板：语文 = rose
     expect(wrapper.html()).toContain("bg-rose-50");
+  });
+
+  it("keeps month cells to memos only and previews that day's courses on hover", async () => {
+    const monday = mondayOfCurrentMonth();
+    dbMocks.listClassEventsInRange.mockResolvedValue([eventOn(monday, { content: "收秋游回执单" })]);
+
+    const wrapper = mountCalendar();
+    await flushPromises();
+
+    const cell = wrapper.get(`[data-date="${monday}"]`);
+    // 格子里只有备忘：科目不再直接上格子（科目色胶囊只留在日详情面板）
+    expect(cell.text()).toContain("收秋游回执单");
+    expect(cell.findAll(".bg-rose-50")).toHaveLength(0);
+
+    // 当天课程缩略图收进悬浮浮层：默认隐藏，hover 才显示，逐节列出
+    const preview = cell.get('[data-test="calendar-cell-courses"]');
+    expect(preview.classes()).toContain("opacity-0");
+    expect(preview.classes()).toContain("group-hover:opacity-100");
+    expect(preview.text()).toContain("当天课程");
+    expect(preview.text()).toContain("第1节");
+    expect(preview.text()).toContain("数学");
+    expect(preview.text()).toContain("体育");
+  });
+
+  it("labels memos with 第N节 / 全天 in month cells and the day panel (sorted by period)", async () => {
+    const monday = mondayOfCurrentMonth();
+    dbMocks.listClassEventsInRange.mockResolvedValue([
+      eventOn(monday, { id: 1, period: 2, content: "带课本" }),
+      eventOn(monday, { id: 2, period: null, content: "收秋游回执单" }),
+    ]);
+
+    const wrapper = mountCalendar();
+    await flushPromises();
+
+    const cell = wrapper.get(`[data-date="${monday}"]`);
+    const cellLabels = cell
+      .findAll('[data-test="calendar-cell-memo-period"]')
+      .map((n) => n.text());
+    expect(cellLabels).toEqual(["第2节", "全天"]); // 节次升序，全天沉底
+
+    await cell.trigger("click");
+    await flushPromises();
+    const panelLabels = wrapper
+      .findAll('[data-test="event-period-label"]')
+      .map((n) => n.text());
+    expect(panelLabels).toEqual(["第2节", "全天"]);
   });
 
   it("applies exceptions on the selected day: cancelled shows strikethrough + restore action", async () => {
@@ -260,6 +306,24 @@ describe("TimetableCalendar.vue", () => {
     await wrapper.findAll("button").find((b) => b.text() === "回到今天")!.trigger("click");
     await flushPromises();
     expect(wrapper.get('[data-test="selected-title"]').text()).toContain("今天");
+  });
+
+  it("reloads that class's events and exceptions when the class changes", async () => {
+    const wrapper = mountCalendar();
+    await flushPromises();
+    const eventCalls = dbMocks.listClassEventsInRange.mock.calls.length;
+    const exceptionCalls = dbMocks.listTimetableExceptionsInRange.mock.calls.length;
+
+    await wrapper.setProps({ className: "三年级一班" });
+    await flushPromises();
+
+    expect(dbMocks.listClassEventsInRange.mock.calls.length).toBe(eventCalls + 1);
+    expect(dbMocks.listClassEventsInRange).toHaveBeenLastCalledWith(
+      "三年级一班",
+      expect.any(String),
+      expect.any(String)
+    );
+    expect(dbMocks.listTimetableExceptionsInRange.mock.calls.length).toBe(exceptionCalls + 1);
   });
 
   it("offers the edit-timetable entry in the calendar header and emits edit", async () => {

@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue"
 import { onBeforeRouteLeave, useRouter } from "vue-router";
 import AppButton from "../components/ui/AppButton.vue";
 import AppCard from "../components/ui/AppCard.vue";
+import AppIconButton from "../components/ui/AppIconButton.vue";
 import AppLink from "../components/ui/AppLink.vue";
 import BackgroundPickerDialog from "../components/BackgroundPickerDialog.vue";
 import { ensureBackgroundLibrary, markBackgroundUsed } from "../lib/backgrounds";
@@ -528,13 +529,19 @@ onBeforeUnmount(() => {
                   &#x81EA;&#x52A8;&#x5C45;&#x4E2D;&#x88C1;&#x6210;&#x6B63;&#x65B9;&#x5F62;
                 </p>
               </div>
-              <AppButton
-                variant="pearl"
+              <AppIconButton
+                data-test="change-avatar"
+                label="更换头像"
                 :disabled="loading || saving || leaving || imageBusy"
                 @click="chooseImage('avatar')"
               >
-                &#x66F4;&#x6362;
-              </AppButton>
+                <!-- 语义图标：相框，表示从本地选择/更换图片 -->
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <rect x="3" y="3" width="18" height="18" rx="2" />
+                  <circle cx="9" cy="9" r="2" />
+                  <path d="M21 15l-5-5L5 21" />
+                </svg>
+              </AppIconButton>
             </div>
             <div class="flex items-center gap-3">
               <AppLink
@@ -560,13 +567,19 @@ onBeforeUnmount(() => {
                     &#x4F1A;&#x94FA;&#x6EE1;&#x9996;&#x9875;&#x7B2C;&#x4E00;&#x5C4F;
                   </p>
                 </div>
-                <AppButton
-                  variant="pearl"
+                <AppIconButton
+                  data-test="change-hero"
+                  label="更换首页大图"
                   :disabled="loading || saving || leaving || imageBusy"
                   @click="chooseImage('hero')"
                 >
-                  &#x66F4;&#x6362;
-                </AppButton>
+                  <!-- 语义图标：相框，表示从本地选择/更换图片 -->
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <rect x="3" y="3" width="18" height="18" rx="2" />
+                    <circle cx="9" cy="9" r="2" />
+                    <path d="M21 15l-5-5L5 21" />
+                  </svg>
+                </AppIconButton>
               </div>
               <div class="mt-2 flex items-center gap-3">
                 <AppLink
@@ -598,13 +611,19 @@ onBeforeUnmount(() => {
                   <p class="text-caption font-semibold text-ink">课表背景图</p>
                   <p class="mt-1 text-fine text-weak">铺在首页课表面板底部，深色遮罩自动保证可读</p>
                 </div>
-                <AppButton
-                  variant="pearl"
+                <AppIconButton
+                  data-test="change-timetable-bg"
+                  :label="hasTimetableBg ? '更换课表背景' : '选择课表背景'"
                   :disabled="loading || saving || leaving || imageBusy"
                   @click="chooseImage('timetable_bg')"
                 >
-                  {{ hasTimetableBg ? "更换" : "选择图片" }}
-                </AppButton>
+                  <!-- 语义图标：相框，表示从本地选择/更换图片 -->
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <rect x="3" y="3" width="18" height="18" rx="2" />
+                    <circle cx="9" cy="9" r="2" />
+                    <path d="M21 15l-5-5L5 21" />
+                  </svg>
+                </AppIconButton>
               </div>
               <div class="mt-2 flex items-center gap-3">
                 <AppLink

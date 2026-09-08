@@ -6,7 +6,7 @@
  * - 完成态（划线）与筛选置灰等颜色状态由父级行控制，本组件只负责标题与弹卡
  */
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
-import { CALENDAR_EVENT_META, eventQuickTitle } from "../lib/timetable";
+import { CALENDAR_EVENT_META, eventPeriodLabel, eventQuickTitle } from "../lib/timetable";
 import type { CalendarEvent } from "../types";
 
 const props = withDefaults(defineProps<{ event: CalendarEvent; align?: "left" | "right" }>(), {
@@ -18,6 +18,8 @@ const root = ref<HTMLElement | null>(null);
 
 const titleText = computed(() => eventQuickTitle(props.event));
 const typeLabel = computed(() => CALENDAR_EVENT_META[props.event.type]?.label ?? props.event.type);
+/** 时间标签：第N节 / 全天（记在列头的备忘） */
+const periodLabel = computed(() => eventPeriodLabel(props.event));
 const typeDot = computed(() => CALENDAR_EVENT_META[props.event.type]?.dot ?? "bg-stone-400");
 
 function toggle() {
@@ -54,7 +56,7 @@ onBeforeUnmount(() => document.removeEventListener("mousedown", onDocMouseDown))
     >
       <span class="flex items-center gap-1 text-fine text-weak">
         <span class="h-1.5 w-1.5 shrink-0 rounded-full" :class="typeDot" />
-        <span>{{ typeLabel }} · {{ props.event.event_date.slice(5) }}</span>
+        <span>{{ typeLabel }} · {{ props.event.event_date.slice(5) }} {{ periodLabel }}</span>
         <span v-if="props.event.class_name" class="min-w-0 truncate">{{ props.event.class_name }}</span>
       </span>
       <span class="mt-1 block whitespace-pre-wrap break-words text-fine text-ink">

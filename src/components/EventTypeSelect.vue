@@ -111,7 +111,9 @@ onBeforeUnmount(() => {
     </button>
   </span>
 
-  <!-- 菜单与悬浮卡片 teleport 到 body：格子编辑器空间小，固定定位避免被裁剪 -->
+  <!-- 菜单与悬浮卡片 teleport 到 body：格子编辑器空间小，固定定位避免被裁剪。
+       菜单内 mousedown 必须 .stop：宿主编辑器（课表格子/列头）通常监听 document mousedown
+       做「点空白收起」，而菜单挂在 body 下会被判成「外部点击」，导致刚选类型编辑器就被收起。 -->
   <Teleport to="body">
     <div
       v-if="open"
@@ -119,6 +121,7 @@ onBeforeUnmount(() => {
       data-test="event-type-menu"
       class="fixed z-50 flex w-8 flex-col items-center gap-0.5 rounded-md border border-hairline bg-canvas p-1 shadow-lg"
       :style="{ left: `${menuPos.left}px`, top: `${menuPos.top}px` }"
+      @mousedown.stop
     >
       <button
         v-for="t in CALENDAR_EVENT_TYPES"

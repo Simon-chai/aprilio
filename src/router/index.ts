@@ -30,7 +30,7 @@ export const router = createRouter({
       path: "/students/:id",
       name: "student-detail",
       component: StudentDetailView,
-      props: true,
+      // 组件内用 useRoute() 取 id，且为多根节点，props: true 会产生透传告警
     },
     { path: "/photos", name: "photos", component: PhotosView },
     { path: "/timetable", name: "timetable", component: MyTimetableView },

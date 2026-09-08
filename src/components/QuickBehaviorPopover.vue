@@ -118,13 +118,16 @@ async function refreshSuggestions() {
     return;
   }
   const token = ++suggestToken;
+  // 维度/倾向一变化就先清空旧推荐：否则新请求返回前，紫色气泡会一直显示上一次倾向的评语，看起来「换了倾向推荐却没变」
+  aiItems.value = [];
+  aiLoading.value = true;
   const list = await listCommentPresets(dimId, polarity.value);
   if (token !== suggestToken) return;
   presets.value = list;
-  aiLoading.value = true;
   const res = await recommendComments({
     studentName: effectiveStudent.value?.name ?? "",
     dimensionName: currentDimension.value?.name ?? "",
+    dimensionId: dimId,
     polarity: polarity.value,
     frequent: list.map((p) => p.content),
   });

@@ -612,6 +612,82 @@ export function buildMyDays(
 }
 
 /* ------------------------------------------------------------------ */
+/* 历史备忘背景：把事件放回「它当天所在的课表格子」                        */
+/* ------------------------------------------------------------------ */
+
+/** 历史备忘的「当时那节课」背景：日期落在周几、那节课是什么（已套调课例外） */
+export interface EventContext {
+  /** 1=周一 … 7=周日 */
+  weekday: number;
+  /** 该格的课程；班级事件最多 1 条，个人事件可多班命中（跨班任教），无课为空数组 */
+  sessions: { class_name: string; subject: string; state: EffectiveSlotState }[];
+}
+
+/**
+ * 历史备忘背景推导（实时推导、零迁移）：按事件日期定位学期课表，
+ * 还原「当时那节课」的科目与班级，帮助回忆备忘的背景。
+ * - 绑班级的事件：取该班当天该节的实际课程（套调课例外），不判是否我的科目
+ * - 个人事件（class_name 为空）：取当天该节命中「我的科目」的班级（可能多班）
+ * - period 为空（全天）/ 周末 / 那节没课：sessions 为空
+ * 口径与「我的课表」同源：周课表为基准，例外只覆盖单日。
+ */
+export function resolveEventContexts(
+  events: Pick<CalendarEvent, "id" | "class_name" | "event_date" | "period">[],
+  rows: TimetableSlotWithClass[],
+  exceptions: TimetableExceptionWithClass[],
+  mineOf: MineOfClass
+): Map<number, EventContext> {
+  // 班级 → 周几 → 该天周课格子
+  const baseByClass = new Map<string, Map<number, TimetableSlotWithClass[]>>();
+  for (const row of rows) {
+    const byDay = baseByClass.get(row.class_name) ?? new Map<number, TimetableSlotWithClass[]>();
+    const list = byDay.get(row.day_of_week) ?? [];
+    list.push(row);
+    byDay.set(row.day_of_week, list);
+    baseByClass.set(row.class_name, byDay);
+  }
+  // 班级 → 日期 → 例外（只有例外、没有周课格子的班也要参与，加课才还原得出来）
+  const excByClassDate = new Map<string, Map<string, TimetableExceptionWithClass[]>>();
+  for (const exc of exceptions) {
+    const byDate = excByClassDate.get(exc.class_name) ?? new Map<string, TimetableExceptionWithClass[]>();
+    const list = byDate.get(exc.exception_date) ?? [];
+    list.push(exc);
+    byDate.set(exc.exception_date, list);
+    excByClassDate.set(exc.class_name, byDate);
+  }
+  const classNames = new Set<string>([...baseByClass.keys(), ...excByClassDate.keys()]);
+
+  const weekdayOfDate = (dateStr: string): number => {
+    const [y, m, d] = dateStr.split("-").map(Number);
+    return ((new Date(y, (m ?? 1) - 1, d ?? 1).getDay() + 6) % 7) + 1;
+  };
+
+  const result = new Map<number, EventContext>();
+  for (const event of events) {
+    const weekday = weekdayOfDate(event.event_date);
+    const sessions: EventContext["sessions"] = [];
+    if (event.period != null && weekday <= WEEKDAY_COUNT) {
+      for (const className of classNames) {
+        if (event.class_name && className !== event.class_name) continue;
+        const dayExc = excByClassDate.get(className)?.get(event.event_date) ?? [];
+        const effective = resolveDaySlots(
+          baseByClass.get(className)?.get(weekday) ?? [],
+          dayExc
+        );
+        const slot = effective.find((s) => s.period === event.period);
+        if (!slot) continue;
+        // 个人事件只认「我的科目」命中的班；班级事件是班级事实，不做科目过滤
+        if (!event.class_name && !isMySubject(slot.subject, mineOf(className))) continue;
+        sessions.push({ class_name: className, subject: slot.subject, state: slot.state });
+      }
+      sessions.sort((a, b) => a.class_name.localeCompare(b.class_name, "zh"));
+    }
+    result.set(event.id, { weekday, sessions });
+  }
+  return result;
+}
+
+/* ------------------------------------------------------------------ */
 /* 科目配色：同一科目永远同色，网格 / 日历 / 首页共用                      */
 /* ------------------------------------------------------------------ */
 
@@ -768,6 +844,14 @@ export const CALENDAR_EVENT_TYPES = ["memo", "todo", "exam", "homework"] as cons
 /** 类型中文名；未知类型退回「备忘」 */
 export function calendarEventLabel(type: string): string {
   return CALENDAR_EVENT_META[type]?.label ?? "备忘";
+}
+
+/**
+ * 备忘的时间标签：绑节次 → 「第N节」；全天 / 日报事件（period 为空，含记在列头的备忘）→ 「全天」。
+ * 各处展示备忘（日历格子、日详情、课表格子、历史抽屉、首页今日日程）共用同一口径。
+ */
+export function eventPeriodLabel(event: Pick<CalendarEvent, "period">): string {
+  return event.period == null ? "全天" : `第${event.period}节`;
 }
 
 /* ------------------------------------------------------------------ */

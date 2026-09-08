@@ -6,16 +6,23 @@ import {
   currentPeriod,
   currentSemester,
   defaultPeriods,
+  eventPeriodLabel,
   isMySubject,
   mineOfClassResolver,
   mySessionsOnDay,
   parsePeriodsJson,
   periodsUnion,
+  resolveEventContexts,
   semesterLabel,
   sessionIsNow,
   weekdayOf,
 } from "../src/lib/timetable";
-import type { TimetablePeriod, TimetableSlot, TimetableSlotWithClass } from "../src/types";
+import type {
+  TimetableExceptionWithClass,
+  TimetablePeriod,
+  TimetableSlot,
+  TimetableSlotWithClass,
+} from "../src/types";
 
 function slot(
   day: number,
@@ -445,5 +452,112 @@ describe("periodsUnion", () => {
   it("falls back to defaultPeriods when everything is empty", () => {
     expect(periodsUnion([])).toEqual(defaultPeriods());
     expect(periodsUnion([null, null])).toEqual(defaultPeriods());
+  });
+});
+
+describe("resolveEventContexts（历史备忘还原「当时那节课」）", () => {
+  /** 调课例外工厂：只用到日期/节次/科目/班级，其余字段占位 */
+  function exception(
+    date: string,
+    period: number,
+    subject: string,
+    class_name = "三年级二班"
+  ): TimetableExceptionWithClass {
+    return {
+      id: period,
+      timetable_id: 1,
+      exception_date: date,
+      period,
+      subject,
+      note: null,
+      created_at: "",
+      updated_at: "",
+      class_name,
+    };
+  }
+
+  it("maps a class event back to that class's lesson on the same weekday/period", () => {
+    const rows = [slot(1, 2, "语文", "三年级一班"), slot(1, 2, "数学", "三年级二班")];
+    const mineOf = mineOfClassResolver(rows, []);
+    const contexts = resolveEventContexts(
+      [{ id: 1, class_name: "三年级二班", event_date: "2026-09-07", period: 2 }], // 周一
+      rows,
+      [],
+      mineOf
+    );
+    expect(contexts.get(1)).toEqual({
+      weekday: 1,
+      sessions: [{ class_name: "三年级二班", subject: "数学", state: "normal" }],
+    });
+  });
+
+  it("maps a personal event to my classes at that weekday/period (cross-class)", () => {
+    const rows = [
+      slot(3, 4, "语文", "三年级一班"),
+      slot(3, 4, "语文", "三年级二班"),
+      slot(3, 4, "数学", "三年级三班"),
+    ];
+    const mineOf = mineOfClassResolver(rows, ["语文"]);
+    const contexts = resolveEventContexts(
+      [{ id: 5, class_name: null, event_date: "2026-09-09", period: 4 }], // 周三
+      rows,
+      [],
+      mineOf
+    );
+    // 只有「我的科目」命中的班进入背景（别人的数学课不算），按班级名 zh 排序
+    expect(contexts.get(5)?.sessions).toEqual([
+      { class_name: "三年级二班", subject: "语文", state: "normal" },
+      { class_name: "三年级一班", subject: "语文", state: "normal" },
+    ]);
+  });
+
+  it("applies the day's exceptions: changed subject and cancelled lesson", () => {
+    const rows = [slot(2, 3, "语文", "三年级一班"), slot(2, 3, "语文", "三年级二班")];
+    const mineOf = mineOfClassResolver(rows, ["语文"]);
+    const exceptions = [
+      exception("2026-09-08", 3, "数学", "三年级一班"), // 周二换课
+      exception("2026-09-08", 3, "", "三年级二班"), // 周二停课
+    ];
+    const contexts = resolveEventContexts(
+      [
+        { id: 1, class_name: "三年级一班", event_date: "2026-09-08", period: 3 },
+        { id: 2, class_name: "三年级二班", event_date: "2026-09-08", period: 3 },
+      ],
+      rows,
+      exceptions,
+      mineOf
+    );
+    expect(contexts.get(1)?.sessions).toEqual([
+      { class_name: "三年级一班", subject: "数学", state: "changed" },
+    ]);
+    // 停课保留原科目，标 cancelled（背景仍能看出「那天这节本来是语文」）
+    expect(contexts.get(2)?.sessions).toEqual([
+      { class_name: "三年级二班", subject: "语文", state: "cancelled" },
+    ]);
+  });
+
+  it("returns empty sessions for all-day events, weekends and empty periods", () => {
+    const rows = [slot(1, 2, "语文")];
+    const mineOf = mineOfClassResolver(rows, ["语文"]);
+    const events = [
+      { id: 1, class_name: null, event_date: "2026-09-07", period: null }, // 全天
+      { id: 2, class_name: null, event_date: "2026-09-12", period: 2 }, // 周六
+      { id: 3, class_name: null, event_date: "2026-09-07", period: 5 }, // 那节没课
+    ];
+    const contexts = resolveEventContexts(events, rows, [], mineOf);
+    for (const e of events) expect(contexts.get(e.id)?.sessions).toEqual([]);
+    expect(contexts.get(2)?.weekday).toBe(6);
+  });
+});
+
+describe("eventPeriodLabel (备忘时间标签)", () => {
+  it("labels period-bound memos with 第N节", () => {
+    expect(eventPeriodLabel({ period: 1 })).toBe("第1节");
+    expect(eventPeriodLabel({ period: 8 })).toBe("第8节");
+  });
+
+  it("labels all-day memos (null / undefined, incl. day-header memos) with 全天", () => {
+    expect(eventPeriodLabel({ period: null })).toBe("全天");
+    expect(eventPeriodLabel({ period: undefined as unknown as null })).toBe("全天");
   });
 });
