@@ -173,11 +173,13 @@ fn migrations() -> Vec<Migration> {
       CREATE INDEX IF NOT EXISTS idx_recycle_bin_deleted_at ON recycle_bin(deleted_at);
 
       -- 考试批次：一次考试 = 一批成绩（考试名 + 考试时间），班级沿用 grade_class 文本口径
+      -- exam_type：大考 major / 小考 minor（旧库由前端 ensureSchema 幂等补列）
       CREATE TABLE IF NOT EXISTS exams (
         id          INTEGER PRIMARY KEY AUTOINCREMENT,
         class_name  TEXT NOT NULL,
         name        TEXT NOT NULL,
         exam_date   TEXT NOT NULL,               -- YYYY-MM-DD
+        exam_type   TEXT NOT NULL DEFAULT 'minor',
         note        TEXT,
         created_at  TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
         updated_at  TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
@@ -257,6 +259,7 @@ fn migrations() -> Vec<Migration> {
         class_name  TEXT NOT NULL,
         name        TEXT NOT NULL,
         exam_date   TEXT NOT NULL,
+        exam_type   TEXT NOT NULL DEFAULT 'minor',
         note        TEXT,
         created_at  TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
         updated_at  TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))

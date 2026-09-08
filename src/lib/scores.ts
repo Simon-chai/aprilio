@@ -17,6 +17,8 @@ import {
   upsertExamScore,
 } from "./db";
 import { localDateStr } from "./format";
+import { inferExamType } from "./score-analysis";
+import { representativeScoreOf } from "./score-config";
 import {
   combineNameDetection,
   detectFieldMapping,
@@ -428,7 +430,10 @@ export function combineScoreDetection(
 
 /**
  * 按识别结果把表格行转成成绩行：姓名缺失的行进 issues，
- * 空科目单元格跳过，文字成绩（缺考/等级）原样保留。
+ * 空科目单元格跳过。
+ *
+ * 成绩只存真实分数：等级文字（优/良/合格…）按「等级映射」折算成代表分落库；
+ * 缺考/免考/作弊等非等级文字仍原样保留在 grade，不参与统计。
  */
 export function prepareScoreRows(table: RosterTable, detection: ScoreSheetDetection): ScorePrepareResult {
   const rows: ScoreRow[] = [];
@@ -451,7 +456,15 @@ export function prepareScoreRows(table: RosterTable, detection: ScoreSheetDetect
     for (const subj of detection.subjects) {
       const parsed = parseScoreCell(cells[subj.index] ?? "");
       if (parsed.score === null && parsed.grade === null) continue;
-      scores.push({ subject: subj.name, score: parsed.score, grade: parsed.grade });
+      let { score, grade } = parsed;
+      if (score === null && grade) {
+        const representative = representativeScoreOf(grade);
+        if (representative !== null) {
+          score = representative;
+          grade = null;
+        }
+      }
+      scores.push({ subject: subj.name, score, grade });
     }
     if (!scores.length) {
       issues.push({ row: rowNo, name, reason: "没有可导入的成绩（科目列全为空）" });
@@ -710,6 +723,7 @@ export async function runSmartScoreImport(
         class_name: className,
         name: examName,
         exam_date: examDate,
+        exam_type: inferExamType(examName),
         note: null,
         created_at: "",
         updated_at: "",
@@ -722,6 +736,7 @@ export async function runSmartScoreImport(
     class_name: className,
     name: examName,
     exam_date: examDate,
+    exam_type: inferExamType(examName),
   });
   const result = await importScoreBatch(prep, exam, {
     className: className || undefined,

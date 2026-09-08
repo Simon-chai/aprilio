@@ -1,5 +1,15 @@
 import Database from "@tauri-apps/plugin-sql";
 import { localDateStr } from "./format";
+import {
+  computeExamStats,
+  computeStudentTotals,
+  inferExamType,
+  rankBySubject,
+  rankByTotal,
+  subjectAverages,
+  trendOf,
+} from "./score-analysis";
+import { scoreLines } from "./score-config";
 import { currentSemester, normalizeMySubjects, parseMySubjectsJson, parsePeriodsJson } from "./timetable";
 import { DEFAULT_PROFILE } from "../types";
 import type {
@@ -8,6 +18,7 @@ import type {
   CalendarEvent,
   CalendarEventType,
   ClassBehaviorRecord,
+  ClassExamTrendPoint,
   ClassScoreOverviewRow,
   ClassSnapshot,
   ClassSummary,
@@ -16,6 +27,7 @@ import type {
   ExamInput,
   ExamScore,
   ExamScoreRow,
+  ExamType,
   ExamWithStats,
   Gender,
   Guardian,
@@ -25,9 +37,12 @@ import type {
   RecycleItem,
   Student,
   StudentBehaviorRecord,
+  StudentExamReport,
   StudentExamScore,
+  StudentExamSubject,
   StudentInput,
   StudentRow,
+  StudentScoreReport,
   StudentSnapshot,
   Stats,
   Timetable,
@@ -156,6 +171,7 @@ const SCHEMA_DDL: string[] = [
     class_name  TEXT NOT NULL,
     name        TEXT NOT NULL,
     exam_date   TEXT NOT NULL,
+    exam_type   TEXT NOT NULL DEFAULT 'minor',
     note        TEXT,
     created_at  TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
     updated_at  TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
@@ -291,6 +307,12 @@ async function ensureSchema(db: Database): Promise<void> {
   } catch {
     /* 列已存在 */
   }
+  try {
+    // 考试种类 大考/小考（2026-09-09）：旧库幂等补列；默认按小考，导入时按考试名自动判定
+    await db.execute("ALTER TABLE exams ADD COLUMN exam_type TEXT NOT NULL DEFAULT 'minor'");
+  } catch {
+    /* 列已存在 */
+  }
   await migrateLegacyCalendarMemos(db);
 }
 
@@ -389,6 +411,16 @@ function seedStore(): MemoryStore {
     ["温故", "男", "2017-02-21", "三年级一班", "188 0077 6690"],
     ["江雪眠", "女", "2015-12-05", "五年级二班", "132 5511 4477"],
     ["陆时安", "男", "2016-07-16", "五年级二班", "181 2290 3388"],
+    // 四年级一班补足到 10 人：与 docs/examples/成绩单-四年级一班-*.csv 样例对应，
+    // 让「班级成绩 / 个人成绩」面板在浏览器演示态即有完整的班级统计与排名。
+    ["赵晨曦", "女", "2016-04-18", "四年级一班", "137 5566 1201"],
+    ["钱雨泽", "男", "2016-09-02", "四年级一班", "138 2233 4502"],
+    ["孙梦琪", "女", "2016-06-25", "四年级一班", "139 6688 7303"],
+    ["李承宇", "男", "2016-02-11", "四年级一班", "150 3344 8604"],
+    ["周思远", "男", "2016-12-08", "四年级一班", "151 7788 9905"],
+    ["吴佳怡", "女", "2016-08-19", "四年级一班", "158 1122 2306"],
+    ["郑子轩", "男", "2016-05-30", "四年级一班", "159 4455 6607"],
+    ["王诗雅", "女", "2016-10-14", "四年级一班", "180 6677 8808"],
   ];
 
   const guardians: Guardian[] = [];
@@ -583,6 +615,215 @@ function seedStore(): MemoryStore {
     },
   ];
 
+  // 演示成绩：多班级 × 多次考试，覆盖「数字分」与「等级制」两种口径。
+  // - 四年级一班：与 docs/examples 成绩单样例同源（10 人 × 5 次考试，含等级制月考），
+  //   用于展示多考试趋势、个人单科走势与偏科诊断；
+  // - 三年级二班：主演示班（林知远 / 苏晚）3 次考试，展示逐次进步；
+  // - 其余班级：按学生/科目确定性生成 3 次考试，保证任意班级打开「考试成绩」都有多考试对比。
+  interface DemoExamDef {
+    name: string;
+    exam_date: string;
+    subjects: string[];
+    rows: [string, ...(number | string)[]][];
+  }
+
+  const explicitScoreSpecs: { class_name: string; exams: DemoExamDef[] }[] = [
+    {
+      class_name: "四年级一班",
+      exams: [
+        {
+          name: "学情摸底测试",
+          exam_date: "2026-09-18",
+          subjects: ["语文", "数学", "英语"],
+          rows: [
+            ["陈嘉树", 88, 91, 85],
+            ["周砚", 82, 85, 78],
+            ["赵晨曦", 95, 89, 92],
+            ["钱雨泽", 76, 81, 73],
+            ["孙梦琪", 90, 87, 91],
+            ["李承宇", 84, 92, 86],
+            ["周思远", 72, 78, 70],
+            ["吴佳怡", 87, 84, 88],
+            ["郑子轩", 93, 86, 85],
+            ["王诗雅", 80, 83, 77],
+          ],
+        },
+        {
+          name: "第一单元测验",
+          exam_date: "2026-09-25",
+          subjects: ["语文", "数学", "英语"],
+          rows: [
+            ["陈嘉树", 85, 90, 78],
+            ["周砚", 79, 83, 72],
+            ["赵晨曦", 92, 88, 90],
+            ["钱雨泽", 74, 80, 70],
+            ["孙梦琪", 88, 85, 89],
+            ["李承宇", 80, 89, 82],
+            ["周思远", 70, 76, 68],
+            ["吴佳怡", 85, 82, 86],
+            ["郑子轩", 90, 84, 83],
+            ["王诗雅", 78, 81, 75],
+          ],
+        },
+        {
+          name: "第一次月考",
+          exam_date: "2026-10-09",
+          subjects: ["语文", "数学", "英语"],
+          rows: [
+            ["陈嘉树", 92, 93, 84],
+            ["周砚", 83, 82, 66],
+            ["赵晨曦", 96, 95, 94],
+            ["钱雨泽", 65, 81, 64],
+            ["孙梦琪", 94, 93, 95],
+            ["李承宇", 85, 91, 83],
+            ["周思远", 55, 62, 54],
+            ["吴佳怡", 91, 82, 92],
+            ["郑子轩", 93, 94, 82],
+            ["王诗雅", 82, 81, 63],
+          ],
+        },
+        {
+          name: "期中考试",
+          exam_date: "2026-11-05",
+          subjects: ["语文", "数学", "英语", "科学"],
+          rows: [
+            ["陈嘉树", 92, 95, 88, 90],
+            ["周砚", 85, 88, 79, 84],
+            ["赵晨曦", 96, 91, 94, 92],
+            ["钱雨泽", 78, 83, 81, 86],
+            ["孙梦琪", 91, 89, 93, 88],
+            ["李承宇", 83, 92, 85, 90],
+            ["周思远", 75, 80, 72, 78],
+            ["吴佳怡", 89, 86, 90, 84],
+            ["郑子轩", 94, 87, 88, 91],
+            ["王诗雅", 82, 84, 79, 83],
+          ],
+        },
+        {
+          name: "期末考试",
+          exam_date: "2027-01-15",
+          subjects: ["数学", "语文", "英语", "科学", "道德与法治"],
+          rows: [
+            ["陈嘉树", 96, 90, 92, 89, 91],
+            ["周砚", 89, 86, 84, 88, 85],
+            ["赵晨曦", 93, 97, 95, 93, 94],
+            ["钱雨泽", 85, 80, 83, 87, 84],
+            ["孙梦琪", 92, 93, 94, 90, 92],
+            ["李承宇", 94, 85, 88, 91, 89],
+            ["周思远", 82, 78, 76, 80, 79],
+            ["吴佳怡", 88, 90, 89, 86, 87],
+            ["郑子轩", 90, 95, 87, 92, 90],
+            ["王诗雅", 86, 84, 82, 85, 83],
+          ],
+        },
+      ],
+    },
+    {
+      class_name: "三年级二班",
+      exams: [
+        {
+          name: "第一次月考",
+          exam_date: "2026-09-26",
+          subjects: ["语文", "数学", "英语"],
+          rows: [
+            ["林知远", 88, 92, 85],
+            ["苏晚", 90, 86, 91],
+          ],
+        },
+        {
+          name: "期中考试",
+          exam_date: "2026-11-06",
+          subjects: ["语文", "数学", "英语"],
+          rows: [
+            ["林知远", 91, 95, 88],
+            ["苏晚", 93, 89, 94],
+          ],
+        },
+        {
+          name: "期末考试",
+          exam_date: "2027-01-14",
+          subjects: ["语文", "数学", "英语"],
+          rows: [
+            ["林知远", 94, 97, 90],
+            ["苏晚", 95, 92, 96],
+          ],
+        },
+      ],
+    },
+  ];
+
+  const generatedClasses: { class_name: string; names: string[] }[] = [
+    { class_name: "三年级一班", names: ["沈屿", "温故"] },
+    { class_name: "五年级二班", names: ["江雪眠", "陆时安"] },
+    { class_name: "二年级三班", names: ["何听雨", "顾星野"] },
+  ];
+  const generatedExams = [
+    { name: "第一次月考", exam_date: "2026-09-24" },
+    { name: "期中考试", exam_date: "2026-11-07" },
+    { name: "期末考试", exam_date: "2027-01-13" },
+  ];
+  const generatedSubjects = ["语文", "数学", "英语"];
+  /** 确定性伪随机成绩（72~91 起，逐次略升），仅用于演示数据，保证每次启动一致 */
+  const demoScoreOf = (studentId: number, subjectIndex: number, examIndex: number): number => {
+    const baseScore = 72 + ((studentId * 7 + subjectIndex * 11) % 20);
+    const drift = examIndex * 2;
+    const jitter = ((studentId + subjectIndex * 3 + examIndex * 5) % 5) - 2;
+    return Math.max(55, Math.min(100, baseScore + drift + jitter));
+  };
+
+  const exams: Exam[] = [];
+  const examScores: ExamScore[] = [];
+  let examId = 1;
+  let examScoreId = 1;
+  const pushExam = (className: string, def: DemoExamDef) => {
+    exams.push({
+      id: examId,
+      class_name: className,
+      name: def.name,
+      exam_date: def.exam_date,
+      exam_type: inferExamType(def.name),
+      note: null,
+      created_at: base,
+      updated_at: base,
+    });
+    for (const [studentName, ...cells] of def.rows) {
+      const student = students.find((s) => s.name === studentName);
+      if (!student) continue;
+      def.subjects.forEach((subject, i) => {
+        const value = cells[i];
+        const isNumeric = typeof value === "number";
+        examScores.push({
+          id: examScoreId++,
+          exam_id: examId,
+          student_id: student.id,
+          subject,
+          score: isNumeric ? value : null,
+          grade: isNumeric ? null : String(value),
+          created_at: base,
+          updated_at: base,
+        });
+      });
+    }
+    examId++;
+  };
+
+  for (const spec of explicitScoreSpecs) {
+    for (const def of spec.exams) pushExam(spec.class_name, def);
+  }
+
+  for (const { class_name, names: classNames } of generatedClasses) {
+    generatedExams.forEach((exam, examIndex) => {
+      const rows: [string, ...(number | string)[]][] = classNames.map((name) => {
+        const student = students.find((s) => s.name === name);
+        const cells = generatedSubjects.map((_, subjectIndex) =>
+          student ? demoScoreOf(student.id, subjectIndex, examIndex) : 80
+        );
+        return [name, ...cells];
+      });
+      pushExam(class_name, { ...exam, subjects: generatedSubjects, rows });
+    });
+  }
+
   return {
     students,
     photos,
@@ -600,21 +841,21 @@ function seedStore(): MemoryStore {
       last_used_at: base,
     })),
     recycleBin: [],
-    exams: [],
-    examScores: [],
+    exams,
+    examScores,
     timetables,
     timetableSlots,
     timetableExceptions,
     calendarEvents,
-    nextStudentId: 11,
+    nextStudentId: 19,
     nextPhotoId: pid,
     nextGuardianId: gid,
     nextDimensionId: BEHAVIOR_DIMENSIONS.length + 1,
     nextBehaviorRecordId: 1,
     nextCommentPresetId: BEHAVIOR_PRESET_SEED.length + 1,
     nextRecycleId: 1,
-    nextExamId: 1,
-    nextExamScoreId: 1,
+    nextExamId: examId,
+    nextExamScoreId: examScoreId,
     nextTimetableId: timetableId,
     nextTimetableSlotId: slotId,
     nextTimetableExceptionId: timetableExceptions.length + 1,
@@ -2164,6 +2405,7 @@ export async function createExam(input: ExamInput): Promise<number> {
   const name = input.name.trim();
   if (!name) throw new Error("考试名称不能为空");
   assertExamDate(input.exam_date);
+  const examType = input.exam_type ?? inferExamType(name);
 
   if (!isTauri()) {
     const store = mem();
@@ -2174,6 +2416,7 @@ export async function createExam(input: ExamInput): Promise<number> {
       class_name: input.class_name,
       name,
       exam_date: input.exam_date,
+      exam_type: examType,
       note: input.note ?? null,
       created_at: ts,
       updated_at: ts,
@@ -2183,8 +2426,8 @@ export async function createExam(input: ExamInput): Promise<number> {
 
   const db = await getDb();
   const result = await db.execute(
-    "INSERT INTO exams (class_name, name, exam_date, note) VALUES (?, ?, ?, ?)",
-    [input.class_name, name, input.exam_date, input.note ?? null]
+    "INSERT INTO exams (class_name, name, exam_date, exam_type, note) VALUES (?, ?, ?, ?, ?)",
+    [input.class_name, name, input.exam_date, examType, input.note ?? null]
   );
   return Number(result.lastInsertId ?? 0);
 }
@@ -2215,7 +2458,19 @@ export async function findOrCreateExam(input: ExamInput): Promise<{ exam: Exam; 
   const existing = await findExam(input.class_name, name, input.exam_date);
   if (existing) return { exam: existing, created: false };
   const id = await createExam(input);
-  return { exam: { ...input, note: input.note ?? null, id, created_at: "", updated_at: "" }, created: true };
+  return {
+    exam: {
+      id,
+      class_name: input.class_name,
+      name,
+      exam_date: input.exam_date,
+      exam_type: input.exam_type ?? inferExamType(name),
+      note: input.note ?? null,
+      created_at: "",
+      updated_at: "",
+    },
+    created: true,
+  };
 }
 
 /** 班级考试列表（带成绩统计，按考试时间倒序） */
@@ -2257,10 +2512,10 @@ export async function getExam(examId: number): Promise<Exam | null> {
   return rows[0] ?? null;
 }
 
-/** 更新考试批次信息（考试名 / 时间 / 备注） */
+/** 更新考试批次信息（考试名 / 时间 / 种类 / 备注） */
 export async function updateExam(
   examId: number,
-  patch: { name?: string; exam_date?: string; note?: string | null }
+  patch: { name?: string; exam_date?: string; exam_type?: ExamType; note?: string | null }
 ): Promise<void> {
   if (patch.name !== undefined && !patch.name.trim()) throw new Error("考试名称不能为空");
   if (patch.exam_date !== undefined) assertExamDate(patch.exam_date);
@@ -2271,6 +2526,7 @@ export async function updateExam(
     if (!exam) return;
     if (patch.name !== undefined) exam.name = patch.name.trim();
     if (patch.exam_date !== undefined) exam.exam_date = patch.exam_date;
+    if (patch.exam_type !== undefined) exam.exam_type = patch.exam_type;
     if (patch.note !== undefined) exam.note = patch.note;
     exam.updated_at = now();
     return;
@@ -2281,10 +2537,11 @@ export async function updateExam(
   if (!exam) return;
   const name = patch.name !== undefined ? patch.name.trim() : exam.name;
   const date = patch.exam_date !== undefined ? patch.exam_date : exam.exam_date;
+  const type = patch.exam_type !== undefined ? patch.exam_type : exam.exam_type;
   const note = patch.note !== undefined ? patch.note : exam.note;
   await db.execute(
-    "UPDATE exams SET name = ?, exam_date = ?, note = ?, updated_at = datetime('now','localtime') WHERE id = ?",
-    [name, date, note, examId]
+    "UPDATE exams SET name = ?, exam_date = ?, exam_type = ?, note = ?, updated_at = datetime('now','localtime') WHERE id = ?",
+    [name, date, type, note, examId]
   );
 }
 
@@ -2351,6 +2608,28 @@ export async function upsertExamScore(
   );
 }
 
+/** 删除一条成绩（改分纠错时清空某科；不存在则静默返回） */
+export async function deleteExamScore(
+  examId: number,
+  studentId: number,
+  subject: string
+): Promise<void> {
+  const subj = subject.trim();
+  if (!subj) return;
+  if (!isTauri()) {
+    const store = mem();
+    store.examScores = store.examScores.filter(
+      (s) => !(s.exam_id === examId && s.student_id === studentId && s.subject === subj)
+    );
+    return;
+  }
+  const db = await getDb();
+  await db.execute(
+    "DELETE FROM exam_scores WHERE exam_id = ? AND student_id = ? AND subject = ?",
+    [examId, studentId, subj]
+  );
+}
+
 /** 一次考试的全部成绩（联学生姓名/学号，考试明细表用） */
 export async function getExamScores(examId: number): Promise<ExamScoreRow[]> {
   if (!isTauri()) {
@@ -2389,7 +2668,9 @@ export async function listStudentExamScores(studentId: number): Promise<StudentE
       .flatMap((s) => {
         const exam = examById.get(s.exam_id);
         if (!exam) return [];
-        return [{ ...s, exam_name: exam.name, exam_date: exam.exam_date }];
+        return [
+          { ...s, exam_name: exam.name, exam_date: exam.exam_date, exam_type: exam.exam_type },
+        ];
       })
       .sort(
         (a, b) =>
@@ -2399,7 +2680,7 @@ export async function listStudentExamScores(studentId: number): Promise<StudentE
   }
   const db = await getDb();
   return db.select<StudentExamScore[]>(
-    `SELECT sc.*, e.name AS exam_name, e.exam_date
+    `SELECT sc.*, e.name AS exam_name, e.exam_date, e.exam_type
        FROM exam_scores sc
        INNER JOIN exams e ON sc.exam_id = e.id
       WHERE sc.student_id = ?
@@ -2417,7 +2698,7 @@ interface ClassScoreRawRow extends ExamScore {
 /** 班级成绩总览：学生 × 各次考试总分矩阵（多次重考的学生分数相加为总分口径） */
 export async function getClassScoreOverview(
   className: string
-): Promise<{ exams: Exam[]; rows: ClassScoreOverviewRow[] }> {
+): Promise<{ exams: ExamWithStats[]; rows: ClassScoreOverviewRow[] }> {
   const exams = await listExamsByClass(className);
   let raw: ClassScoreRawRow[];
 
@@ -2479,6 +2760,212 @@ export async function getClassScoreOverview(
 
   const rows = [...byStudent.values()].sort((a, b) => a.student_name.localeCompare(b.student_name, "zh"));
   return { exams: exams.map(({ ...e }) => e), rows };
+}
+
+/**
+ * 班级多次考试趋势：按考试时间**正序**逐场给出统计（含各科平均分）。
+ * 供班级面板「成绩趋势」视图与 AI 分析器使用；口径同 computeExamStats。
+ */
+export async function getClassScoreTrend(className: string): Promise<ClassExamTrendPoint[]> {
+  const exams = await listExamsByClass(className);
+  const ordered = [...exams].reverse();
+  const out: ClassExamTrendPoint[] = [];
+  const lines = scoreLines();
+  for (const exam of ordered) {
+    const rows = await getExamScores(exam.id);
+    out.push({ exam, stats: computeExamStats(rows, lines) });
+  }
+  return out;
+}
+
+/** 全部考试批次（可按班级过滤，带成绩统计，按考试时间倒序）——query_data / AI 分析器用 */
+export async function listExams(className?: string): Promise<ExamWithStats[]> {
+  const target = className?.trim();
+  if (!isTauri()) {
+    const store = mem();
+    return store.exams
+      .filter((e) => !target || e.class_name === target)
+      .map((e) => {
+        const scores = store.examScores.filter((s) => s.exam_id === e.id);
+        return {
+          ...e,
+          subject_count: new Set(scores.map((s) => s.subject)).size,
+          score_count: scores.length,
+          student_count: new Set(scores.map((s) => s.student_id)).size,
+        };
+      })
+      .sort((a, b) => (a.exam_date === b.exam_date ? b.id - a.id : a.exam_date < b.exam_date ? 1 : -1));
+  }
+  if (target) return listExamsByClass(target);
+  const db = await getDb();
+  return db.select<ExamWithStats[]>(
+    `SELECT e.*,
+            (SELECT COUNT(DISTINCT subject)    FROM exam_scores sc WHERE sc.exam_id = e.id) AS subject_count,
+            (SELECT COUNT(*)                   FROM exam_scores sc WHERE sc.exam_id = e.id) AS score_count,
+            (SELECT COUNT(DISTINCT student_id) FROM exam_scores sc WHERE sc.exam_id = e.id) AS student_count
+       FROM exams e
+      ORDER BY e.exam_date DESC, e.id DESC`
+  );
+}
+
+/** 成绩明细过滤条件（query_data / AI 分析器用） */
+export interface ExamScoreFilter {
+  examId?: number;
+  studentId?: number;
+  subject?: string;
+  className?: string;
+  limit?: number;
+}
+
+/** 成绩明细查询（联学生与考试，按条件取数，默认最多 200 条） */
+export async function listExamScores(filter: ExamScoreFilter = {}): Promise<ExamScoreRow[]> {
+  const limit = filter.limit && filter.limit > 0 ? Math.floor(filter.limit) : 200;
+  const subject = filter.subject?.trim();
+  if (!isTauri()) {
+    const store = mem();
+    const examById = new Map(store.exams.map((e) => [e.id, e]));
+    return store.examScores
+      .filter((s) => {
+        if (filter.examId !== undefined && s.exam_id !== filter.examId) return false;
+        if (filter.studentId !== undefined && s.student_id !== filter.studentId) return false;
+        if (subject && s.subject !== subject) return false;
+        if (filter.className) {
+          const exam = examById.get(s.exam_id);
+          if (!exam || exam.class_name !== filter.className) return false;
+        }
+        return true;
+      })
+      .map((s) => {
+        const student = store.students.find((st) => st.id === s.student_id);
+        return { ...s, student_name: student?.name ?? "", student_no: student?.student_no ?? null };
+      })
+      .sort(
+        (a, b) =>
+          b.exam_id - a.exam_id ||
+          a.student_name.localeCompare(b.student_name, "zh") ||
+          a.id - b.id
+      )
+      .slice(0, limit);
+  }
+  const db = await getDb();
+  const where: string[] = [];
+  const params: unknown[] = [];
+  if (filter.examId !== undefined) {
+    where.push("sc.exam_id = ?");
+    params.push(filter.examId);
+  }
+  if (filter.studentId !== undefined) {
+    where.push("sc.student_id = ?");
+    params.push(filter.studentId);
+  }
+  if (subject) {
+    where.push("sc.subject = ?");
+    params.push(subject);
+  }
+  if (filter.className) {
+    where.push("e.class_name = ?");
+    params.push(filter.className);
+  }
+  params.push(limit);
+  return db.select<ExamScoreRow[]>(
+    `SELECT sc.*, s.name AS student_name, s.student_no
+       FROM exam_scores sc
+       INNER JOIN students s ON sc.student_id = s.id
+       INNER JOIN exams e ON sc.exam_id = e.id
+      ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+      ORDER BY sc.exam_id DESC, s.name ASC, sc.id ASC
+      LIMIT ?`,
+    params
+  );
+}
+
+/**
+ * 学生成绩报告：按考试倒序，逐场给出单科分数（含班级平均分 / 单科排名）、
+ * 总分（含班级平均 / 总分排名）与相较上一次考试的进退步。
+ * 口径与班级面板一致（lib/score-analysis.ts），学生档案「成绩」页与 AI 分析器共用。
+ */
+export async function getStudentScoreReport(studentId: number): Promise<StudentScoreReport | null> {
+  const student = await getStudent(studentId);
+  if (!student) return null;
+
+  const flat = await listStudentExamScores(studentId);
+  const groups: {
+    exam_id: number;
+    exam_name: string;
+    exam_date: string;
+    exam_type: ExamType;
+    rows: StudentExamScore[];
+  }[] = [];
+  for (const row of flat) {
+    let g = groups.find((x) => x.exam_id === row.exam_id);
+    if (!g) {
+      g = {
+        exam_id: row.exam_id,
+        exam_name: row.exam_name,
+        exam_date: row.exam_date,
+        exam_type: row.exam_type,
+        rows: [],
+      };
+      groups.push(g);
+    }
+    g.rows.push(row);
+  }
+
+  const exams: StudentExamReport[] = [];
+  for (const g of groups) {
+    const classRows = await getExamScores(g.exam_id);
+    const averages = subjectAverages(classRows);
+    const ranks = rankBySubject(classRows);
+    const totals = computeStudentTotals(classRows);
+    const totalRanks = rankByTotal(totals);
+    const mine = computeStudentTotals(g.rows).get(studentId) ?? {
+      score: null,
+      grade: null,
+      subjectCount: 0,
+    };
+
+    const subjects: StudentExamSubject[] = g.rows.map((r) => ({
+      subject: r.subject,
+      score: r.score,
+      grade: r.grade,
+      class_average: r.score !== null ? (averages.get(r.subject) ?? null) : null,
+      class_rank: r.score !== null ? (ranks.get(r.subject)?.get(studentId) ?? null) : null,
+    }));
+
+    const classTotals = [...totals.values()]
+      .map((v) => v.score)
+      .filter((v): v is number => v !== null);
+
+    exams.push({
+      exam_id: g.exam_id,
+      exam_name: g.exam_name,
+      exam_date: g.exam_date,
+      exam_type: g.exam_type,
+      subjects,
+      total: mine.score,
+      total_grade: mine.grade,
+      class_total_average: classTotals.length
+        ? Math.round((classTotals.reduce((a, b) => a + b, 0) / classTotals.length) * 10) / 10
+        : null,
+      class_total_rank: totalRanks.get(studentId) ?? null,
+      class_student_count: new Set(classRows.map((r) => r.student_id)).size,
+      total_delta: null,
+    });
+  }
+
+  // exams 与 groups 同序（考试时间倒序）：前一场（时间更早）是 i+1，据此回填进退步
+  for (let i = exams.length - 1; i >= 0; i--) {
+    const earlier = exams[i + 1];
+    exams[i].total_delta = earlier ? trendOf(exams[i].total, earlier.total) : null;
+  }
+
+  return {
+    student_id: student.id,
+    student_name: student.name,
+    student_no: student.student_no,
+    grade_class: student.grade_class,
+    exams,
+  };
 }
 
 /* ------------------------------------------------------------------ */

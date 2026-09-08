@@ -8,12 +8,17 @@
  */
 import {
   defaultAnalysisEngine,
+  registerScoreAnalysisProvider,
   type AnalysisContext,
   type AnalysisEngine,
   type AnalysisQuery,
 } from "../analysis";
 import { defineAgentTool } from "../define";
 import type { AgentTool, AgentToolContext, ToolResult } from "../types";
+
+// 内置分析器装配：成绩分析（幂等注册，重复调用安全）。
+// 新增分析器时在这里补一行 registerXxx，保证 analyze 工具开箱可用。
+registerScoreAnalysisProvider(defaultAnalysisEngine);
 
 function parsePayload(raw: unknown): unknown {
   if (typeof raw === "string") {
@@ -36,18 +41,24 @@ export function createAnalyzeTool(engine: AnalysisEngine = defaultAnalysisEngine
     name: "analyze",
     label: "深度分析",
     description:
-      "深度数据与文档分析引擎代理：根据分析类型（kind）及载荷参数分派至对应分析器执行（例如 text2sql、数据聚合、多源文档提取等）。",
+      "深度数据与文档分析引擎代理：根据分析类型（kind）及载荷参数分派至对应分析器执行。" +
+      "成绩分析可用 kind：score_overview / score_class（班级某次考试统计 + 总分排名，payload 传 class_name，可选 exam_id）、" +
+      "score_student（学生历次成绩、单科强弱与排名，payload 传 student_id 或 name）、" +
+      "score_rank（班级总分排行榜，payload 传 class_name）、score_trend（成绩走势：payload 传 student_id/姓名 → 个人总分走势；传 class_name → 班级多次考试趋势）。" +
+      "也支持 text2sql、aggregation、document 等扩展类型。",
     tags: ["readonly", "analysis"],
     parameters: {
       type: "object",
       properties: {
         kind: {
           type: "string",
-          description: "分析类型，例如 text2sql、aggregation、document 等",
+          description:
+            "分析类型。成绩：score_overview / score_class / score_student / score_rank / score_trend；扩展：text2sql、aggregation、document 等",
         },
         payload: {
           type: "object",
-          description: "分析请求载荷对象或查询参数",
+          description:
+            "分析请求载荷。成绩分析常用字段：class_name（班级）、student_id（学生 ID）、name（学生姓名）、exam_id（考试批次 ID）",
         },
       },
       required: ["kind"],

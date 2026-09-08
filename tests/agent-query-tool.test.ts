@@ -32,7 +32,8 @@ describe("query_data tool", () => {
   it("caps the returned rows by limit", async () => {
     const result = await tool.execute({ entity: "students", limit: 3 }, ctx);
     expect((result.data as unknown[]).length).toBe(3);
-    expect(result.summary).toContain("命中 10 条");
+    // 演示种子：10 名原有学生 + 四年级一班补足 8 名（成绩样例）
+    expect(result.summary).toContain("命中 18 条");
   });
 
   it("queries photos and stats", async () => {
@@ -42,7 +43,7 @@ describe("query_data tool", () => {
 
     const stats = await tool.execute({ entity: "stats" }, ctx);
     expect(stats.ok).toBe(true);
-    expect(stats.summary).toContain('"students":10');
+    expect(stats.summary).toContain('"students":18');
   });
 
   it("filters photos by student id", async () => {

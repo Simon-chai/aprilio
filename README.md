@@ -26,6 +26,7 @@ src/
 │   ├── markdown.ts        # 助手回复的 markdown 渲染（marked + DOMPurify 消毒）
 │   ├── roster.ts          # 花名册导入（解析 / 姓名列智能识别 / 批量落库）
 │   ├── scores.ts          # 成绩导入（成绩单识别 / 科目列映射 / 考试批次落库）
+│   ├── score-analysis.ts  # 成绩分析纯函数（班级统计 / 排名 / 档位 / 趋势，界面与 AI 共用）
 │   └── timetable.ts       # 课程表纯函数（学期推导 / 网格构建 / 我的课表聚合）
 ├── components/
 │   ├── AppSidebar.vue

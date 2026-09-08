@@ -1,0 +1,112 @@
+{
+  "note": "成绩单样例模拟导入记录（仅保留成功项）；由 tests/score-import-simulation.test.ts 在 npm test 时重新生成",
+  "records": [
+    {
+      "file": "成绩单-四年级一班-期中.csv",
+      "class_name": "四年级一班",
+      "exam_name": "四年级一班2026年秋季期中考试",
+      "exam_date": "2026-11-05",
+      "exam_reused": false,
+      "subjects": [
+        "语文",
+        "数学",
+        "英语",
+        "科学"
+      ],
+      "students_matched": 0,
+      "students_created": 10,
+      "scores_written": 40,
+      "skipped": 0,
+      "failed": 0
+    },
+    {
+      "file": "成绩单-四年级一班-期末.csv",
+      "class_name": "四年级一班",
+      "exam_name": "四年级一班2026-2027学年第一学期期末考试",
+      "exam_date": "2027-01-15",
+      "exam_reused": false,
+      "subjects": [
+        "数学",
+        "语文",
+        "英语",
+        "科学",
+        "道德与法治"
+      ],
+      "students_matched": 10,
+      "students_created": 0,
+      "scores_written": 50,
+      "skipped": 0,
+      "failed": 0
+    },
+    {
+      "file": "2026年秋季第一单元测验成绩单.csv",
+      "class_name": "四年级一班",
+      "exam_name": "2026年秋季第一单元测验",
+      "exam_date": "2026-09-25",
+      "exam_reused": false,
+      "subjects": [
+        "语文",
+        "数学",
+        "英语"
+      ],
+      "students_matched": 10,
+      "students_created": 0,
+      "scores_written": 30,
+      "skipped": 0,
+      "failed": 0
+    },
+    {
+      "file": "成绩单-四年级一班-第一次月考-等级制.csv",
+      "class_name": "四年级一班",
+      "exam_name": "四年级一班2026年秋季第一次月考",
+      "exam_date": "2026-10-09",
+      "exam_reused": false,
+      "subjects": [
+        "语文",
+        "数学",
+        "英语"
+      ],
+      "students_matched": 10,
+      "students_created": 0,
+      "scores_written": 30,
+      "skipped": 0,
+      "failed": 0
+    },
+    {
+      "file": "2026年秋季学情摸底测试成绩单.tsv",
+      "class_name": "四年级一班",
+      "exam_name": "2026年秋季学情摸底测试",
+      "exam_date": "2026-09-18",
+      "exam_reused": false,
+      "subjects": [
+        "语文",
+        "数学",
+        "英语"
+      ],
+      "students_matched": 10,
+      "students_created": 0,
+      "scores_written": 30,
+      "skipped": 0,
+      "failed": 0
+    },
+    {
+      "file": "成绩表样例.csv",
+      "class_name": "三年级二班",
+      "exam_name": "春晖小学2024级三年级（2）班2026年秋季期中考试",
+      "exam_date": "2026-11-05",
+      "exam_reused": false,
+      "subjects": [
+        "语文",
+        "数学",
+        "英语",
+        "科学",
+        "道德与法治"
+      ],
+      "students_matched": 0,
+      "students_created": 10,
+      "scores_written": 50,
+      "skipped": 0,
+      "failed": 0
+    }
+  ]
+}

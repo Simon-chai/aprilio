@@ -8,6 +8,7 @@
 //! - `photos_dir`：照片目录路径（与 inventory 能力 photos_dir 同义，独立进程内直接解析）；
 //! - `list_students` / `get_stats` / `list_photos`：只读 SQL 查询（脱敏投影——
 //!   不返回监护人电话、住址、生日等敏感字段；完整读取留在 GUI 内）；
+//! - `list_exams` / `get_exam_scores`：考试成绩只读查询（考试批次 + 成绩明细）；
 //! - `semantic_search`：P4 的语义检索（inventory 注册，读写两轨共用）。
 //!
 //! 写操作刻意不暴露：按方案要求需先落地「数据脱敏开关 + GUI 内审批」双前置。
@@ -29,7 +30,15 @@ use sqlx::Row;
 use crate::db;
 
 /// 本 server 暴露的工具名（对账 inventory，防止新增能力遗漏）
-const MCP_TOOL_NAMES: &[&str] = &["photos_dir", "list_students", "get_stats", "list_photos", "semantic_search"];
+const MCP_TOOL_NAMES: &[&str] = &[
+  "photos_dir",
+  "list_students",
+  "get_stats",
+  "list_photos",
+  "list_exams",
+  "get_exam_scores",
+  "semantic_search",
+];
 
 pub struct AprilioMcpServer;
 
@@ -90,6 +99,36 @@ impl AprilioMcpServer {
         }),
       ),
       tool(
+        "list_exams",
+        "考试批次查询",
+        "查询考试批次（班级/考试名/考试时间 + 科目数/成绩数/学生数）。支持班级与考试名过滤。",
+        json!({
+          "type": "object",
+          "properties": {
+            "class_name": { "type": "string", "description": "按班级过滤，如「四年级一班」" },
+            "keyword": { "type": "string", "description": "按考试名/班级模糊匹配" },
+            "limit": { "type": "integer", "description": "返回条数上限，默认 20，最大 100" }
+          },
+          "required": []
+        }),
+      ),
+      tool(
+        "get_exam_scores",
+        "成绩明细查询",
+        "查询成绩明细（学生/科目/分数或等级，联考试与班级）。可用考试 ID、学生 ID、科目、班级过滤。",
+        json!({
+          "type": "object",
+          "properties": {
+            "exam_id": { "type": "integer", "description": "考试批次 ID（list_exams 返回的 id）" },
+            "student_id": { "type": "integer", "description": "学生 ID（list_students 返回的 id）" },
+            "subject": { "type": "string", "description": "科目，如「语文」" },
+            "class_name": { "type": "string", "description": "按班级过滤" },
+            "limit": { "type": "integer", "description": "返回条数上限，默认 200，最大 500" }
+          },
+          "required": []
+        }),
+      ),
+      tool(
         "semantic_search",
         "语义搜索",
         "对学生档案与照片说明做语义检索（Ollama embedding）。适合模糊/口语化查找；需要先在应用内重建过索引。",
@@ -124,6 +163,20 @@ impl AprilioMcpServer {
         let student_id = int_arg(args, "student_id");
         list_photos_standalone(student_id, 50).await
       }
+      "list_exams" => {
+        let class_name = str_arg(args, "class_name");
+        let keyword = str_arg(args, "keyword");
+        let limit = int_arg(args, "limit").unwrap_or(20).clamp(1, 100);
+        list_exams_standalone(class_name, keyword, limit).await
+      }
+      "get_exam_scores" => {
+        let exam_id = int_arg(args, "exam_id");
+        let student_id = int_arg(args, "student_id");
+        let subject = str_arg(args, "subject");
+        let class_name = str_arg(args, "class_name");
+        let limit = int_arg(args, "limit").unwrap_or(200).clamp(1, 500);
+        get_exam_scores_standalone(exam_id, student_id, subject, class_name, limit).await
+      }
       "semantic_search" => {
         let query = str_arg(args, "query").ok_or("缺少参数 query")?;
         let top_k = int_arg(args, "top_k").unwrap_or(5).clamp(1, 20);
@@ -153,7 +206,7 @@ impl ServerHandler for AprilioMcpServer {
     info.capabilities.tools = Some(ToolsCapability::default());
     info.server_info = implementation;
     info.instructions = Some(
-      "只读工具面：先 list_students/get_stats 了解数据，再用 list_photos/semantic_search 深入。写操作请到应用 GUI.".into(),
+      "只读工具面：先 list_students/get_stats 了解数据，再用 list_photos/list_exams/get_exam_scores/semantic_search 深入。写操作请到应用 GUI.".into(),
     );
     info
   }
@@ -347,6 +400,109 @@ pub(crate) async fn list_photos_standalone(student_id: Option<i64>, limit: i64) 
   Ok(json!({ "count": photos.len(), "photos": photos }))
 }
 
+/// 考试批次列表（含成绩统计），支持班级与考试名/班级关键词过滤
+pub(crate) async fn list_exams_standalone(
+  class_name: Option<String>,
+  keyword: Option<String>,
+  limit: i64,
+) -> Result<Value, String> {
+  let pool = db::open_pool(true).await?;
+  let class = class_name.unwrap_or_default();
+  let kw = keyword.unwrap_or_default();
+  let rows = sqlx::query(
+    r#"
+    SELECT e.id, e.class_name, e.name, e.exam_date,
+           (SELECT COUNT(DISTINCT subject)    FROM exam_scores sc WHERE sc.exam_id = e.id) AS subject_count,
+           (SELECT COUNT(*)                   FROM exam_scores sc WHERE sc.exam_id = e.id) AS score_count,
+           (SELECT COUNT(DISTINCT student_id) FROM exam_scores sc WHERE sc.exam_id = e.id) AS student_count
+    FROM exams e
+    WHERE (?1 = '' OR e.class_name = ?1)
+      AND (?2 = '' OR e.name LIKE '%' || ?2 || '%' OR e.class_name LIKE '%' || ?2 || '%')
+    ORDER BY e.exam_date DESC, e.id DESC
+    LIMIT ?3
+    "#,
+  )
+  .bind(&class)
+  .bind(&kw)
+  .bind(limit)
+  .fetch_all(&pool)
+  .await
+  .map_err(|e| format!("查询考试批次失败：{e}"))?;
+
+  let exams: Vec<Value> = rows
+    .iter()
+    .map(|r| {
+      json!({
+        "id": r.get::<i64, _>("id"),
+        "class_name": r.get::<String, _>("class_name"),
+        "name": r.get::<String, _>("name"),
+        "exam_date": r.get::<String, _>("exam_date"),
+        "subject_count": r.get::<i64, _>("subject_count"),
+        "score_count": r.get::<i64, _>("score_count"),
+        "student_count": r.get::<i64, _>("student_count"),
+      })
+    })
+    .collect();
+  Ok(json!({ "count": exams.len(), "exams": exams }))
+}
+
+/// 成绩明细（联考试与学生），可按考试/学生/科目/班级过滤
+pub(crate) async fn get_exam_scores_standalone(
+  exam_id: Option<i64>,
+  student_id: Option<i64>,
+  subject: Option<String>,
+  class_name: Option<String>,
+  limit: i64,
+) -> Result<Value, String> {
+  let pool = db::open_pool(true).await?;
+  let subject = subject.unwrap_or_default();
+  let class = class_name.unwrap_or_default();
+  let rows = sqlx::query(
+    r#"
+    SELECT sc.id, sc.exam_id, e.name AS exam_name, e.exam_date, e.class_name,
+           sc.student_id, s.name AS student_name, s.student_no,
+           sc.subject, sc.score, sc.grade
+    FROM exam_scores sc
+    JOIN exams e ON e.id = sc.exam_id
+    JOIN students s ON s.id = sc.student_id
+    WHERE (?1 IS NULL OR sc.exam_id = ?1)
+      AND (?2 IS NULL OR sc.student_id = ?2)
+      AND (?3 = '' OR sc.subject = ?3)
+      AND (?4 = '' OR e.class_name = ?4)
+    ORDER BY sc.exam_id DESC, s.name ASC, sc.id ASC
+    LIMIT ?5
+    "#,
+  )
+  .bind(exam_id)
+  .bind(student_id)
+  .bind(&subject)
+  .bind(&class)
+  .bind(limit)
+  .fetch_all(&pool)
+  .await
+  .map_err(|e| format!("查询成绩失败：{e}"))?;
+
+  let scores: Vec<Value> = rows
+    .iter()
+    .map(|r| {
+      json!({
+        "id": r.get::<i64, _>("id"),
+        "exam_id": r.get::<i64, _>("exam_id"),
+        "exam_name": r.get::<String, _>("exam_name"),
+        "exam_date": r.get::<String, _>("exam_date"),
+        "class_name": r.get::<String, _>("class_name"),
+        "student_id": r.get::<i64, _>("student_id"),
+        "student_name": r.get::<String, _>("student_name"),
+        "student_no": db::opt_str(r, "student_no"),
+        "subject": r.get::<String, _>("subject"),
+        "score": r.try_get::<Option<f64>, _>("score").unwrap_or(None),
+        "grade": db::opt_str(r, "grade"),
+      })
+    })
+    .collect();
+  Ok(json!({ "count": scores.len(), "scores": scores }))
+}
+
 /* ------------------------------------------------------------------ */
 /* 进程入口                                                             */
 /* ------------------------------------------------------------------ */
@@ -431,6 +587,8 @@ mod tests {
   fn unknown_tool_names_are_rejected_by_whitelist() {
     // call_tool 的白名单判断与 tool_list 同源，这里验证对账表覆盖
     assert!(MCP_TOOL_NAMES.contains(&"list_students"));
+    assert!(MCP_TOOL_NAMES.contains(&"list_exams"));
+    assert!(MCP_TOOL_NAMES.contains(&"get_exam_scores"));
     assert!(!MCP_TOOL_NAMES.contains(&"import_photo")); // 写操作永不暴露
     assert!(!MCP_TOOL_NAMES.contains(&"delete_photo_file"));
   }

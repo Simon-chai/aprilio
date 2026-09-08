@@ -27,6 +27,7 @@ src/agent/loop.ts —— tool-calling 循环（TS 侧）
             ├── navigation.ts → navigate         页面跳转（vue-router）
             ├── query.ts      → query_data       数据查询（lib/db.ts，浏览器/SQLite 双模式）
             ├── docs.ts       → find_docs        文档检索（构建期内联 docs/*.md）
+            ├── analyze.ts    → analyze          深度分析（analysis/ 引擎，内置成绩分析器）
             ├── student-ops.ts → manage_students 学生档案写操作（确认门）
             ├── roster-import.ts → import_student_roster 花名册导入（智能识别姓名列，确认门；成绩单自动分流）
             ├── score-import.ts → import_score_sheet 成绩单导入（生成考试批次，确认门）
@@ -72,7 +73,24 @@ Agent 可达页面的唯一清单：home / classes / students / photos / profile
 
 只暴露结构化参数（`entity` + 过滤条件 + `limit`），不把裸 SQL 交给模型，
 避免注入与误写。实体：`students`（姓名/学号关键词、班级过滤）、
-`photos`（学生 ID、说明关键词）、`stats`（汇总统计）。
+`photos`（学生 ID、说明关键词）、`stats`（汇总统计）、`behaviors`（日常表现）、
+`exams`（考试批次，班级/考试名/种类 `exam_type`（大考/小考）过滤）、
+`scores`（成绩明细，班级/考试 ID/学生/科目过滤）。
+
+### analyze —— 深度分析（AnalysisEngine）
+
+把分析请求按 `kind` 路由到 `src/agent/analysis/` 的分析器。内置**成绩分析器**
+（`providers/score-analysis.ts`，装配处 `tools/analyze.ts` 调 `registerScoreAnalysisProvider`）：
+
+| kind | payload | 产出 |
+| --- | --- | --- |
+| `score_overview` / `score_class` | `class_name`，可选 `exam_id` | 班级统计（均分/极值/及格率/优秀率/各科）+ 总分排名 |
+| `score_student` | `student_id` 或 `name`（+`class_name`） | 个人历次成绩、排名、进退步、偏科诊断 |
+| `score_rank` | `class_name`，可选 `exam_id` | 总分排行榜 |
+| `score_trend` | `student_id`/`name`（个人）或 `class_name`（班级） | 个人各次总分走势，或班级多次考试趋势（平均单科分 / 及格率 / 优秀率） |
+
+统计口径与界面共用 `lib/score-analysis.ts`，助手回答的数字与界面展示一致。
+新增分析器 = 实现 `AnalysisProvider` → 在 `analysis/providers/` 导出 → 在 `analyze.ts` 补一行注册。
 
 ### find_docs —— 文档查找（广义数据查询）
 
@@ -153,7 +171,8 @@ Claude Desktop 等）接入。命令行 `aprilio mcp serve` 进入 MCP 模式
 （不启动 GUI，stdout 只跑 MCP 协议，日志走 stderr）。
 
 - **工具面只读**：`photos_dir`、`list_students`、`get_stats`、`list_photos`、
-  `semantic_search`，统一标注 `read_only_hint`；写操作永不暴露
+  `list_exams`（考试批次）、`get_exam_scores`（成绩明细）、`semantic_search`，
+  统一标注 `read_only_hint`；写操作永不暴露
   （前置条件：数据脱敏开关 + GUI 内审批机制，均未落地）。
 - **脱敏投影**：学生查询不含监护人电话、住址、生日等敏感字段。
 - **同源不同执行体**：MCP 子进程没有 Tauri 上下文，无法调用前端执行体，

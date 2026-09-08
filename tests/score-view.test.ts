@@ -12,6 +12,7 @@ import {
   listStudents,
   upsertExamScore,
 } from "../src/lib/db";
+import { resetScoreLevelConfig } from "../src/lib/score-config";
 
 const CLASS_NAME = "成绩测试班C";
 const SCORE_SHEET =
@@ -108,6 +109,93 @@ describe("ExamScorePanel", () => {
     }
   });
 
+  it("考试按大考/小考分组，默认只展开选中考试所在组", async () => {
+    await cleanup();
+    try {
+      await seed(); // 期中考试 → 大考
+      const minorExam = await createExam({
+        class_name: CLASS_NAME,
+        name: "第一单元测验",
+        exam_date: "2026-06-10",
+      });
+      const wrapper = mount(ExamScorePanel, { props: { className: CLASS_NAME } });
+      await flushPromises();
+
+      expect(wrapper.find("[data-test='exam-group-major']").exists()).toBe(true);
+      expect(wrapper.find("[data-test='exam-group-minor']").exists()).toBe(true);
+
+      // 列表按时间倒序：期中(06-20) 在前 → 选中大考组，小考组默认折叠
+      expect(wrapper.find(`[data-test='exam-chip-${minorExam}']`).exists()).toBe(false);
+
+      await wrapper.get("[data-test='exam-group-minor']").trigger("click");
+      await flushPromises();
+      expect(wrapper.find(`[data-test='exam-chip-${minorExam}']`).exists()).toBe(true);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("等级映射配置：改阈值后总分等级标签随之变化", async () => {
+    await cleanup();
+    try {
+      await seed(); // 林一 95+88=183 → 平均 91.5 → 默认「优秀」
+      const wrapper = mount(ExamScorePanel, { props: { className: CLASS_NAME } });
+      await flushPromises();
+      expect(wrapper.findAll("[data-test='total-level']").map((t) => t.text())).toContain("优秀");
+
+      await wrapper.get("[data-test='level-config-btn']").trigger("click");
+      await flushPromises();
+      expect(wrapper.find("[data-test='level-config-dialog']").exists()).toBe(true);
+
+      await wrapper.get("[data-test='level-min-excellent']").setValue(95);
+      await wrapper.get("[data-test='save-level-btn']").trigger("click");
+      await flushPromises();
+
+      // 91.5 < 95 → 不再判为「优秀」
+      expect(wrapper.findAll("[data-test='total-level']").map((t) => t.text())).not.toContain("优秀");
+    } finally {
+      resetScoreLevelConfig();
+      await cleanup();
+    }
+  });
+
+  it("改分纠错：点击分数可修改，也可清空该科成绩", async () => {
+    await cleanup();
+    try {
+      await seed(); // 林一 语文95 数学88
+      const wrapper = mount(ExamScorePanel, { props: { className: CLASS_NAME } });
+      await flushPromises();
+
+      const openCell = async (text: string) => {
+        const cell = wrapper
+          .findAll("[data-test='edit-score-cell']")
+          .find((c) => c.text() === text);
+        expect(cell, `应能找到分数为 ${text} 的单元格`).toBeTruthy();
+        await cell!.trigger("click");
+        await flushPromises();
+      };
+
+      // 修改：林一语文 95 → 91
+      await openCell("95");
+      expect(wrapper.find("[data-test='correct-score-dialog']").exists()).toBe(true);
+      await wrapper.get("[data-test='correct-score-input']").setValue("91");
+      await wrapper.get("[data-test='save-correct-btn']").trigger("click");
+      await flushPromises();
+      expect(wrapper.find("[data-test='correct-score-dialog']").exists()).toBe(false);
+      expect(wrapper.findAll("[data-test='edit-score-cell']").map((c) => c.text())).toContain("91");
+      // 总分随之更新：91 + 88 = 179
+      expect(wrapper.get("[data-test='exam-detail-table']").text()).toContain("179");
+
+      // 清空：林一数学 88 → 占位符
+      await openCell("88");
+      await wrapper.get("[data-test='clear-score-btn']").trigger("click");
+      await flushPromises();
+      expect(wrapper.findAll("[data-test='edit-score-cell']").map((c) => c.text())).toContain("—");
+    } finally {
+      await cleanup();
+    }
+  });
+
   it("shows the empty state before any scores are imported", async () => {
     await cleanup();
     const wrapper = mount(ExamScorePanel, { props: { className: CLASS_NAME } });
@@ -126,7 +214,13 @@ describe("ExamScorePanel", () => {
     const order = Array.from(actions.element.querySelectorAll("[data-test]")).map((el) =>
       el.getAttribute("data-test"),
     );
-    expect(order).toEqual(["view-exams-btn", "view-overview-btn", "import-score-btn"]);
+    expect(order).toEqual([
+      "view-exams-btn",
+      "view-overview-btn",
+      "view-trend-btn",
+      "import-score-btn",
+      "level-config-btn",
+    ]);
 
     // 图标紧跟 segmented 控件（相邻兄弟节点），不是行首也不被推到行尾
     const kids = Array.from(actions.element.children);
@@ -139,7 +233,7 @@ describe("ExamScorePanel", () => {
 });
 
 describe("StudentScorePanel", () => {
-  it("groups a student's scores by exam with totals, latest exam first", async () => {
+  it("默认不铺开单次考试，悬浮节点看信息、点击节点展开该次详情", async () => {
     await cleanup();
     try {
       const { studentIds } = await seed();
@@ -149,14 +243,31 @@ describe("StudentScorePanel", () => {
       const wrapper = mount(StudentScorePanel, { props: { studentId: studentIds[0] } });
       await flushPromises();
 
-      const text = wrapper.text();
-      // 期末（最近）在前
-      expect(text.indexOf("期末考试")).toBeLessThan(text.indexOf("期中考试"));
-      expect(text).toContain("2026-07-10");
-      expect(text).toContain("语文 97");
+      // 默认只提示，不铺开任何单次考试详情
+      expect(wrapper.find("[data-test='exam-detail-hint']").exists()).toBe(true);
+      expect(wrapper.findAll("[data-test='exam-card']")).toHaveLength(0);
 
-      const totals = wrapper.findAll("[data-test='score-total']");
-      expect(totals.map((t) => t.text())).toEqual(["97", "183"]); // 单科 97；期中 95+88
+      // 悬浮热区（整列）：提示这是哪次考试、该科多少分
+      const point = wrapper.find(`[data-test='chart-band'][data-exam-id='${secondExam}']`);
+      expect(point.exists()).toBe(true);
+      await point.trigger("mouseenter");
+      const tip = wrapper.get("[data-test='chart-tooltip']");
+      expect(tip.text()).toContain("期末考试");
+      expect(tip.text()).toContain("语文：97 分");
+
+      // 点击节点 → 展开该次考试详情（沿用原有卡片样式）
+      await point.trigger("click");
+      await flushPromises();
+      const cards = wrapper.findAll("[data-test='exam-card']");
+      expect(cards).toHaveLength(1);
+      expect(cards[0].text()).toContain("期末考试");
+      expect(cards[0].text()).toContain("语文 97");
+      expect(wrapper.get("[data-test='score-total']").text()).toBe("97");
+
+      // 再点一次收起
+      await point.trigger("click");
+      await flushPromises();
+      expect(wrapper.findAll("[data-test='exam-card']")).toHaveLength(0);
     } finally {
       await cleanup();
     }
@@ -166,9 +277,24 @@ describe("StudentScorePanel", () => {
     await cleanup();
     const students = (await listStudents()).filter((s) => s.grade_class === CLASS_NAME);
     expect(students).toHaveLength(0);
-    const wrapper = mount(StudentScorePanel, { props: { studentId: 1 } });
+
+    // 新建一名本班学生（该班没有考试）→ 个人成绩面板应显示空状态
+    const id = await createStudent({
+      name: "无成绩学生",
+      gender: "女",
+      birth_date: null,
+      student_no: "NOSCORE01",
+      grade_class: CLASS_NAME,
+      id_card: null,
+      address: null,
+      status: "active",
+      note: null,
+      guardians: [],
+    });
+    const wrapper = mount(StudentScorePanel, { props: { studentId: id } });
     await flushPromises();
     expect(wrapper.text()).toContain("还没有成绩记录");
+    await cleanup();
   });
 });
 

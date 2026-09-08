@@ -225,6 +225,12 @@ export interface CommentPreset {
 /* 考试与成绩：一次考试 = 一批成绩（考试名 + 考试时间），科目为自由文本     */
 /* ------------------------------------------------------------------ */
 
+/**
+ * 考试种类：大考（期中/期末等）与平时小考（单元测试/月考等）。
+ * 用于班级面板把考试批次分组折叠，避免标题一屏铺满。
+ */
+export type ExamType = "major" | "minor";
+
 /** 考试批次：每批成绩归属一次考试，同一班内按「考试名 + 考试时间」幂等复用 */
 export interface Exam {
   id: number;
@@ -232,12 +238,18 @@ export interface Exam {
   name: string;
   /** 考试时间 YYYY-MM-DD */
   exam_date: string;
+  /** 大考 / 小考（导入时按考试名自动判定，可手动修改） */
+  exam_type: ExamType;
   note: string | null;
   created_at: string;
   updated_at: string;
 }
 
-export type ExamInput = Pick<Exam, "class_name" | "name" | "exam_date"> & { note?: string | null };
+export type ExamInput = Pick<Exam, "class_name" | "name" | "exam_date"> & {
+  /** 缺省按考试名自动判定（期中/期末/统考/联考/模拟 → 大考） */
+  exam_type?: ExamType;
+  note?: string | null;
+};
 
 /** 考试批次 + 统计（班级考试列表用） */
 export interface ExamWithStats extends Exam {
@@ -271,6 +283,7 @@ export interface ExamScoreRow extends ExamScore {
 export interface StudentExamScore extends ExamScore {
   exam_name: string;
   exam_date: string;
+  exam_type: ExamType;
 }
 
 /** 班级成绩总览行：学生 × 各次考试总分矩阵 */
@@ -280,6 +293,101 @@ export interface ClassScoreOverviewRow {
   student_no: string | null;
   /** exam_id → { score: 总分, grade: 等级（全部科目皆文字时） } */
   cells: Record<number, { score: number | null; grade: string | null }>;
+}
+
+/* ---------------- 成绩分析：统计 / 排名 / 报告（口径见 lib/score-analysis.ts） ---------------- */
+
+/** 成绩档位：优秀 ≥90 | 良好 ≥80 | 及格 ≥60 | 待提高 <60（阈值可在「等级映射」里改） */
+export type ScoreLevel = "excellent" | "good" | "pass" | "fail";
+
+/** 一档等级映射规则：达到 min 分即为该档，label 为展示名称 */
+export interface ScoreLevelBand {
+  key: ScoreLevel;
+  label: string;
+  min: number;
+}
+
+/** 分数 → 等级 的映射规则（成绩页可配置，只存分数、等级由此派生） */
+export interface ScoreLevelConfig {
+  /** 固定四档，按 min 从高到低排列 */
+  bands: ScoreLevelBand[];
+}
+
+/** 单科统计（仅数字分口径，满分按 100 计） */
+export interface SubjectScoreStat {
+  subject: string;
+  /** 有效数字分人数 */
+  count: number;
+  average: number;
+  max: number;
+  min: number;
+  /** 及格率 0~1（≥60） */
+  passRate: number;
+  /** 优秀率 0~1（≥90） */
+  excellentRate: number;
+}
+
+/** 一次考试的班级统计 */
+export interface ExamStatSummary {
+  /** 有成绩记录的学生数 */
+  student_count: number;
+  /** 有数字总分的学生数 */
+  total_count: number;
+  total_average: number;
+  total_max: number;
+  total_min: number;
+  /** 总分及格率 0~1（按科目数 × 60 折算） */
+  total_pass_rate: number;
+  /** 总分优秀率 0~1（按科目数 × 90 折算） */
+  total_excellent_rate: number;
+  subjects: SubjectScoreStat[];
+}
+
+/** 班级多次考试趋势点：一次考试的统计快照 */
+export interface ClassExamTrendPoint {
+  exam: Exam;
+  stats: ExamStatSummary;
+}
+
+/** 学生在一次考试中的单科明细（含班级对比） */
+export interface StudentExamSubject {
+  subject: string;
+  score: number | null;
+  grade: string | null;
+  /** 该科班级平均分（无数字分时为 null） */
+  class_average: number | null;
+  /** 该科班级排名（并列同名次；无数字分时为 null） */
+  class_rank: number | null;
+}
+
+/** 学生在一次考试中的完整报告 */
+export interface StudentExamReport {
+  exam_id: number;
+  exam_name: string;
+  exam_date: string;
+  /** 大考 / 小考（学生成绩折线图按此分组） */
+  exam_type: ExamType;
+  subjects: StudentExamSubject[];
+  /** 数字总分（全科皆等级时为 null） */
+  total: number | null;
+  /** 纯等级考试的综合等级文本 */
+  total_grade: string | null;
+  class_total_average: number | null;
+  /** 总分班级排名（并列同名次） */
+  class_total_rank: number | null;
+  class_student_count: number;
+  /** 与上一次有总分考试的差值（无上一次 / 无总分 → null） */
+  total_delta: number | null;
+}
+
+/** 学生成绩报告（学生档案「成绩」页 / AI 分析共用） */
+export interface StudentScoreReport {
+  student_id: number;
+  student_name: string;
+  student_no: string;
+  grade_class: string;
+  /** 按考试时间倒序 */
+  exams: StudentExamReport[];
 }
 
 /* ------------------------------------------------------------------ */
