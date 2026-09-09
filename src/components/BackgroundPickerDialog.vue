@@ -5,16 +5,20 @@ import AppIconButton from "./ui/AppIconButton.vue";
 import ImageCropDialog from "./ImageCropDialog.vue";
 import {
   backgroundSrc,
-  backgroundsOf,
   ensureBackgroundLibrary,
   importUrlBackground,
   loadCropSource,
   markBackgroundUsed,
+  pickerBackgrounds,
   removeBackground,
   saveCroppedBackground,
   type CropSourceInput,
 } from "../lib/backgrounds";
-import { discardSelectedProfileImage, selectProfileImage } from "../lib/profile";
+import {
+  clearProfileImageRefs,
+  discardSelectedProfileImage,
+  selectProfileImage,
+} from "../lib/profile";
 import { pickLocalFile } from "../lib/image";
 import { isTauri } from "../lib/db";
 import type { BackgroundImage, BackgroundKind, BackgroundSource } from "../types";
@@ -72,7 +76,9 @@ const TITLES: Record<BackgroundKind, string> = {
 };
 
 const title = computed(() => TITLES[props.kind]);
-const items = computed<BackgroundImage[]>(() => backgroundsOf(props.kind));
+const items = computed<BackgroundImage[]>(() => pickerBackgrounds(props.kind));
+/** 首页大图与课表背景共享一套图库，头像独立（提示文案只在该场景展示） */
+const sharedPool = computed(() => props.kind !== "avatar");
 
 watch(
   () => props.open,
@@ -235,6 +241,8 @@ async function dropItem(item: BackgroundImage) {
   busy.value = true;
   try {
     await removeBackground(item.id);
+    // 共享池里一张图可能正被首页大图 / 课表背景引用，删除时一并清掉引用
+    await clearProfileImageRefs(item.file);
     if (props.current && props.current === item.file) emit("clear");
   } catch (cause) {
     error.value = messageOf(cause, "删除失败，请重试。");
@@ -342,6 +350,10 @@ function labelOf(item: BackgroundImage): string {
               移除当前背景
             </button>
           </div>
+
+          <p v-if="sharedPool" class="mb-2 text-fine text-weak">
+            首页大图与课表背景共用这套图片库（头像独立）。
+          </p>
 
           <p v-if="!items.length" class="py-4 text-fine text-weak">
             还没有历史图片，上传或添加一个链接后即可随时切换。

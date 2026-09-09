@@ -170,6 +170,96 @@ pub async fn download_background(_app: AppHandle, url: String) -> Result<ImageBy
   image_bytes(&bytes, &content_type)
 }
 
+/// Bing 壁纸元信息（课表背景自动更新用）。
+#[derive(Serialize)]
+pub struct BingWallpaper {
+  /// 完整图片地址（原生 1920x1080，与课表背景 16:9 比例一致）
+  pub url: String,
+  /// 当日标题（如「印度西海岸的生活」），用作图库展示名
+  pub title: String,
+  /// 版权说明（描述 + © 作者）
+  pub copyright: String,
+}
+
+/// 每次最多可取的壁纸张数：Bing 官方接口 n 的上限（最近 8 天）。
+const BING_MAX_COUNT: usize = 8;
+
+/// 前端调用：取 Bing 近期壁纸元信息（第 0 张是当天，往后依次更早）。
+///
+/// `count` 缺省 1（仅当天），上限 8；只拿地址，下载仍走 download_background，
+/// 与手动粘贴链接共用同一条管线。
+#[tauri::command]
+pub async fn fetch_bing_wallpaper(
+  _app: AppHandle,
+  count: Option<usize>,
+) -> Result<Vec<BingWallpaper>, String> {
+  let count = count.unwrap_or(1).clamp(1, BING_MAX_COUNT);
+  let api = format!("https://cn.bing.com/HPImageArchive.aspx?format=js&idx=0&n={count}");
+
+  let client = reqwest::Client::builder()
+    .timeout(std::time::Duration::from_secs(15))
+    .build()
+    .map_err(|e| format!("初始化下载器失败：{e}"))?;
+
+  let resp = client
+    .get(&api)
+    .header(reqwest::header::USER_AGENT, "aprilio/0.1")
+    .send()
+    .await
+    .map_err(|e| {
+      error!(target: "photos", "获取必应壁纸信息失败：{e}");
+      format!("获取壁纸信息失败：{e}")
+    })?;
+  if !resp.status().is_success() {
+    let status = resp.status();
+    error!(target: "photos", "获取必应壁纸信息被拒绝：HTTP {status}");
+    return Err(format!("获取壁纸信息失败：HTTP {status}"));
+  }
+
+  let text = resp
+    .text()
+    .await
+    .map_err(|e| format!("读取壁纸信息失败：{e}"))?;
+  let json: serde_json::Value =
+    serde_json::from_str(&text).map_err(|e| format!("解析壁纸信息失败：{e}"))?;
+  let images = json
+    .get("images")
+    .and_then(|v| v.as_array())
+    .ok_or_else(|| "壁纸信息里没有图片".to_string())?;
+
+  let mut wallpapers = Vec::new();
+  for img in images.iter().take(count) {
+    // API 返回相对路径（/th?id=...），拼成完整地址；缺地址的条目直接跳过
+    let path = img.get("url").and_then(|v| v.as_str()).unwrap_or("").trim();
+    if path.is_empty() {
+      continue;
+    }
+    let url = if path.starts_with("http") {
+      path.to_string()
+    } else {
+      format!("https://cn.bing.com{path}")
+    };
+    wallpapers.push(BingWallpaper {
+      url,
+      title: img
+        .get("title")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string(),
+      copyright: img
+        .get("copyright")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string(),
+    });
+  }
+  if wallpapers.is_empty() {
+    return Err("壁纸信息里没有图片".to_string());
+  }
+  info!(target: "photos", "已获取必应壁纸 {} 张", wallpapers.len());
+  Ok(wallpapers)
+}
+
 /// 前端调用：读本地图片文件，返回图片字节（不落盘；落盘由裁剪确认后的
 /// save_background_data_url 一步完成，不产生中间文件）。
 #[tauri::command]

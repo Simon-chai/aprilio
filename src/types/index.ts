@@ -132,7 +132,7 @@ export const emptyStudentInput = (): StudentInput => ({
   guardians: [],
 });
 
-/** 监护人风格标签候选词（可自由输入，不限于候选） */
+/** 监护人风格标签候选词（系统默认种子；支持动态增删，见 lib/guardian-tags.ts） */
 export const GUARDIAN_TAG_PRESETS = [
   "温和",
   "严格",
@@ -141,6 +141,11 @@ export const GUARDIAN_TAG_PRESETS = [
   "关注学习",
   "较少参与",
 ];
+
+/** 监护人风格标签情感倾向（由 AI 判定，胶囊配色见 lib/guardian-tags.ts） */
+export type GuardianTagPolarity = "positive" | "neutral" | "negative";
+
+export const GUARDIAN_TAG_POLARITIES = ["positive", "neutral", "negative"] as const;
 
 export const STATUS_LABEL: Record<string, string> = {
   active: "在读",

@@ -6,6 +6,11 @@
 弹窗内提供 本地上传 / 粘贴图片链接（自动下载到本地缓存）/ 历史缩略图切换 / 移除当前背景，
 **没有第二个图片入口**。
 
+**图库池划分**：头像独立成池；**首页大图与课表背景共享同一套图库**——必应壁纸、
+课表用图在首页大图弹窗里同样可选，反之亦然（`pickerBackgrounds`，弹窗内文字有提示）。
+共享池内按 origin_url（网络图）/ file（本地图）跨 kind 去重，一张图只有一条索引、
+一个缓存文件，删除时由 `clearProfileImageRefs` 同步清掉个人资料里所有引用该文件的字段。
+
 ## 裁剪取景（课表背景专用）
 
 选择器带 `crop` 属性时（目前只有 `timetable_bg`），本地上传与图片链接都先进裁剪窗
@@ -54,6 +59,7 @@ CSS aspect-ratio 是最小比例，内容更高时卡片随之长高，不裁内
 | --- | --- | --- | --- |
 | 本地上传 | 系统选择框（`import_photo`） | `appData/photos/` | `img_<时间戳>.<ext>` |
 | 网络 URL | Rust `download_background`（字节流）→ `save_background_data_url` 落盘 | `appData/backgrounds/` | `bg_<时间戳>.<ext>` |
+| 自动更新（Bing 每日壁纸） | 同「网络 URL」管线，由 `src/lib/wallpaper.ts` 驱动 | `appData/backgrounds/` | `bg_<时间戳>.<ext>` |
 | 裁剪确认 | 前端 canvas 导出 JPEG → `save_background_data_url` | `appData/backgrounds/` | `bg_<时间戳>.jpg` |
 | 浏览器演示态 | file input / fetch → 裁剪导出 dataURL | localStorage（dataURL） | dataURL 本身 |
 
@@ -63,12 +69,34 @@ CSS aspect-ratio 是最小比例，内容更高时卡片随之长高，不裁内
 - 同一 URL 重复添加：直接复用旧记录，不会重复下载。
 - 同一 URL 先进裁剪窗：`importUrlBackground` 的直存路径与裁剪路径共用同一套字节流。
 
+## 必应壁纸（手动入库）
+
+必应近期壁纸**不再自动更新背景**（2026-09-09 起）：设置页「必应壁纸」卡片点
+「拉取必应壁纸」手动入库，拉进来的图与课表/首页图库共享，用户在选图弹窗里自行挑用。
+
+- **入口**：设置页「必应壁纸」→ `importBingWallpapers()`（src/lib/wallpaper.ts）；
+  浏览器演示态给出不可用提示。
+- **取图**：Rust `fetch_bing_wallpaper`（[backgrounds.rs](../src-tauri/src/backgrounds.rs)）
+  请求 `cn.bing.com/HPImageArchive.aspx?format=js` 按 `count`（1..=8，默认 7）拿最近几天的
+  1920x1080 图片地址（与课表背景 16:9 一致，免裁剪），第 0 张是当天；下载仍走
+  `download_background`，与手动粘贴链接共用同一条管线；图库展示名用 Bing 标题。
+- **不换背景**：入库来源记为 `timetable_bg`（共享池），不写 profile 的任何背景字段；
+  是否启用、用在首页还是课表，全部由用户在选图弹窗里决定。
+- **去重**：共享池按 `origin_url` 去重，重复拉取只刷新使用时间、不重复下载。
+- **容错**：个别壁纸下载失败只 `console.error` 跳过；一张都没进库才向上抛错
+  （设置页显示失败提示）。
+- **配置**：localStorage `aprilio.wallpaper.v1`（`{ count, last_date }`，
+  默认拉 7 天；`last_date` 仅用于「上次拉取」展示，旧版 `enabled/last_url` 字段读取时忽略）。
+- 测试：`tests/wallpaper.test.ts`（拉取入库不换背景 / 张数透传 / 重复拉取复用 /
+  单张失败跳过 / 全失败抛错 / 浏览器态拒绝 / 张数收敛）。
+
 ## 索引（`src/lib/backgrounds.ts`）
 
 - 结构：`BackgroundImage { id, kind, file, source, origin_url, name, added_at, used_at }`（见 `src/types/index.ts`）。
 - 存储：localStorage `aprilio.backgrounds.v1`（纯本地，不同步任何云端）。读取时 `sanitize()` 兜底脏数据。
 - 排序：按 `used_at` 倒序，最近用过的排在最前，切换回旧图只需一次点击。
-- 上限：每类 12 张，超出淘汰最久未用的（最新一张永远保留，避免删掉正在用的图）。
+- 上限：头像 12 张；首页大图 + 课表背景共享池 24 张，超出淘汰最久未用的
+  （最新一张永远保留，避免删掉正在用的图）。
 - 去重：同一 URL 重复添加复用同一条记录，不会重复下载。
 
 ## 生命周期

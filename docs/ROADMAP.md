@@ -33,6 +33,34 @@ README 只描述「现在是什么」，这里记录「为什么这么选、接�
 - 不引入 Python / Node 运行时，安装包体积保持 ~10MB 量级
 - MCP 首批只暴露只读工具；写操作待脱敏开关 + pending-审批机制落地
 
+## AI 助手宠物形象选型（2026-09-09）
+
+**决策：不引入独立桌宠应用；在首页右下角为 AI 助手赋予 Live2D 宠物形象。渲染层从 BongoCat 抽取（`easy-live2d` + `pixi.js` 薄封装，约 150 行组件），Rust 侧零改动。**
+
+需求边界：应用内组件（Agent 助手的形象化），非独立窗口/全局桌宠——rdev 键鼠监听、透明置顶窗口、托盘、键盘贴图叠加全部不需要。
+
+| 候选 | 结论 | 原因 |
+| --- | --- | --- |
+| **ayangweb/BongoCat** | ✅ 采纳其渲染层 | Tauri 2 + Vue 3 同构（MIT，活跃维护）；其核心渲染就是 `easy-live2d` 的 141 行封装（`src/utils/live2d.ts`），剥离成本低，API 可直接借鉴 |
+| **easy-live2d** + pixi.js | ✅ 直接依赖 | MPL-2.0；Live2D 模型包成 Pixi Sprite，自带动作/表情/参数/lip sync（`playVoice`）API |
+| TIUCSIB/deskpal | 备选 | Tauri 2 + Vue 3 精灵图方案，依赖最轻；Live2D 方案受阻时的退路 |
+| Shimeji-ee 系 | 仅素材格式 | Java 栈不可嵌入 Tauri；46 帧 PNG + 行为 XML 可作精灵图素材来源，引擎需 TS 自研 |
+| AkshitIreddy/AI-Desktop-Pet | ❌ | 架构可参考（单透明 overlay），但绑定 Convai 云服务，违反本地优先 |
+
+### 约束与风险
+
+- Cubism Core（`live2dcubismcore.js`）不在任何 npm 包（Live2D 许可限制），需从 Live2D 官网下载放 `public/Core/`，`index.html` 引入；SDK 对小规模经营者免费（附声明、禁逆向）
+- **BongoCat 内置猫模型来自 Bongo-Cat-Mver 社区，授权未随 MIT 豁免，不可随本应用分发**；POC 用 Live2D 官方示例模型，正式形象需单独解决授权
+- pixi.js ~450KB gzip：组件 dynamic import，AI 助手挂载时才加载，不占首屏
+- 模型风格选扁平/简约，贴合 Apple 视觉，避免与设计系统冲突
+
+### 待办（POC，未排期）
+
+- [ ] `npm i easy-live2d pixi.js` + Cubism Core 落位 + `index.html` script 引入
+- [ ] `AgentPet.vue`：canvas 挂载 + 模型加载 + 暴露 `startMotion` / `setExpression` / 嘴动接口
+- [ ] Agent 事件联动：`ai_chat_stream` 逐 token → `ParamMouthOpenY` 嘴动；工具调用/结果 → 动作与表情
+- [ ] 模型授权确认 + 正式形象选型（扁平/简约风）
+
 ## 待办
 
 ### 第 0 步 · 修复 src-tauri 契约（前置，约半天）

@@ -17,7 +17,14 @@ const DB_URL: &str = "sqlite:aprilio.db";
 /// 版本号只增不复用：本地调试库历史上曾用 v2 建过成绩表（后来并入 v1），
 /// 重用版本号会被已应用的记录跳过。v1 = 收敛后的全量建表（新库直接到位）；
 /// v2 与历史库对齐（幂等空转）；v3 给早于课表功能的调试库幂等补齐课表/万年历表。
-/// 任教学科列与全部表结构另有前端 ensureSchema（src/lib/db.ts）启动时幂等兜底，双保险防「no such table」。
+/// v4 升级课表例外与日程事件，开头重建 calendar_memos 保底搬迁（历史库可能已被
+/// 前端兜底搬空删表）。
+///
+/// 注意 checksum 敏感性：已应用的迁移会按 SQL 原文做 SHA-384 校验（sqlx
+/// VersionMismatch 即拒绝整个迁移流程，首次 Database.load 直接失败）。改已
+/// 应用迁移的 SQL 必须同步修复库内 _sqlx_migrations.checksum。
+/// v5/v6（加列迁移）已并入 v1/v3/v4 建表 DDL 并删除：它们从未被库记录，老库
+/// 缺列由前端 ensureSchema try-ALTER 幂等兜底，新库由建表直接到位。
 fn migrations() -> Vec<Migration> {
   vec![Migration {
     version: 1,
@@ -74,14 +81,15 @@ fn migrations() -> Vec<Migration> {
       );
 
       CREATE TABLE IF NOT EXISTS profile (
-        id          INTEGER PRIMARY KEY,
-        name        TEXT NOT NULL DEFAULT '',
-        title       TEXT NOT NULL DEFAULT '',
-        motto       TEXT NOT NULL DEFAULT '',
-        avatar      TEXT NOT NULL DEFAULT '',
-        hero        TEXT NOT NULL DEFAULT '',
-        my_subjects TEXT,
-        updated_at  TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+        id           INTEGER PRIMARY KEY,
+        name         TEXT NOT NULL DEFAULT '',
+        title        TEXT NOT NULL DEFAULT '',
+        motto        TEXT NOT NULL DEFAULT '',
+        avatar       TEXT NOT NULL DEFAULT '',
+        hero         TEXT NOT NULL DEFAULT '',
+        my_subjects  TEXT,
+        timetable_bg TEXT,
+        updated_at   TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
       );
 
       INSERT INTO profile (id) VALUES (1) ON CONFLICT(id) DO NOTHING;
@@ -339,8 +347,10 @@ fn migrations() -> Vec<Migration> {
     description: "add_timetable_exceptions_and_calendar_events",
     // 课表二轮升级：① timetable_exceptions 承载调课/停课/加课（周课表仍是唯一事实源，
     //   例外只覆盖「某天某节」）；② calendar_memos 升级为 calendar_events（班级可空 =
-    //   教师个人事件，type 区分备忘/待办/考试/作业），旧备忘数据原样迁入（type='memo'）。
-    // v1/v3 均保证 calendar_memos 存在，INSERT..SELECT 在任何迁移路径上都成立。
+    //   教师个人事件，type 区分备忘/待办/考试/作业），旧备忘数据原样迁入（type='memo'）；
+    //   ③ calendar_events.title 由原 v5 迁移并入建表（2026-09-09 迁移链收敛）。
+    // v3 建过 calendar_memos，但历史调试库可能已被前端兜底搬空并删表：
+    // 开头幂等重建空表保证 INSERT..SELECT 在任何路径上都成立（搬 0 行无损），搬完删除。
     sql: r#"
       CREATE TABLE IF NOT EXISTS timetable_exceptions (
         id             INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -357,12 +367,23 @@ fn migrations() -> Vec<Migration> {
 
       CREATE INDEX IF NOT EXISTS idx_timetable_exceptions_date ON timetable_exceptions(exception_date);
 
+      CREATE TABLE IF NOT EXISTS calendar_memos (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        class_name TEXT NOT NULL,
+        memo_date  TEXT NOT NULL,
+        content    TEXT NOT NULL,
+        done       INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+      );
+
       CREATE TABLE IF NOT EXISTS calendar_events (
         id         INTEGER PRIMARY KEY AUTOINCREMENT,
         class_name TEXT,                          -- NULL = 教师个人事件
         event_date TEXT NOT NULL,                 -- YYYY-MM-DD
         type       TEXT NOT NULL DEFAULT 'memo',  -- memo | todo | exam | homework
         content    TEXT NOT NULL,
+        title      TEXT,                          -- AI 快速浏览标题；NULL = 未生成
         done       INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
         updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
@@ -375,29 +396,6 @@ fn migrations() -> Vec<Migration> {
         SELECT class_name, memo_date, 'memo', content, done, created_at, updated_at FROM calendar_memos;
 
       DROP TABLE calendar_memos;
-    "#,
-    kind: MigrationKind::Up,
-  },
-  Migration {
-    version: 5,
-    description: "add_calendar_events_title",
-    // 日程事件 AI 快速浏览标题：已配置 AI 模型时由前端生成后回写，一次生成永久复用；
-    // NULL = 未生成（未配置模型 / 生成失败），界面退回显示全文前几个字。
-    sql: r#"
-      ALTER TABLE calendar_events ADD COLUMN title TEXT;
-    "#,
-    kind: MigrationKind::Up,
-  },
-  Migration {
-    version: 6,
-    description: "add_timetables_my_subjects_profile_timetable_bg",
-    // 班级「我的科目」标记（JSON 数组；NULL = 未标记回退全局任教学科，[] = 明确标记本班没有我的课）
-    // + 首页课表面板背景图（文件名 / dataURL，空为无图）。
-    // 注意：students.id_card 这类「v1 建表已含、旧代库缺失」的列不能走迁移补列
-    // （新库重放会 duplicate column），由前端 ensureSchema 幂等兜底。
-    sql: r#"
-      ALTER TABLE timetables ADD COLUMN my_subjects TEXT;
-      ALTER TABLE profile ADD COLUMN timetable_bg TEXT;
     "#,
     kind: MigrationKind::Up,
   }]
@@ -451,6 +449,7 @@ pub fn run() {
       photos::delete_photo_file,
       backgrounds::backgrounds_dir,
       backgrounds::download_background,
+      backgrounds::fetch_bing_wallpaper,
       backgrounds::read_image_bytes,
       backgrounds::save_background_data_url,
       backgrounds::delete_background_file,

@@ -14,10 +14,45 @@ import {
 import { clearAll, getStats, isTauri } from "../lib/db";
 import { getPhotosDir } from "../lib/photos";
 import { clearBackgroundLibrary } from "../lib/backgrounds";
+import {
+  importBingWallpapers,
+  loadWallpaperConfig,
+  saveWallpaperConfig,
+} from "../lib/wallpaper";
 import type { Stats } from "../types";
 
 const photosDir = ref("");
 const stats = ref<Stats>({ students: 0, photos: 0, month_new: 0 });
+
+/* ---- 必应壁纸（手动入库，背景图在选图弹窗里挑用） ---- */
+const wallpaper = ref(loadWallpaperConfig());
+const wpUpdating = ref(false);
+const wpMsg = ref("");
+
+const wpStatus = computed(() => {
+  if (!isTauri()) return "仅桌面端可用（浏览器演示态不联网）。";
+  return wallpaper.value.last_date
+    ? `上次拉取：${wallpaper.value.last_date}`
+    : "还没有拉取过，点「拉取必应壁纸」试试。";
+});
+
+function onCountChange() {
+  saveWallpaperConfig({ ...wallpaper.value });
+}
+
+async function onFetchWallpapers() {
+  wpUpdating.value = true;
+  wpMsg.value = "";
+  try {
+    const count = await importBingWallpapers();
+    wallpaper.value = loadWallpaperConfig();
+    wpMsg.value = `已入库 ${count} 张（重复的自动复用，不重复下载）`;
+  } catch {
+    wpMsg.value = "拉取失败，请检查网络后重试";
+  } finally {
+    wpUpdating.value = false;
+  }
+}
 
 /* ---- AI 模型配置 ---- */
 const ai = ref<AiConfig>(loadAiConfig());
@@ -142,6 +177,52 @@ async function onClear() {
             当前状态：{{ aiReady ? "已配置 ✓" : "未配置" }} · 请求由本机 Rust 后端（rig-core）发出，
             {{ isTauri() ? "桌面端即刻可用。" : "浏览器演示态下不会真实联网。" }}
           </p>
+        </div>
+      </AppCard>
+
+      <AppCard>
+        <h3 class="mb-1 text-body font-semibold text-ink">必应壁纸</h3>
+        <p class="mb-4 text-caption text-weak">
+          手动把必应近期壁纸拉取到本机图库，不会自动更换背景。首页大图与课表背景
+          共用这套图库，在各自的「更换图片」弹窗里即可挑用。
+        </p>
+
+        <div class="space-y-3">
+          <label class="flex items-center gap-2 text-caption text-ink">
+            每次拉取
+            <select
+              v-model.number="wallpaper.count"
+              data-test="wallpaper-count"
+              class="h-7 rounded-sm border border-hairline bg-canvas px-2 text-caption text-ink outline-none transition-colors focus:border-primary-focus"
+              @change="onCountChange"
+            >
+              <option :value="1">仅当天（1 张）</option>
+              <option :value="3">近 3 天</option>
+              <option :value="5">近 5 天</option>
+              <option :value="7">近 7 天</option>
+              <option :value="8">近 8 天（接口上限）</option>
+            </select>
+          </label>
+
+          <div class="flex items-center gap-3">
+            <AppButton
+              variant="secondary"
+              data-test="wallpaper-fetch"
+              :disabled="wpUpdating || !isTauri()"
+              @click="onFetchWallpapers"
+            >
+              {{ wpUpdating ? "拉取中…" : "拉取必应壁纸" }}
+            </AppButton>
+            <span
+              v-if="wpMsg"
+              class="text-caption"
+              :class="wpMsg.startsWith('已入库') ? 'text-success' : 'text-danger'"
+            >
+              {{ wpMsg }}
+            </span>
+          </div>
+
+          <p class="border-t border-divider pt-3 text-fine text-faint">{{ wpStatus }}</p>
         </div>
       </AppCard>
 

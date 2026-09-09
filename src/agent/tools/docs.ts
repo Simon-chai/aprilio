@@ -15,7 +15,10 @@ interface DocEntry {
   lines: string[];
 }
 
-const docModules = import.meta.glob<string>("/docs/*.md", {
+// 用相对路径而非 root 相对（"/docs/*.md"）：Git Bash 会话的 cwd 带小写盘符（d:\...）时，
+// vite 对 root 相对 glob 的解析会跨盘符生成坏 import（path.relative 盘符大小写敏感），
+// dev 模式整个前端模块图加载失败。相对 importer 的 glob 不受影响。
+const docModules = import.meta.glob<string>("../../../docs/*.md", {
   query: "?raw",
   import: "default",
   eager: true,

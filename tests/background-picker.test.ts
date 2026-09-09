@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   markBackgroundUsed: vi.fn(),
   selectProfileImage: vi.fn(),
   discardSelectedProfileImage: vi.fn(async () => undefined),
+  clearProfileImageRefs: vi.fn(async () => false),
   loadCropSource: vi.fn(),
   saveCroppedBackground: vi.fn(),
   pickLocalFile: vi.fn(),
@@ -26,7 +27,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../src/lib/backgrounds", () => ({
   backgroundSrc: (item: { file: string }) => `resolved://${item.file}`,
-  backgroundsOf: () => mocks.items,
+  pickerBackgrounds: () => mocks.items,
   ensureBackgroundLibrary: mocks.ensureBackgroundLibrary,
   importUrlBackground: mocks.importUrlBackground,
   removeBackground: mocks.removeBackground,
@@ -38,6 +39,7 @@ vi.mock("../src/lib/backgrounds", () => ({
 vi.mock("../src/lib/profile", () => ({
   selectProfileImage: mocks.selectProfileImage,
   discardSelectedProfileImage: mocks.discardSelectedProfileImage,
+  clearProfileImageRefs: mocks.clearProfileImageRefs,
 }));
 
 vi.mock("../src/lib/image", () => ({
@@ -95,6 +97,7 @@ beforeEach(() => {
   mocks.markBackgroundUsed.mockClear();
   mocks.selectProfileImage.mockReset().mockResolvedValue(null);
   mocks.discardSelectedProfileImage.mockClear();
+  mocks.clearProfileImageRefs.mockClear();
   mocks.loadCropSource.mockReset();
   mocks.saveCroppedBackground.mockReset();
   mocks.pickLocalFile.mockReset();
@@ -150,6 +153,8 @@ describe("BackgroundPickerDialog", () => {
     await wrapper.findAll('[data-test="bg-picker-remove"]')[0].trigger("click");
 
     expect(mocks.removeBackground).toHaveBeenCalledWith("id-1");
+    // 共享图库删除时同步清掉个人资料里的引用
+    expect(mocks.clearProfileImageRefs).toHaveBeenCalledWith("img_1.png");
     expect(wrapper.emitted("clear")).toHaveLength(1);
   });
 
@@ -158,6 +163,7 @@ describe("BackgroundPickerDialog", () => {
 
     await wrapper.findAll('[data-test="bg-picker-remove"]')[1].trigger("click");
 
+    expect(mocks.clearProfileImageRefs).toHaveBeenCalledWith("img_2.png");
     expect(wrapper.emitted("clear")).toBeUndefined();
   });
 

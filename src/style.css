@@ -27,6 +27,12 @@
   --color-danger: #d70015;
   --color-danger-soft: #fdeef0;
 
+  /* 监护人风格标签胶囊：按情感倾向的填充色（AI 判定倾向，见 lib/guardian-tags.ts） */
+  --color-tag-positive: #248a3d; /* 正面倾向文字，与 success 同源 */
+  --color-tag-positive-soft: #e7f3ea; /* 正面倾向底色 */
+  --color-tag-negative: #a25e00; /* 负面倾向文字（琥珀，弱于 danger 的告警感） */
+  --color-tag-negative-soft: #faf1e0; /* 负面倾向底色 */
+
   /* 字体 */
   --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", "PingFang SC",
     "Microsoft YaHei", sans-serif;

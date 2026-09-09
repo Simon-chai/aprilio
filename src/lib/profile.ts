@@ -17,6 +17,17 @@ import {
   registerLocalBackground,
 } from "./backgrounds";
 import { readImageAsDataUrl } from "./image";
+import { error as tauriError } from "@tauri-apps/plugin-log";
+
+/* ---- 临时诊断（排查个人资料持久化，验证后删除） ---- */
+function diag(msg: string): void {
+  try {
+    void tauriError(`[diag:profile] ${msg}`).catch(() => undefined);
+  } catch {
+    /* 非 Tauri 环境 */
+  }
+}
+diag(`module loaded isTauri=${isTauri()}`);
 
 export type ProfileImageKind = BackgroundKind;
 
@@ -50,7 +61,9 @@ async function readProfile(): Promise<Profile> {
       /* localStorage 不可用则退回内存 */
     }
   }
-  return getProfile();
+  const loaded = await getProfile();
+  diag(`readProfile name=${loaded.name} my_subjects=${JSON.stringify(loaded.my_subjects)}`);
+  return loaded;
 }
 
 async function writeProfile(p: Profile): Promise<void> {
@@ -66,9 +79,11 @@ async function writeProfile(p: Profile): Promise<void> {
     }
 
     await saveProfileRecord(p);
+    diag(`writeProfile ok name=${p.name}`);
   } catch (cause) {
     const kind = classifyProfileSaveError(cause);
     const detail = profileSaveErrorDiagnostic(cause);
+    diag(`writeProfile FAILED kind=${kind} detail=${detail}`);
     console.error(`[profile.save] failed mode=${mode} kind=${kind} detail=${detail}`);
     throw cause;
   }
@@ -81,7 +96,15 @@ export function ensureProfile(): Promise<void> {
   if (!initPromise) {
     initPromise = (async () => {
       const [p, dir] = await Promise.all([
-        readProfile().catch(() => ({ ...DEFAULT_PROFILE })),
+        // 读取失败不能静默装作没发生：回退默认资料会让用户误以为编辑丢失，
+        // 落盘错误便于事后从日志定位（Tauri 下载入失败会由 getDb 重试兜底）
+        readProfile().catch((cause: unknown) => {
+          console.error(
+            "[renderer] 个人资料读取失败，本次启动显示默认资料：",
+            cause instanceof Error ? cause.message : cause,
+          );
+          return { ...DEFAULT_PROFILE };
+        }),
         getPhotosDir().catch(() => ""),
         ensureBackgroundLibrary().catch(() => undefined),
       ]);
@@ -256,4 +279,27 @@ export async function selectProfileImage(
 export async function discardSelectedProfileImage(fileName: string): Promise<void> {
   if (!fileName) return;
   await discardBackgroundFile(fileName);
+}
+
+/**
+ * 删除图库图片时同步清理个人资料里的引用：
+ * 首页大图与课表背景共享一套图库，同一张图可能同时被多个字段引用。
+ * 有清理时防抖落库，返回是否发生了清理。
+ */
+export async function clearProfileImageRefs(file: string): Promise<boolean> {
+  if (!file) return false;
+  const fields = ["avatar", "hero", "timetable_bg"] as const;
+  const next = { ...profile.value };
+  let changed = false;
+  for (const field of fields) {
+    if (next[field] === file) {
+      next[field] = "";
+      changed = true;
+    }
+  }
+  if (changed) {
+    profile.value = next;
+    await persistProfile(next).catch(() => undefined);
+  }
+  return changed;
 }

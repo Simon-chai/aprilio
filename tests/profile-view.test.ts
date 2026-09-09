@@ -19,6 +19,7 @@ const profileMocks = vi.hoisted(() => {
     ),
     selectProfileImage: vi.fn(),
     discardSelectedProfileImage: vi.fn(),
+    clearProfileImageRefs: vi.fn(async () => false),
     saveProfileChanges: vi.fn(),
   };
 });

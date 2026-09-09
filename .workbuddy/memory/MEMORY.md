@@ -27,3 +27,14 @@
 - 背景图库（docs/BACKGROUNDS.md）：索引落 localStorage；本地上传缓存进 `photos/`（img_ 前缀），
   网络图走 Rust `download_background` 缓存进 `backgrounds/`（bg_ 前缀）；换图只改引用不删历史文件。
   新增 Rust 命令要挂 `lib.rs` 的 generate_handler，新目录要加 tauri.conf.json 的 assetProtocol scope
+- **迁移链（2026-09-09 收敛后）**：lib.rs 只有 v1–v4（v1 建表含 profile.timetable_bg、
+  v3 含 timetables.my_subjects、v4 含 calendar_events.title + 开头幂等重建 calendar_memos 保底搬迁）。
+  **改已应用迁移的 SQL 必须同步 UPDATE 库内 _sqlx_migrations.checksum**
+  （SHA-384 over SQL 原文），否则首次 Database.load 必失败（VersionMismatch）；
+  tauri-plugin-sql 的迁移列表是一次性消费（load 内 remove），首次失败后重试会跳过迁移成功
+  —— db.ts getDb 已内置失败重试一次兜底，老库缺列仍由前端 ensureSchema try-ALTER 兜底
+- **import.meta.glob 必须用相对路径**（如 `../../../docs/*.md`），
+  禁用 root 相对（`/docs/*.md`）：Git Bash 小写盘符 cwd 下 vite 会生成跨盘符坏 import
+  （与 vitest 4 小写盘符坑同源），dev 模式整个前端模块图崩掉
+- 本会话环境有 HTTP_PROXY（127.0.0.1:53332）：启动 app.exe 验证前端时要
+  `env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy` 清代理，否则 WebView 加载被劫持

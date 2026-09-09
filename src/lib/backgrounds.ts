@@ -24,8 +24,10 @@ import type { BackgroundImage, BackgroundKind, BackgroundSource } from "../types
 /** 网络缓存图的文件名前缀（Rust 侧 save_background_data_url 生成） */
 const BG_PREFIX = "bg_";
 const LS_KEY = "aprilio.backgrounds.v1";
-/** 每类背景最多保留的历史张数（超出按最近使用时间淘汰） */
+/** 头像图库上限（头像不入共享池，超出按最近使用时间淘汰） */
 const MAX_PER_KIND = 12;
+/** 首页大图 + 课表背景共享池上限（一套图两边都能选用） */
+const MAX_SHARED = 24;
 
 /** 图库索引（按 kind 分组、按最近使用倒序展示） */
 export const backgroundLibrary = ref<BackgroundImage[]>([]);
@@ -142,9 +144,30 @@ export function backgroundsOf(kind: BackgroundKind): BackgroundImage[] {
     .sort((a, b) => (a.used_at < b.used_at ? 1 : a.used_at > b.used_at ? -1 : 0));
 }
 
+/**
+ * 选图弹窗的历史池：头像独立成池；首页大图与课表背景共享同一套——
+ * Bing 壁纸、课表用图在首页大图弹窗里同样可选，反之亦然。
+ */
+export function pickerBackgrounds(kind: BackgroundKind): BackgroundImage[] {
+  if (kind === "avatar") return backgroundsOf("avatar");
+  return backgroundLibrary.value
+    .filter((item) => item.kind !== "avatar")
+    .sort((a, b) => (a.used_at < b.used_at ? 1 : a.used_at > b.used_at ? -1 : 0));
+}
+
+/** 共享池判定：首页大图与课表背景同一套，头像独立 */
+function isSharedPool(kind: BackgroundKind): boolean {
+  return kind !== "avatar";
+}
+
 export function findBackground(kind: BackgroundKind, file: string): BackgroundImage | undefined {
   if (!file) return undefined;
-  return backgroundLibrary.value.find((item) => item.kind === kind && item.file === file);
+  // 共享池内跨 kind 按 file 查找（一张图两边都能引用）；头像只在头像池里找
+  return backgroundLibrary.value.find(
+    (item) =>
+      (isSharedPool(kind) ? item.kind !== "avatar" : item.kind === "avatar") &&
+      item.file === file,
+  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -172,11 +195,13 @@ async function register(input: {
 }): Promise<BackgroundImage> {
   await ensureBackgroundLibrary();
 
-  // 重复添加同一张：直接复用旧记录（URL 按原始地址去重，本地按缓存标识去重）
+  // 重复添加同一张：直接复用旧记录。
+  // 头像在头像池内去重；首页大图与课表背景共享一套（URL 按原始地址去重，本地按缓存标识去重）
   const existing = backgroundLibrary.value.find((item) =>
-    input.source === "url"
-      ? item.kind === input.kind && item.origin_url === (input.origin_url ?? "")
-      : item.kind === input.kind && item.file === input.file,
+    (isSharedPool(input.kind) ? item.kind !== "avatar" : item.kind === "avatar") &&
+    (input.source === "url"
+      ? item.origin_url === (input.origin_url ?? "")
+      : item.file === input.file),
   );
   if (existing) {
     existing.used_at = nowIso();
@@ -289,10 +314,11 @@ export async function saveCroppedBackground(
   return register({ kind, file, source: meta.source, origin_url: meta.originUrl ?? "", name: meta.name ?? "" });
 }
 
-/** 网络图片（不走裁剪窗的场景）：下载字节 → 写盘 → 入库 */
+/** 网络图片（不走裁剪窗的场景）：下载字节 → 写盘 → 入库；name 缺省取 URL 末段 */
 export async function importUrlBackground(
   kind: BackgroundKind,
   rawUrl: string,
+  name?: string,
 ): Promise<BackgroundImage> {
   const url = rawUrl.trim();
   if (!/^https?:\/\/\S+$/i.test(url)) {
@@ -310,7 +336,7 @@ export async function importUrlBackground(
   return saveCroppedBackground(kind, sourceToDataUrl(src), {
     source: "url",
     originUrl: url,
-    name: nameFromUrl(url),
+    name: name?.trim() || nameFromUrl(url),
   });
 }
 
@@ -318,11 +344,13 @@ export async function importUrlBackground(
 /* 使用 / 删除                                                         */
 /* ------------------------------------------------------------------ */
 
-/** 淘汰某类里最久未使用的历史（至少保留一张，避免删掉正在用的图） */
+/** 淘汰最久未使用的历史（至少保留一张，避免删掉正在用的图）；
+ *  头像上限 12 张，首页大图 + 课表背景共享池上限 24 张 */
 function prune(kind: BackgroundKind): void {
-  const items = backgroundsOf(kind);
-  if (items.length <= MAX_PER_KIND) return;
-  for (const stale of items.slice(1).slice(MAX_PER_KIND - 1)) {
+  const items = isSharedPool(kind) ? pickerBackgrounds(kind) : backgroundsOf(kind);
+  const limit = isSharedPool(kind) ? MAX_SHARED : MAX_PER_KIND;
+  if (items.length <= limit) return;
+  for (const stale of items.slice(limit)) {
     void removeBackground(stale.id);
   }
 }

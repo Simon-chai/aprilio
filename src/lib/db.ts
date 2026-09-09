@@ -110,13 +110,15 @@ const SCHEMA_DDL: string[] = [
     created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
   )`,
   `CREATE TABLE IF NOT EXISTS profile (
-    id         INTEGER PRIMARY KEY,
-    name       TEXT NOT NULL DEFAULT '',
-    title      TEXT NOT NULL DEFAULT '',
-    motto      TEXT NOT NULL DEFAULT '',
-    avatar     TEXT NOT NULL DEFAULT '',
-    hero       TEXT NOT NULL DEFAULT '',
-    updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+    id           INTEGER PRIMARY KEY,
+    name         TEXT NOT NULL DEFAULT '',
+    title        TEXT NOT NULL DEFAULT '',
+    motto        TEXT NOT NULL DEFAULT '',
+    avatar       TEXT NOT NULL DEFAULT '',
+    hero         TEXT NOT NULL DEFAULT '',
+    my_subjects  TEXT,
+    timetable_bg TEXT,
+    updated_at   TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
   )`,
   `INSERT INTO profile (id) VALUES (1) ON CONFLICT(id) DO NOTHING`,
   `CREATE TABLE IF NOT EXISTS behavior_dimensions (
@@ -198,6 +200,7 @@ const SCHEMA_DDL: string[] = [
     semester     TEXT NOT NULL,
     note         TEXT,
     periods_json TEXT,
+    my_subjects  TEXT,
     created_at   TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
     updated_at   TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
     UNIQUE (class_name, semester)
@@ -319,9 +322,23 @@ async function ensureSchema(db: Database): Promise<void> {
 function getDb(): Promise<Database> {
   if (!dbPromise) {
     dbPromise = (async () => {
-      const db = await Database.load(DB_URL);
-      await ensureSchema(db);
-      return db;
+      try {
+        const db = await Database.load(DB_URL);
+        await ensureSchema(db);
+        return db;
+      } catch (firstError) {
+        // tauri-plugin-sql 的迁移列表是一次性消费（load 内部 remove）：
+        // 首次 load 若因迁移校验失败被拒（如历史库 checksum 与源码不一致），
+        // 重试会跳过迁移直接拿到连接池，表结构由 ensureSchema 幂等兜底。
+        // 落盘首次失败便于排查，两次都失败才是真故障。
+        console.error(
+          "[renderer] Database.load 首次失败（多为迁移校验问题），正在重试跳过迁移：",
+          firstError instanceof Error ? firstError.message : firstError,
+        );
+        const db = await Database.load(DB_URL);
+        await ensureSchema(db);
+        return db;
+      }
     })().catch((e: unknown) => {
       dbPromise = null;
       throw e;

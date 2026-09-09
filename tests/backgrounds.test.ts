@@ -91,6 +91,27 @@ describe("background library", () => {
     );
   });
 
+  it("accepts an explicit display name for url imports", async () => {
+    const bg = await freshLibrary();
+    mocks.invoke.mockImplementation(async (command: string) => {
+      if (command === "backgrounds_dir") return mocks.runtime.bgDir;
+      if (command === "download_background") return { mime: "image/jpeg", base64: "AAEC" };
+      if (command === "save_background_data_url") return "bg_2.png";
+      return undefined;
+    });
+
+    // 必应壁纸的 URL 末段冗长难读，允许调用方传入展示名（缺省仍取 URL 末段）
+    const named = await bg.importUrlBackground(
+      "timetable_bg",
+      "https://cn.bing.com/th?id=OHR.GabitKeni_ZH-CN2314122948_1920x1080.jpg",
+      "印度西海岸的生活",
+    );
+    expect(named.name).toBe("印度西海岸的生活");
+
+    const fallback = await bg.importUrlBackground("hero", "https://cdn.example.com/a/dawn.jpg");
+    expect(fallback.name).toBe("dawn.jpg");
+  });
+
   it("reuses the cached entry when the same url is added twice", async () => {
     const bg = await freshLibrary();
     mocks.invoke.mockImplementation(async (command: string) => {
@@ -158,17 +179,70 @@ describe("background library", () => {
     expect(mocks.deletePhotoFile).toHaveBeenCalledWith("img_pending.png");
   });
 
-  it("keeps at most 12 entries per kind and prunes the least recently used", async () => {
+  it("keeps avatars capped at 12 entries and prunes the least recently used", async () => {
     const bg = await freshLibrary();
     for (let i = 1; i <= 14; i += 1) {
-      await bg.registerLocalBackground("hero", `img_${i}.png`);
+      await bg.registerLocalBackground("avatar", `img_${i}.png`);
     }
 
-    const files = bg.backgroundsOf("hero").map((item) => item.file);
+    const files = bg.backgroundsOf("avatar").map((item) => item.file);
     expect(files).toHaveLength(12);
     // 最新一张必须留下（可能正在用），淘汰的是最早的两张
     expect(files).toContain("img_14.png");
     expect(files).not.toContain("img_1.png");
+  });
+
+  it("caps the shared hero/timetable pool at 24 entries", async () => {
+    const bg = await freshLibrary();
+    for (let i = 1; i <= 26; i += 1) {
+      await bg.registerLocalBackground("hero", `img_${i}.png`);
+    }
+
+    const files = bg.pickerBackgrounds("hero").map((item) => item.file);
+    expect(files).toHaveLength(24);
+    expect(files).toContain("img_26.png");
+    expect(files).not.toContain("img_1.png");
+  });
+
+  it("shares one pool between hero and timetable backgrounds, avatars stay separate", async () => {
+    const bg = await freshLibrary();
+    await bg.registerLocalBackground("hero", "img_hero.png");
+    await bg.registerLocalBackground("timetable_bg", "img_tt.png");
+    await bg.registerLocalBackground("avatar", "img_face.png");
+
+    // 头像弹窗只见头像
+    expect(bg.pickerBackgrounds("avatar").map((item) => item.file)).toEqual(["img_face.png"]);
+    // 首页大图与课表背景共用一套（按最近使用倒序）
+    const shared = ["img_tt.png", "img_hero.png"];
+    expect(bg.pickerBackgrounds("hero").map((item) => item.file)).toEqual(shared);
+    expect(bg.pickerBackgrounds("timetable_bg").map((item) => item.file)).toEqual(shared);
+  });
+
+  it("dedupes a url across the shared pool instead of per kind", async () => {
+    const bg = await freshLibrary();
+    mocks.invoke.mockImplementation(async (command: string) => {
+      if (command === "backgrounds_dir") return mocks.runtime.bgDir;
+      if (command === "download_background") return { mime: "image/png", base64: "AAE" };
+      if (command === "save_background_data_url") return "bg_1.png";
+      return undefined;
+    });
+
+    const first = await bg.importUrlBackground("timetable_bg", "https://a.com/x.png");
+    const second = await bg.importUrlBackground("hero", "https://a.com/x.png");
+
+    // 同一 URL 先进课表池再进首页池：共享池内去重，不重复下载
+    expect(second.id).toBe(first.id);
+    expect(bg.backgroundLibrary.value).toHaveLength(1);
+  });
+
+  it("finds shared entries across kinds when marking usage", async () => {
+    const bg = await freshLibrary();
+    await bg.registerLocalBackground("hero", "img_1.png");
+
+    // 课表背景直接采用首页大图传进来的缓存标识：跨 kind 也能命中
+    expect(bg.findBackground("timetable_bg", "img_1.png")?.file).toBe("img_1.png");
+    bg.markBackgroundUsed("timetable_bg", "img_1.png");
+    expect(bg.backgroundsOf("hero")).toHaveLength(1);
   });
 
   it("persists the index to localStorage and rebuilds it after a reload", async () => {

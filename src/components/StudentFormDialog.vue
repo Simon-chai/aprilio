@@ -3,8 +3,16 @@ import { reactive, ref, watch } from "vue";
 import AppButton from "./ui/AppButton.vue";
 import AppInput from "./ui/AppInput.vue";
 import AppLink from "./ui/AppLink.vue";
-import { GUARDIAN_TAG_PRESETS, STATUS_LABEL } from "../types";
-import type { Gender, StudentInput } from "../types";
+import { STATUS_LABEL } from "../types";
+import {
+  addGuardianTagPreset,
+  ensureGuardianTagPolarities,
+  loadGuardianTagPresets,
+  loadTagPolarities,
+  removeGuardianTagPreset,
+  tagChipClass,
+} from "../lib/guardian-tags";
+import type { Gender, GuardianTagPolarity, StudentInput } from "../types";
 
 const RELATIONS = ["父亲", "母亲", "爷爷", "奶奶", "外公", "外婆", "监护人", "其他"];
 
@@ -114,6 +122,10 @@ const toInput = (f: FormModel): StudentInput => ({
 const form = reactive<FormModel>(blank());
 const error = ref("");
 const tagDrafts = reactive<Record<number, string>>({});
+/** 预设候选词（可动态增删，全局共享，随打开刷新） */
+const presets = ref<string[]>([]);
+/** 标签情感倾向缓存（AI 判定结果，键为标签词） */
+const polarities = ref<Record<string, GuardianTagPolarity>>({});
 
 watch(
   [() => props.open, () => props.initial],
@@ -122,8 +134,23 @@ watch(
     Object.assign(form, blank(), props.initial ? fromInput(props.initial) : {});
     Object.keys(tagDrafts).forEach((k) => delete tagDrafts[Number(k)]);
     error.value = "";
-  }
+    presets.value = loadGuardianTagPresets();
+    polarities.value = loadTagPolarities();
+    // AI 已配置时后台补齐缺失标签的倾向配色；未配置则保持留白，配置后打开页面会自动补齐
+    ensurePolarityColors();
+  },
+  { immediate: true }
 );
+
+/** 需要配色的标签全集 = 预设候选 + 各监护人已选标签 */
+function ensurePolarityColors(extra?: string[]) {
+  const all = new Set<string>(presets.value);
+  form.guardians.forEach((g) => g.tags.forEach((t) => all.add(t)));
+  extra?.forEach((t) => all.add(t));
+  void ensureGuardianTagPolarities([...all]).then((map) => {
+    if (Object.keys(map).length) polarities.value = loadTagPolarities();
+  });
+}
 
 function addGuardian() {
   const nextRelation =
@@ -157,6 +184,34 @@ function addTag(index: number, raw: string) {
   const g = form.guardians[index];
   if (!g || g.tags.includes(tag) || g.tags.length >= 6) return;
   g.tags.push(tag);
+  // 手输的自定义标签可能还没有倾向配色，后台补齐
+  ensurePolarityColors([tag]);
+}
+
+/** 把输入框草稿保存为预设候选词（全局共享），失败（重复 / 超上限）保留草稿 */
+function savePresetFromDraft(index: number) {
+  const tag = (tagDrafts[index] ?? "").trim();
+  if (!tag) return;
+  if (!addGuardianTagPreset(tag)) return;
+  tagDrafts[index] = "";
+  presets.value = loadGuardianTagPresets();
+  ensurePolarityColors([tag]);
+}
+
+/** 删除预设候选词（不影响已选中的标签） */
+function deletePreset(tag: string) {
+  removeGuardianTagPreset(tag);
+  presets.value = loadGuardianTagPresets();
+}
+
+/** 已选标签胶囊配色：有倾向 → 填充色；无 → 留白中性底 */
+function selectedChipClass(tag: string): string {
+  return tagChipClass(polarities.value[tag]);
+}
+
+/** 预设候选胶囊配色：有倾向 → 填充色；无 → 留白描边 */
+function presetChipClass(tag: string): string {
+  return polarities.value[tag] ? tagChipClass(polarities.value[tag]) : "";
 }
 
 function removeTag(index: number, tagIdx: number) {
@@ -348,24 +403,29 @@ function submit() {
                 </button>
               </div>
 
-              <!-- 第二行：风格标签 -->
+              <!-- 第二行：风格标签（预设候选可增删；填充色按 AI 判定的情感倾向，未配置时留白） -->
               <div class="flex flex-wrap items-center gap-1.5">
                 <span class="text-[11px] text-weak">风格标签</span>
+
+                <!-- 已选标签胶囊 -->
                 <span
                   v-for="(tag, ti) in g.tags"
                   :key="tag"
-                  class="inline-flex items-center gap-1 rounded-pill bg-primary-soft px-2 py-0.5 text-[11px] text-primary"
+                  data-test="guardian-tag-chip"
+                  class="inline-flex items-center gap-1 rounded-pill px-2 py-0.5 text-[11px] transition-colors"
+                  :class="selectedChipClass(tag)"
                 >
                   {{ tag }}
                   <button
                     type="button"
-                    class="text-primary/60 hover:text-primary"
+                    class="opacity-60 hover:opacity-100"
                     :title="`移除标签 ${tag}`"
                     @click="removeTag(idx, ti)"
                   >
                     ×
                   </button>
                 </span>
+
                 <input
                   v-model="tagDrafts[idx]"
                   data-test="guardian-tag-input"
@@ -374,14 +434,42 @@ function submit() {
                   @keydown="onTagKeydown($event, idx)"
                 />
                 <button
-                  v-for="preset in GUARDIAN_TAG_PRESETS.filter((t) => !g.tags.includes(t))"
-                  :key="preset"
+                  v-if="(tagDrafts[idx] ?? '').trim()"
                   type="button"
-                  class="inline-flex items-center rounded-pill border border-hairline bg-canvas px-2 py-0.5 text-[11px] text-weak transition-colors hover:border-primary hover:text-primary"
-                  @click="addTag(idx, preset)"
+                  data-test="save-preset-btn"
+                  class="text-[11px] text-weak underline-offset-2 hover:text-primary hover:underline"
+                  title="保存为常用预设，方便下次直接点选"
+                  @click="savePresetFromDraft(idx)"
                 >
-                  + {{ preset }}
+                  存为预设
                 </button>
+
+                <!-- 预设候选胶囊：点击添加，× 删除该预设 -->
+                <span
+                  v-for="preset in presets.filter((t) => !g.tags.includes(t))"
+                  :key="preset"
+                  data-test="guardian-tag-preset"
+                  class="inline-flex items-center gap-0.5 rounded-pill px-2 py-0.5 text-[11px] transition-colors"
+                  :class="presetChipClass(preset) || 'border border-hairline bg-canvas text-weak'"
+                >
+                  <button
+                    type="button"
+                    class="hover:underline"
+                    :title="`添加标签 ${preset}`"
+                    @click="addTag(idx, preset)"
+                  >
+                    + {{ preset }}
+                  </button>
+                  <button
+                    type="button"
+                    data-test="remove-preset-btn"
+                    class="opacity-50 hover:opacity-100"
+                    :title="`删除预设标签 ${preset}`"
+                    @click="deletePreset(preset)"
+                  >
+                    ×
+                  </button>
+                </span>
               </div>
             </div>
           </div>

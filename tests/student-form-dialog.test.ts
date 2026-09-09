@@ -1,6 +1,11 @@
 import { mount } from "@vue/test-utils";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import StudentFormDialog from "../src/components/StudentFormDialog.vue";
+import { GUARDIAN_TAG_POLARITY_KEY, GUARDIAN_TAG_PRESETS_KEY } from "../src/lib/guardian-tags";
+
+beforeEach(() => {
+  localStorage.clear();
+});
 
 describe("StudentFormDialog.vue", () => {
   it("renders gender segmented control with 男 and 女 options, defaulting to 男", async () => {
@@ -89,14 +94,114 @@ describe("StudentFormDialog.vue", () => {
     await tagInput.setValue("善于沟通");
     await tagInput.trigger("keydown", { key: "Enter" });
 
-    // 标签 chip 使用 bg-primary-soft 样式，可按 class 计数
-    expect(row.findAll(".bg-primary-soft").length).toBe(2);
+    // 已选标签胶囊可按 data-test 计数
+    expect(row.findAll("[data-test='guardian-tag-chip']").length).toBe(2);
     expect(row.text()).toContain("温和");
     expect(row.text()).toContain("善于沟通");
 
     // 点击 chip 上的 × 可移除
-    await row.get(".bg-primary-soft button").trigger("click");
-    expect(row.findAll(".bg-primary-soft").length).toBe(1);
+    await row.get("[data-test='guardian-tag-chip'] button").trigger("click");
+    expect(row.findAll("[data-test='guardian-tag-chip']").length).toBe(1);
+  });
+
+  it("keeps tag chips blank (no polarity fill) when AI is not configured", async () => {
+    // jsdom 无 Tauri 外壳 → AI 未就绪，胶囊不上倾向色
+    const wrapper = mount(StudentFormDialog, { props: { open: true } });
+    const row = wrapper.get("[data-test='guardian-row']");
+
+    await row.findAll("button").find((b) => b.text() === "+ 温和")!.trigger("click");
+
+    const chip = row.get("[data-test='guardian-tag-chip']");
+    expect(chip.classes()).toContain("bg-parchment"); // 留白中性底
+    expect(chip.classes()).not.toContain("bg-tag-positive-soft");
+
+    // 未判倾向的预设候选保持描边样式
+    const preset = row.findAll("[data-test='guardian-tag-preset']")[0];
+    expect(preset.classes()).toContain("border-hairline");
+  });
+
+  it("applies polarity fill colors from cached AI results", async () => {
+    localStorage.setItem(
+      GUARDIAN_TAG_POLARITY_KEY,
+      JSON.stringify({ 温和: "positive", 严格: "negative", 积极配合: "neutral" })
+    );
+    const wrapper = mount(StudentFormDialog, { props: { open: true } });
+    const row = wrapper.get("[data-test='guardian-row']");
+
+    await row.findAll("button").find((b) => b.text() === "+ 温和")!.trigger("click");
+    await row.findAll("button").find((b) => b.text() === "+ 严格")!.trigger("click");
+
+    const chips = row.findAll("[data-test='guardian-tag-chip']");
+    expect(chips[0].classes()).toContain("bg-tag-positive-soft");
+    expect(chips[0].classes()).toContain("text-tag-positive");
+    expect(chips[1].classes()).toContain("bg-tag-negative-soft");
+    expect(chips[1].classes()).toContain("text-tag-negative");
+
+    // 候选预设胶囊同样按倾向上色
+    const candidate = row
+      .findAll("[data-test='guardian-tag-preset']")
+      .find((p) => p.text().includes("积极配合"))!;
+    expect(candidate.classes()).toContain("bg-parchment"); // neutral → 中性底
+  });
+
+  it("saves a custom preset from the draft input and persists it across remounts", async () => {
+    const wrapper = mount(StudentFormDialog, { props: { open: true } });
+    const row = wrapper.get("[data-test='guardian-row']");
+
+    const tagInput = row.get("[data-test='guardian-tag-input']");
+    await tagInput.setValue("暴脾气");
+    await row.get("[data-test='save-preset-btn']").trigger("click");
+
+    // 候选区出现新预设，草稿清空；未自动加到已选
+    expect(row.text()).toContain("+ 暴脾气");
+    expect(row.findAll("[data-test='guardian-tag-chip']").length).toBe(0);
+    expect(tagInput.element.value).toBe("");
+
+    // 重挂载后预设仍在（localStorage 持久化）
+    wrapper.unmount();
+    const again = mount(StudentFormDialog, { props: { open: true } });
+    expect(again.get("[data-test='guardian-row']").text()).toContain("+ 暴脾气");
+  });
+
+  it("deletes a preset candidate and persists the removal across remounts", async () => {
+    const wrapper = mount(StudentFormDialog, { props: { open: true } });
+    const row = wrapper.get("[data-test='guardian-row']");
+    expect(row.text()).toContain("+ 温和");
+
+    // 删除预设「温和」
+    await row
+      .findAll("[data-test='guardian-tag-preset']")
+      .find((p) => p.text().includes("温和"))!
+      .get("[data-test='remove-preset-btn']")
+      .trigger("click");
+    expect(row.text()).not.toContain("+ 温和");
+
+    wrapper.unmount();
+    const again = mount(StudentFormDialog, { props: { open: true } });
+    const againRow = again.get("[data-test='guardian-row']");
+    expect(againRow.text()).not.toContain("+ 温和");
+    // 其余预设不受影响
+    expect(againRow.text()).toContain("+ 严格");
+  });
+
+  it("keeps a selected tag when its preset candidate is deleted", async () => {
+    const wrapper = mount(StudentFormDialog, { props: { open: true } });
+    // 先选中「温和」（候选随之隐藏），再加第二行监护人让候选重新可见
+    const row = wrapper.get("[data-test='guardian-row']");
+    await row.findAll("button").find((b) => b.text() === "+ 温和")!.trigger("click");
+    await wrapper.get("[data-test='add-guardian-btn']").trigger("click");
+
+    const rows = wrapper.findAll("[data-test='guardian-row']");
+    await rows[1]
+      .findAll("[data-test='guardian-tag-preset']")
+      .find((p) => p.text().includes("温和"))!
+      .get("[data-test='remove-preset-btn']")
+      .trigger("click");
+
+    // 候选没了，但第一行已选标签保留
+    expect(wrapper.text()).not.toContain("+ 温和");
+    expect(rows[0].findAll("[data-test='guardian-tag-chip']").length).toBe(1);
+    expect(rows[0].text()).toContain("温和");
   });
 
   it("emits guardian occupation and tags in submit payload", async () => {
