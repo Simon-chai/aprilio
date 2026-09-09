@@ -66,16 +66,6 @@ export const EVAL_DATASET: EvalCase[] = [
       args: { target: "profile" },
     },
   },
-  {
-    id: "nav-design",
-    description: "跳转至设计系统规范",
-    category: "navigation",
-    input: "打开设计系统",
-    expected: {
-      tool: "navigate",
-      args: { target: "design" },
-    },
-  },
 
   // ==================== 2. 数据查询 (Data Query) ====================
   {
@@ -136,6 +126,36 @@ export const EVAL_DATASET: EvalCase[] = [
     expected: {
       tool: "query_data",
       args: { entity: "students" },
+    },
+  },
+  {
+    id: "query-classes-list",
+    description: "查询班级列表（含在用 / 历史带过的班与当前年级）",
+    category: "data_query",
+    input: "有哪些班级？",
+    expected: {
+      tool: "query_data",
+      args: { entity: "classes" },
+    },
+  },
+  {
+    id: "query-classes-archived",
+    description: "查询归档 / 历史带过的班级",
+    category: "data_query",
+    input: "看看我归档过哪些班级",
+    expected: {
+      tool: "query_data",
+      args: { entity: "classes" },
+    },
+  },
+  {
+    id: "query-semester-overview",
+    description: "班级学期汇总 → analyze semester_overview",
+    category: "analysis",
+    input: "四年级一班这学期成绩汇总",
+    expected: {
+      tool: "analyze",
+      args: (args) => args.kind === "semester_overview",
     },
   },
 
@@ -215,6 +235,28 @@ export const EVAL_DATASET: EvalCase[] = [
     expected: {
       tool: "ui_action",
       args: { page: "students", action: "import-roster" },
+      shouldGate: false,
+    },
+  },
+  {
+    id: "gate-archive-class-unconfirmed",
+    description: "写操作未确认：归档班级应被安全确认门拦截",
+    category: "confirm_gate",
+    input: "归档三年级二班",
+    expected: {
+      tool: "ui_action",
+      args: { page: "classes", action: "archive-class" },
+      shouldGate: true,
+    },
+  },
+  {
+    id: "gate-archive-class-confirmed",
+    description: "写操作已确认：显式确认后携带 confirm:true，确认门放行",
+    category: "confirm_gate",
+    input: "确认归档三年级二班",
+    expected: {
+      tool: "ui_action",
+      args: { page: "classes", action: "archive-class", confirm: true },
       shouldGate: false,
     },
   },

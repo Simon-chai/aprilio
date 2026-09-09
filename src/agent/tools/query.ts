@@ -8,12 +8,16 @@
 import {
   getStats,
   listBehaviorRecords,
+  listClasses,
   listExamScores,
   listExams,
   listPhotos,
   listStudents,
+  listTermComments,
 } from "../../lib/db";
 import { defineAgentTool } from "../define";
+import { classCurrentLabel } from "../../lib/semester";
+import { semesterLabel } from "../../lib/timetable";
 
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
@@ -37,7 +41,7 @@ export default defineAgentTool({
     properties: {
       entity: {
         type: "string",
-        enum: ["students", "photos", "stats", "behaviors", "exams", "scores"],
+        enum: ["students", "photos", "stats", "behaviors", "exams", "scores", "classes", "term_comments"],
         description: "查询实体",
       },
       keyword: {
@@ -74,6 +78,10 @@ export default defineAgentTool({
       dimension_name: {
         type: "string",
         description: "按表现维度名称过滤，如「课堂表现」、「作业情况」，仅 behaviors 生效",
+      },
+      semester: {
+        type: "string",
+        description: "学期号过滤，如「2026-2027-1」，仅 term_comments 生效",
       },
       limit: {
         type: "number",
@@ -208,10 +216,54 @@ export default defineAgentTool({
       };
     }
 
+    if (entity === "classes") {
+      const all = await listClasses();
+      const gradeClass = typeof args.grade_class === "string" ? args.grade_class.trim() : "";
+      const filtered = all.filter((c) => {
+        if (gradeClass && !c.name.includes(gradeClass)) return false;
+        if (keyword && !c.name.includes(keyword)) return false;
+        return true;
+      });
+      const rows = filtered.slice(0, limit);
+      const summary = rows
+        .map((c) => {
+          const label = classCurrentLabel(c.entry_grade ?? null, c.entry_semester ?? null);
+          const state = c.archived_at ? `已归档（${c.archived_at.slice(0, 10)}）` : "在用";
+          return `${c.name} · ${state}${label ? ` · 当前${label}` : ""} · 学生 ${c.studentCount} 人`;
+        })
+        .join("\n");
+      return {
+        ok: true,
+        summary: `班级查询：命中 ${filtered.length} 个，返回前 ${rows.length} 个。\n${summary || JSON.stringify(rows)}`,
+        data: rows,
+      };
+    }
+
+    if (entity === "term_comments") {
+      const studentId = Number.isInteger(Number(args.student_id))
+        ? Number(args.student_id)
+        : undefined;
+      if (studentId === undefined) {
+        return { ok: false, summary: "", error: "term_comments 需要 student_id" };
+      }
+      const semester = typeof args.semester === "string" ? args.semester.trim() : "";
+      const all = await listTermComments(studentId);
+      const filtered = semester ? all.filter((c) => c.semester === semester) : all;
+      const rows = filtered.slice(0, limit);
+      const summary = rows
+        .map((c) => `${semesterLabel(c.semester)}（${c.source === "ai" ? "AI 草稿" : "手工"}）：${c.content}`)
+        .join("\n");
+      return {
+        ok: true,
+        summary: `学期评语查询：命中 ${filtered.length} 条，返回前 ${rows.length} 条。\n${summary || JSON.stringify(rows)}`,
+        data: rows,
+      };
+    }
+
     return {
       ok: false,
       summary: "",
-      error: `未知查询实体 "${entity}"，可选：students、photos、stats、behaviors、exams、scores。`,
+      error: `未知查询实体 "${entity}"，可选：students、photos、stats、behaviors、exams、scores、classes、term_comments。`,
     };
   },
 });

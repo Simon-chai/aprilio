@@ -58,4 +58,42 @@ describe("ImportScoreDialog", () => {
       await cleanupTestData();
     }
   });
+
+  it("一次导入多个文件时每文件独立生成考试批次", async () => {
+    const multiClass = "成绩多文件测试班";
+    const multiNos = ["97001", "97002"];
+    const textFor = (exam: string) =>
+      `${exam}成绩单\n姓名,学号,语文,数学\n张小三,97001,90,85\n李小红,97002,88,92\n`;
+    async function cleanupMulti() {
+      for (const s of await listStudents()) {
+        if (multiNos.includes(s.student_no)) await deleteStudent(s.id);
+      }
+      for (const e of await listExamsByClass(multiClass)) await deleteExam(e.id);
+    }
+    await cleanupMulti();
+    try {
+      const wrapper = mount(ImportScoreDialog, {
+        props: { open: true, presetClass: multiClass },
+      });
+      const loader = wrapper.vm as unknown as Loader;
+      // 标题行不同 → 提取出不同的考试名，互不干扰
+      await loader.loadText(textFor("2026年秋季期中考试"), "期中成绩单.csv");
+      await loader.loadText(textFor("2026年秋季期末考试"), "期末成绩单.csv");
+
+      expect(wrapper.text()).toContain("已选择 2 个文件");
+      const importBtn = wrapper.get('[data-test="score-import-btn"]');
+      expect(importBtn.attributes("disabled")).toBeUndefined();
+      await importBtn.trigger("click");
+      await flushPromises();
+
+      expect(wrapper.get('[data-test="score-import-result"]').text()).toContain("批量导入完成（2/2 个文件）");
+      expect(wrapper.emitted("imported")).toHaveLength(1);
+      const exams = await listExamsByClass(multiClass);
+      expect(exams.map((e) => e.name).sort()).toEqual(
+        ["2026年秋季期中考试", "2026年秋季期末考试"].sort(),
+      );
+    } finally {
+      await cleanupMulti();
+    }
+  });
 });

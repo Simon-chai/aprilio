@@ -9,6 +9,7 @@
 import { computed, onMounted, ref, watch } from "vue";
 import ScoreLineChart from "./ScoreLineChart.vue";
 import { getStudentScoreReport } from "../lib/db";
+import { semesterOfDate } from "../lib/semester";
 import {
   SCORE_LEVEL_BAR,
   SCORE_LEVEL_TEXT,
@@ -24,16 +25,33 @@ import type {
   StudentScoreReport,
 } from "../types";
 
-const props = defineProps<{ studentId: number }>();
+const props = withDefaults(
+  defineProps<{
+    studentId: number;
+    /** 学期过滤：只统计该学期的考试（由 exam_date 实时推导）；不传 = 全部 */
+    semester?: string | null;
+  }>(),
+  { semester: null }
+);
 
 const report = ref<StudentScoreReport | null>(null);
 const loading = ref(true);
+
+/** 按学期过滤后的报告（考试按 exam_date 归属学期） */
+const filteredReport = computed<StudentScoreReport | null>(() => {
+  if (!report.value) return null;
+  if (!props.semester) return report.value;
+  const exams = report.value.exams.filter(
+    (e) => semesterOfDate(e.exam_date) === props.semester
+  );
+  return { ...report.value, exams };
+});
 
 /** 当前展开的单次考试详情（点击折线图节点后才有值） */
 const selectedExamId = ref<number | null>(null);
 
 const selectedExam = computed(
-  () => report.value?.exams.find((e) => e.exam_id === selectedExamId.value) ?? null
+  () => filteredReport.value?.exams.find((e) => e.exam_id === selectedExamId.value) ?? null
 );
 
 async function refresh() {
@@ -47,12 +65,15 @@ async function refresh() {
 }
 
 watch(() => props.studentId, refresh);
+watch(() => props.semester, () => {
+  selectedExamId.value = null;
+});
 onMounted(refresh);
 
 /** 有数字总分的历次成绩 */
 const numericTotals = computed(
   () =>
-    report.value?.exams
+    filteredReport.value?.exams
       .map((e) => e.total)
       .filter((t): t is number => t !== null && t !== undefined) ?? []
 );
@@ -69,7 +90,7 @@ const bestTotal = computed(() =>
 
 /** 最近一次有名次的考试排名 */
 const latestRank = computed(
-  () => report.value?.exams.find((e) => e.class_total_rank !== null)?.class_total_rank ?? null
+  () => filteredReport.value?.exams.find((e) => e.class_total_rank !== null)?.class_total_rank ?? null
 );
 
 function displayScore(s: StudentExamSubject): string {
@@ -116,7 +137,7 @@ function totalText(exam: StudentExamReport): string {
 }
 
 /** 历次考试按时间正序（旧 → 新）；用于判断是否需要展示走势图 */
-const examColumns = computed(() => [...(report.value?.exams ?? [])].reverse());
+const examColumns = computed(() => [...(filteredReport.value?.exams ?? [])].reverse());
 
 /** 单次考试的「平均单科分」（0~100，跨考试可比）；纯等级考试为 null */
 function avgSingleOf(exam: StudentExamReport): number | null {
@@ -141,7 +162,7 @@ interface ScoreChartGroup {
  * 每条折线一个科目，缺考的点为空（折线断开）。
  */
 const chartGroups = computed<ScoreChartGroup[]>(() => {
-  const exams = report.value?.exams ?? [];
+  const exams = filteredReport.value?.exams ?? [];
   const build = (type: ExamType, title: string): ScoreChartGroup | null => {
     const list = exams.filter((e) => e.exam_type === type).slice().reverse();
     if (!list.length) return null;
@@ -200,8 +221,8 @@ function onPointClick(group: ScoreChartGroup | null, payload: { index: number })
   <div class="space-y-4" data-test="student-score-panel">
     <p v-if="loading" class="py-6 text-center text-caption text-weak">加载中…</p>
 
-    <p v-else-if="!report || !report.exams.length" class="py-6 text-center text-caption text-weak">
-      还没有成绩记录。到「班级管理 → 考试成绩」导入一份成绩单，成绩会自动关联到这里。
+    <p v-else-if="!filteredReport || !filteredReport.exams.length" class="py-6 text-center text-caption text-weak">
+      这个学期还没有成绩记录。可切换学期查看，或到「班级管理 → 考试成绩」导入成绩单。
     </p>
 
     <template v-else>
@@ -212,7 +233,7 @@ function onPointClick(group: ScoreChartGroup | null, payload: { index: number })
       >
         <div class="bg-canvas px-4 py-3">
           <p class="text-fine text-weak">参考考试</p>
-          <p class="mt-1 text-stat font-semibold text-ink">{{ report.exams.length }}</p>
+          <p class="mt-1 text-stat font-semibold text-ink">{{ filteredReport.exams.length }}</p>
         </div>
         <div class="bg-canvas px-4 py-3">
           <p class="text-fine text-weak">平均总分</p>

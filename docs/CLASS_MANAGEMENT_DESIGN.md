@@ -8,7 +8,7 @@ aprilio 已有：
 
 - `students` 表：姓名 / 性别 / 出生日期 / 学号（唯一）/ 年级班级（文本）/ 身份证号 / 监护人（单人）/ 电话 / 住址 / 状态 / 备注
 - `photos` 表：学生 ID / 文件名 / 说明 / 拍摄日期
-- 路由：`/home /classes /students /photos /profile /design /settings`
+- 路由：`/home /classes /students /photos /profile /settings`
 - 本地优先：SQLite + 不联网，浏览器演示态走内存数据
 
 缺口：

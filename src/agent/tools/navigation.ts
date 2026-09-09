@@ -21,7 +21,6 @@ export const NAV_TARGETS: NavTarget[] = [
   { key: "students", routeName: "students", label: "学生档案", description: "学生列表、搜索与新增" },
   { key: "photos", routeName: "photos", label: "照片墙", description: "全部照片记录" },
   { key: "profile", routeName: "profile", label: "个人资料", description: "教师姓名、格言、头像与大图" },
-  { key: "design", routeName: "design", label: "设计系统", description: "颜色、字号、组件规范一览" },
   { key: "settings", routeName: "settings", label: "数据与设置", description: "AI 模型配置与数据管理" },
 ];
 

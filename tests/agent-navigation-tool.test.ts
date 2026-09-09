@@ -16,7 +16,6 @@ async function makeRouter(): Promise<Router> {
       { path: "/students/:id", name: "student-detail", component: Blank, props: true },
       { path: "/photos", name: "photos", component: Blank },
       { path: "/profile", name: "profile", component: Blank },
-      { path: "/design", name: "design", component: Blank },
       { path: "/settings", name: "settings", component: Blank },
     ],
   });

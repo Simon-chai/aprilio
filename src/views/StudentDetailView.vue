@@ -11,6 +11,7 @@ import StudentFormDialog from "../components/StudentFormDialog.vue";
 import QuickBehaviorPopover from "../components/QuickBehaviorPopover.vue";
 import StudentBehaviorTimeline from "../components/StudentBehaviorTimeline.vue";
 import StudentScorePanel from "../components/StudentScorePanel.vue";
+import TermCommentPanel from "../components/TermCommentPanel.vue";
 import {
   addPhoto,
   deleteBehaviorRecord,
@@ -25,6 +26,8 @@ import {
 } from "../lib/db";
 import { deletePhotoFile, getPhotosDir, importPhoto } from "../lib/photos";
 import { formatShort } from "../lib/format";
+import { currentSemester, semesterLabel } from "../lib/timetable";
+import { recentSemesters, semesterOfDate } from "../lib/semester";
 import { STATUS_LABEL } from "../types";
 import type { BehaviorPolarity, Photo, Student, StudentBehaviorRecord, StudentExamScore, StudentInput } from "../types";
 
@@ -36,12 +39,29 @@ const student = ref<Student | null>(null);
 const photos = ref<Photo[]>([]);
 const behaviors = ref<StudentBehaviorRecord[]>([]);
 const examScores = ref<StudentExamScore[]>([]);
-const activeTab = ref<"behaviors" | "photos" | "scores">("behaviors");
+const activeTab = ref<"behaviors" | "photos" | "scores" | "comment">("behaviors");
 const photosDir = ref("");
 const loading = ref(true);
 const error = ref("");
 const dialogOpen = ref(false);
 const busy = ref(false);
+
+/** 学期视角：默认当前学期，可回看历史学期 */
+const activeSemester = ref(currentSemester());
+
+/** 该生出现过的全部学期（成绩 + 表现推导），按倒序；至少含当前学期 */
+const semesterOptions = computed<string[]>(() => {
+  // 最近若干学期兜底：某学期即使没有任何数据，也要能切过去查看空态
+  const set = new Set<string>([currentSemester(), ...recentSemesters(6)]);
+  for (const s of examScores.value) set.add(semesterOfDate(s.exam_date));
+  for (const b of behaviors.value) set.add(semesterOfDate(b.recorded_date));
+  return [...set].sort((a, b) => (a < b ? 1 : -1));
+});
+
+/** 按选中学期过滤的表现记录（学期由 recorded_date 实时推导） */
+const semesterBehaviors = computed(() =>
+  behaviors.value.filter((b) => semesterOfDate(b.recorded_date) === activeSemester.value)
+);
 
 const quickOpen = ref(false);
 const quickAnchor = ref<{ x: number; y: number } | null>(null);
@@ -212,6 +232,18 @@ function goBack() {
       <h1 class="text-tagline font-semibold text-ink">学生详情</h1>
     </div>
     <div class="flex items-center gap-3">
+      <label class="flex items-center gap-1.5 text-caption text-weak">
+        学期
+        <select
+          v-model="activeSemester"
+          data-test="semester-select"
+          class="h-8 rounded-sm border border-hairline bg-canvas px-2 text-caption text-ink outline-none focus:border-primary-focus"
+        >
+          <option v-for="sem in semesterOptions" :key="sem" :value="sem">
+            {{ semesterLabel(sem) }}
+          </option>
+        </select>
+      </label>
       <AppButton
         data-test="quick-behavior-btn"
         :disabled="!student"
@@ -339,7 +371,7 @@ function goBack() {
                 :class="activeTab === 'behaviors' ? 'bg-ink text-canvas' : 'text-weak hover:text-ink hover:bg-pearl'"
                 @click="activeTab = 'behaviors'"
               >
-                日常表现 ({{ behaviors.length }})
+                日常表现 ({{ semesterBehaviors.length }})
               </button>
               <button
                 type="button"
@@ -358,6 +390,15 @@ function goBack() {
                 @click="activeTab = 'scores'"
               >
                 成绩 ({{ examCount }})
+              </button>
+              <button
+                type="button"
+                data-test="tab-comment"
+                class="rounded-sm px-3.5 py-1.5 text-caption font-medium transition-colors"
+                :class="activeTab === 'comment' ? 'bg-ink text-canvas' : 'text-weak hover:text-ink hover:bg-pearl'"
+                @click="activeTab = 'comment'"
+              >
+                学期评语
               </button>
             </div>
             <div v-if="activeTab === 'behaviors'">
@@ -388,8 +429,8 @@ function goBack() {
           <!-- Tab 内容：日常表现 -->
           <div v-if="activeTab === 'behaviors'">
             <StudentBehaviorTimeline
-              :key="student.id"
-              :records="behaviors"
+              :key="`${student.id}-${activeSemester}`"
+              :records="semesterBehaviors"
               :loading="loading"
               @add="openQuickBehavior"
               @remove="handleRemoveBehavior"
@@ -413,7 +454,19 @@ function goBack() {
 
           <!-- Tab 内容：成绩（班级成绩导入后自动关联） -->
           <div v-else-if="activeTab === 'scores'">
-            <StudentScorePanel :student-id="student.id" />
+            <StudentScorePanel :student-id="student.id" :semester="activeSemester" />
+          </div>
+
+          <!-- Tab 内容：学期评语 -->
+          <div v-else-if="activeTab === 'comment'">
+            <TermCommentPanel
+              :student-id="student.id"
+              :student-name="student.name"
+              :grade-class="student.grade_class"
+              :semester="activeSemester"
+              :behaviors="semesterBehaviors"
+              :exam-scores="examScores"
+            />
           </div>
         </AppCard>
       </div>

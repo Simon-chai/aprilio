@@ -28,7 +28,25 @@ export function aiProviderById(id: string): AiProviderPreset | undefined {
 }
 
 /* ------------------------------------------------------------------ */
+/* 密钥脱敏显示                                                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 脱敏显示 API 密钥：保留前 3 位与后 4 位，中间用 • 遮住。
+ * 过短（≤8 位）则整体遮住，避免头尾泄露有效信息；空密钥返回空串。
+ */
+export function maskApiKey(key: string): string {
+  const v = (key ?? "").trim();
+  if (!v) return "";
+  if (v.length <= 8) return "•".repeat(v.length);
+  return `${v.slice(0, 3)}••••${v.slice(-4)}`;
+}
+
+/* ------------------------------------------------------------------ */
 /* 配置：存本机 localStorage，密钥不出本机                               */
+/* 密钥在 localStorage 中做 Base64 混淆存放（enc1: 前缀），避免明文躺着  */
+/* 被路过看到。注意：这只是防偷窥的混淆而非加密——能接触本机文件的人仍可  */
+/* 解码；内存中的 AiConfig.apiKey 保持明文（发请求时必须用原文）。       */
 /* ------------------------------------------------------------------ */
 
 export interface AiConfig {
@@ -52,20 +70,55 @@ export const DEFAULT_AI_CONFIG: AiConfig = {
 
 const STORAGE_KEY = "aprilio.ai.config";
 
+/** 混淆存放的前缀：命中则按 Base64 解码，否则按历史明文兼容读入 */
+const KEY_OBFUSCATION_PREFIX = "enc1:";
+
+function encodeApiKey(key: string): string {
+  const v = (key ?? "").trim();
+  if (!v) return "";
+  try {
+    const bytes = new TextEncoder().encode(v);
+    let bin = "";
+    bytes.forEach((b) => (bin += String.fromCharCode(b)));
+    return `${KEY_OBFUSCATION_PREFIX}${btoa(bin)}`;
+  } catch {
+    return v;
+  }
+}
+
+function decodeApiKey(stored: unknown): string {
+  if (typeof stored !== "string" || !stored) return "";
+  if (!stored.startsWith(KEY_OBFUSCATION_PREFIX)) return stored;
+  const payload = stored.slice(KEY_OBFUSCATION_PREFIX.length);
+  try {
+    const bin = atob(payload);
+    const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+    return new TextDecoder().decode(bytes);
+  } catch {
+    return "";
+  }
+}
+
 export function loadAiConfig(): AiConfig {
   if (typeof localStorage === "undefined") return { ...DEFAULT_AI_CONFIG };
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return { ...DEFAULT_AI_CONFIG };
     const parsed = JSON.parse(raw) as Partial<AiConfig>;
-    return { ...DEFAULT_AI_CONFIG, ...parsed };
+    const merged = { ...DEFAULT_AI_CONFIG, ...parsed };
+    // 非字符串脏数据兜底为空；enc1: 混淆与历史明文都能读
+    merged.apiKey = decodeApiKey(parsed.apiKey);
+    return merged;
   } catch {
     return { ...DEFAULT_AI_CONFIG };
   }
 }
 
 export function saveAiConfig(config: AiConfig): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+  localStorage.setItem(
+    STORAGE_KEY,
+    JSON.stringify({ ...config, apiKey: encodeApiKey(config.apiKey) }),
+  );
 }
 
 /** 已选模型且（不需要密钥或已填密钥） */

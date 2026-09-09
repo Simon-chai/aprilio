@@ -14,6 +14,7 @@ import ImportTimetableDialog from "../components/ImportTimetableDialog.vue";
 import ImportScoreDialog from "../components/ImportScoreDialog.vue";
 import ExamScorePanel from "../components/ExamScorePanel.vue";
 import ClassFormDialog from "../components/ClassFormDialog.vue";
+import type { ClassFormValue } from "../components/ClassFormDialog.vue";
 import QuickBehaviorPopover from "../components/QuickBehaviorPopover.vue";
 import ClassBehaviorTimeline from "../components/ClassBehaviorTimeline.vue";
 import TimetableGrid from "../components/TimetableGrid.vue";
@@ -24,6 +25,7 @@ import {
   deleteBehaviorRecord,
   deleteClass,
   findOrCreateTimetable,
+  getClassMeta,
   getClassSummary,
   getTimetableWithSlots,
   isTauri,
@@ -34,9 +36,13 @@ import {
   listStudents,
   listTimetableSlotsWithClass,
   renameClass,
+  archiveClass,
+  restoreClass,
+  saveClassMeta,
   saveTimetableMySubjects,
 } from "../lib/db";
 import { currentSemester, resolveClassMySubjects, weekdayOf } from "../lib/timetable";
+import { classCurrentLabel } from "../lib/semester";
 import { ensureProfile, profile, timetableBgSurfaceClass, timetableBgSurfaceStyle } from "../lib/profile";
 import { getPhotosDir, importPhoto, photoUrl } from "../lib/photos";
 import { confirm } from "@tauri-apps/plugin-dialog";
@@ -47,6 +53,18 @@ const props = defineProps<{ name: string }>();
 const router = useRouter();
 
 const summary = ref<ClassSummary | null>(null);
+/** 班级元信息：初始年级 / 起始学期 / 归档状态 */
+const classMeta = ref<{ entry_grade: number | null; entry_semester: string | null; archived_at: string | null }>({
+  entry_grade: null,
+  entry_semester: null,
+  archived_at: null,
+});
+/** 归档班级为只读态：隐藏全部写入口 */
+const readOnly = computed(() => Boolean(classMeta.value.archived_at));
+/** 当前年级文案（未登记年级为 null） */
+const currentGradeLabel = computed(() =>
+  classCurrentLabel(classMeta.value.entry_grade, classMeta.value.entry_semester),
+);
 const students = ref<StudentRow[]>([]);
 const classStudents = ref<StudentRow[]>([]);
 const photos = ref<Photo[]>([]);
@@ -258,7 +276,7 @@ const filterOptions: { label: string; value: "all" | "public" | "student" }[] = 
 ];
 
 async function refresh() {
-  const [sum, studentList, photoList, allStudents, pDir, classList, bList, examList] = await Promise.all([
+  const [sum, studentList, photoList, allStudents, pDir, classList, bList, examList, meta] = await Promise.all([
     getClassSummary(props.name),
     listStudents(keyword.value, props.name),
     listPhotosByClass(props.name, photoFilter.value),
@@ -267,6 +285,7 @@ async function refresh() {
     listClasses(),
     listBehaviorRecordsByClass(props.name),
     listExamsByClass(props.name),
+    getClassMeta(props.name),
   ]);
   summary.value = sum;
   students.value = studentList;
@@ -277,6 +296,7 @@ async function refresh() {
   existingClasses.value = classList;
   behaviorRecords.value = bList;
   examCount.value = examList.length;
+  classMeta.value = meta;
 }
 
 function openQuickBehavior(targetStudentId?: number) {
@@ -321,10 +341,15 @@ function goStudentById(studentId: number) {
   router.push({ name: "student-detail", params: { id: studentId } });
 }
 
-async function handleRenameClass(newName: string) {
+async function handleRenameClass(value: ClassFormValue) {
+  const newName = value.name;
   if (newName && newName !== props.name) {
     try {
       await renameClass(props.name, newName);
+      await saveClassMeta(newName, {
+        entry_grade: value.entry_grade,
+        entry_semester: value.entry_semester,
+      });
     } catch (e) {
       // 失败保持弹窗打开，错误上浮到 toast——不再静默只进日志
       showToast(`重命名失败：${e instanceof Error ? e.message : String(e)}`);
@@ -333,8 +358,46 @@ async function handleRenameClass(newName: string) {
     renameDialogOpen.value = false;
     router.replace({ name: "class-detail", params: { name: newName } });
   } else {
+    // 名称未变：仍可能改了年级 / 学期
+    try {
+      await saveClassMeta(props.name, {
+        entry_grade: value.entry_grade,
+        entry_semester: value.entry_semester,
+      });
+    } catch (e) {
+      showToast(`保存失败：${e instanceof Error ? e.message : String(e)}`);
+      return;
+    }
     renameDialogOpen.value = false;
   }
+}
+
+/** 归档班级：移入「历史带过的班」，数据只读保留；回到班级管理页 */
+async function onArchiveClass() {
+  const message = `归档班级「${props.name}」？归档后从班级管理移出，进入「历史带过的班」，数据只读保留、可随时恢复。`;
+  const ok = isTauri()
+    ? await confirm(message, { title: "归档班级", kind: "warning" })
+    : window.confirm(message);
+  if (!ok) return;
+  try {
+    await archiveClass(props.name);
+  } catch (e) {
+    showToast(`归档失败：${e instanceof Error ? e.message : String(e)}`);
+    return;
+  }
+  router.push({ name: "classes" });
+}
+
+/** 恢复归档班级：回到在用列表 */
+async function onRestoreClass() {
+  try {
+    await restoreClass(props.name);
+  } catch (e) {
+    showToast(`恢复失败：${e instanceof Error ? e.message : String(e)}`);
+    return;
+  }
+  showToast("已恢复到在用班级");
+  await refresh();
 }
 
 /** 删除整个班级：学生/照片/表现记录整体进回收站，保留 7 天可恢复 */
@@ -556,13 +619,36 @@ function goStudentDetail(row: StudentRow) {
                 <button
                   type="button"
                   class="flex h-7 w-7 items-center justify-center rounded-md text-weak hover:bg-pearl hover:text-ink transition-colors"
-                  title="修改班级名称"
+                  title="编辑班级（名称 / 年级 / 学期）"
                   @click="renameDialogOpen = true"
                 >
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
                     <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
                   </svg>
+                </button>
+                <button
+                  v-if="!readOnly"
+                  type="button"
+                  data-test="archive-class-btn"
+                  class="flex h-7 w-7 items-center justify-center rounded-md text-weak hover:bg-pearl hover:text-ink transition-colors"
+                  title="归档班级（移入历史带过的班）"
+                  @click="onArchiveClass"
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="4" width="18" height="4" rx="1" />
+                    <path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4" />
+                  </svg>
+                </button>
+                <button
+                  v-if="readOnly"
+                  type="button"
+                  data-test="restore-class-btn"
+                  class="flex h-7 items-center justify-center rounded-md px-2 text-caption text-primary hover:bg-pearl transition-colors"
+                  title="恢复班级到在用列表"
+                  @click="onRestoreClass"
+                >
+                  恢复班级
                 </button>
                 <button
                   type="button"
@@ -577,6 +663,21 @@ function goStudentDetail(row: StudentRow) {
                   </svg>
                 </button>
               </div>
+              <div class="flex items-center gap-2">
+                <span
+                  v-if="readOnly"
+                  class="rounded-pill bg-parchment px-2 py-0.5 text-fine text-weak"
+                >
+                  已归档 · 只读
+                </span>
+                <span
+                  v-if="currentGradeLabel"
+                  data-test="class-grade-badge"
+                  class="rounded-pill bg-primary-soft px-2.5 py-0.5 text-fine font-medium text-primary"
+                >
+                  {{ currentGradeLabel }}
+                </span>
+              </div>
               <span class="text-caption text-weak">
                 {{ summary?.studentCount ?? 0 }} 名学生 ({{ summary?.maleCount ?? 0 }} 男 · {{ summary?.femaleCount ?? 0 }} 女) · 照片 {{ summary?.photoCount ?? 0 }} 张
               </span>
@@ -585,7 +686,7 @@ function goStudentDetail(row: StudentRow) {
         </div>
 
         <div class="flex items-center gap-3 shrink-0">
-          <AppButton variant="primary" @click="openCreateStudentDialog">新建学生</AppButton>
+          <AppButton v-if="!readOnly" variant="primary" @click="openCreateStudentDialog">新建学生</AppButton>
         </div>
       </div>
     </header>
@@ -678,6 +779,7 @@ function goStudentDetail(row: StudentRow) {
             width="320px"
           />
           <AppIconButton
+            v-if="!readOnly"
             label="导入本班花名册"
             data-test="import-roster-btn"
             @click="openImportDialog"
@@ -694,6 +796,7 @@ function goStudentDetail(row: StudentRow) {
         <StudentTable
           v-if="students.length"
           :rows="students"
+          :readonly="readOnly"
           @open="goStudentDetail"
           @saved="onTableBehaviorSaved"
         />
@@ -720,6 +823,7 @@ function goStudentDetail(row: StudentRow) {
             {{ f.label }}
           </button>
           <AppIconButton
+            v-if="!readOnly"
             label="添加班级照片"
             data-test="add-photo-btn"
             class="ml-1.5"
@@ -787,6 +891,7 @@ function goStudentDetail(row: StudentRow) {
           <ClassBehaviorTimeline
             :records="behaviorRecords"
             :class-students="classStudents"
+          :readonly="readOnly"
           @add="openQuickBehavior"
           @select-student="goStudentById"
           @remove="handleRemoveBehavior"
@@ -829,6 +934,7 @@ function goStudentDetail(row: StudentRow) {
               </div>
               <!-- 导入课表紧贴「日历」切换项右侧：导入的是这张课表，入口跟着视图切换走 -->
               <AppButton
+                v-if="!readOnly"
                 variant="pearl"
                 data-test="timetable-import-btn"
                 @click="timetableImportOpen = true"
@@ -852,7 +958,7 @@ function goStudentDetail(row: StudentRow) {
               :key="s"
               type="button"
               data-test="my-subject-chip"
-              :disabled="markingSaving"
+              :disabled="markingSaving || readOnly"
               class="rounded-pill border px-2.5 py-0.5 text-fine transition-colors disabled:opacity-40"
               :class="
                 isMarkedMine(s)
@@ -874,6 +980,7 @@ function goStudentDetail(row: StudentRow) {
             :timetable="timetable"
             :surface-style="timetableBgSurfaceStyle"
             :surface-class="timetableBgSurfaceClass"
+            :readonly="readOnly"
             @edit="timetableView = 'grid'"
           />
           <div
@@ -886,7 +993,7 @@ function goStudentDetail(row: StudentRow) {
             <TimetableGrid
               :timetable="timetable"
               :slots="timetable.slots"
-              editable
+              :editable="!readOnly"
               :my-subjects="profile.my_subjects ?? []"
               :class-marked="timetable.my_subjects"
               :conflict-rows="conflictRows"
@@ -933,6 +1040,8 @@ function goStudentDetail(row: StudentRow) {
       :open="renameDialogOpen"
       mode="rename"
       :initial-name="name"
+      :initial-grade="classMeta.entry_grade"
+      :initial-semester="classMeta.entry_semester"
       :existing-classes="existingClasses"
       @close="renameDialogOpen = false"
       @submit="handleRenameClass"

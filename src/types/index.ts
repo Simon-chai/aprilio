@@ -110,6 +110,35 @@ export interface ClassSummary {
   photoCount: number;
   classPhotoCount: number;
   studentPhotoCount: number;
+  /** 建档时的初始年级 1~6；null = 未登记（不显示升级徽标） */
+  entry_grade?: number | null;
+  /** 起始学期，如 2025-2026-1；null = 未登记 */
+  entry_semester?: string | null;
+  /** 归档时刻；null = 在用。归档后进入「历史带过的班」，只读可恢复 */
+  archived_at?: string | null;
+}
+
+/** 班级元信息：初始年级 + 起始学期 + 归档状态（见 docs/SEMESTER_MANAGEMENT.md） */
+export interface ClassMeta {
+  entry_grade: number | null;
+  entry_semester: string | null;
+  archived_at: string | null;
+}
+
+/**
+ * 学期评语：一个学生在一个学期一条期末评语（`UNIQUE(student_id, semester)`）。
+ * 与日常表现的「评语沉淀」并存：前者是学期总结，后者是记录用词。
+ */
+export interface StudentTermComment {
+  id: number;
+  student_id: number;
+  /** 学期号，口径同 currentSemester()，如 2026-2027-1 */
+  semester: string;
+  content: string;
+  /** manual 手工 | ai 采纳 AI 草稿 */
+  source: "manual" | "ai";
+  created_at: string;
+  updated_at: string;
 }
 
 /** 列表页顶部三张统计卡 */
@@ -511,12 +540,14 @@ export type RecycleEntityType = "class" | "student";
 /** 回收站保留天数，过期自动彻底删除 */
 export const RECYCLE_RETENTION_DAYS = 7;
 
-/** 学生完整快照（监护人 / 照片 / 表现流水随之保存，恢复时重新分配 ID） */
+/** 学生完整快照（监护人 / 照片 / 表现流水 / 学期评语随之保存，恢复时重新分配 ID） */
 export interface StudentSnapshot {
   student: Omit<Student, "id" | "guardians" | "created_at" | "updated_at">;
   guardians: Omit<Guardian, "id" | "student_id">[];
   photos: Pick<Photo, "grade_class" | "file_name" | "caption" | "taken_at">[];
   behaviors: Omit<StudentBehaviorRecord, "id" | "student_id">[];
+  /** 学期评语（可选：老快照没有该字段，恢复时按空数组处理） */
+  termComments?: Omit<StudentTermComment, "id" | "student_id" | "created_at" | "updated_at">[];
 }
 
 /** 班级快照：班级名 + 全部学生快照 + 班级公共照片 */

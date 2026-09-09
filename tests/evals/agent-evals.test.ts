@@ -38,6 +38,7 @@ describe("Agent Evals 意图与质量防退化评测", () => {
       expect(summary.categories.confirm_gate.accuracy).toBe(1.0);
       expect(summary.categories.navigation.accuracy).toBe(1.0);
       expect(summary.categories.data_query.accuracy).toBe(1.0);
+      expect(summary.categories.analysis.accuracy).toBe(1.0);
       expect(summary.categories.docs_search.accuracy).toBe(1.0);
       expect(summary.categories.fallback.accuracy).toBe(1.0);
     });
@@ -59,6 +60,15 @@ describe("Agent Evals 意图与质量防退化评测", () => {
         const result = await runSingleEval(testCase, { container, ctx });
         expect(result.passed, result.reason).toBe(true);
         expect(result.actualTool).toBe("query_data");
+      },
+    );
+
+    it.each(EVAL_DATASET.filter((c) => c.category === "analysis"))(
+      "correctly routes analysis intent: $input",
+      async (testCase) => {
+        const result = await runSingleEval(testCase, { container, ctx });
+        expect(result.passed, result.reason).toBe(true);
+        expect(result.actualTool).toBe("analyze");
       },
     );
 

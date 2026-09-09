@@ -5,6 +5,7 @@ import {
   DEFAULT_AI_CONFIG,
   isAiConfigured,
   loadAiConfig,
+  maskApiKey,
   saveAiConfig,
   type AiConfig,
 } from "../src/lib/ai";
@@ -46,6 +47,51 @@ describe("ai config persistence", () => {
   it("survives corrupted storage", () => {
     localStorage.setItem("aprilio.ai.config", "{not json");
     expect(loadAiConfig()).toEqual(DEFAULT_AI_CONFIG);
+  });
+
+  it("stores the key obfuscated instead of plaintext", () => {
+    saveAiConfig(cfg({ apiKey: "sk-test-secret-1234" }));
+    const raw = localStorage.getItem("aprilio.ai.config") ?? "";
+    expect(raw).not.toContain("sk-test-secret-1234");
+    expect(raw).toContain("enc1:");
+    // 读回仍是原文，内存态保持明文可用
+    expect(loadAiConfig().apiKey).toBe("sk-test-secret-1234");
+  });
+
+  it("reads legacy plaintext configs (migration compatible)", () => {
+    localStorage.setItem(
+      "aprilio.ai.config",
+      JSON.stringify({ ...DEFAULT_AI_CONFIG, apiKey: "sk-legacy-plain" }),
+    );
+    expect(loadAiConfig().apiKey).toBe("sk-legacy-plain");
+    // 下次保存即转为混淆存放
+    saveAiConfig(loadAiConfig());
+    expect(localStorage.getItem("aprilio.ai.config") ?? "").not.toContain("sk-legacy-plain");
+    expect(loadAiConfig().apiKey).toBe("sk-legacy-plain");
+  });
+
+  it("falls back to empty on broken obfuscated payloads", () => {
+    localStorage.setItem(
+      "aprilio.ai.config",
+      JSON.stringify({ ...DEFAULT_AI_CONFIG, apiKey: "enc1:%%%not-base64%%%" }),
+    );
+    expect(loadAiConfig().apiKey).toBe("");
+  });
+});
+
+describe("maskApiKey", () => {
+  it("masks the middle, keeping head and tail for identification", () => {
+    expect(maskApiKey("sk-test-secret-1234")).toBe("sk-••••1234");
+  });
+
+  it("masks short keys entirely", () => {
+    expect(maskApiKey("12345678")).toBe("••••••••");
+    expect(maskApiKey("abc")).toBe("•••");
+  });
+
+  it("returns empty for empty keys", () => {
+    expect(maskApiKey("")).toBe("");
+    expect(maskApiKey("   ")).toBe("");
   });
 });
 

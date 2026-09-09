@@ -6,6 +6,7 @@ import type { AgentToolContext } from "../../src/agent/types";
 export type EvalCategory =
   | "navigation"
   | "data_query"
+  | "analysis"
   | "docs_search"
   | "confirm_gate"
   | "fallback";

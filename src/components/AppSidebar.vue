@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { RouterLink, useRoute } from "vue-router";
+import appIcon from "../assets/app-icon.png";
 
 const route = useRoute();
 
 interface NavItem {
   name: string;
   label: string;
-  icon: "home" | "classes" | "users" | "image" | "trash" | "sparkle" | "gear";
+  icon: "home" | "classes" | "users" | "image" | "trash" | "gear";
 }
 
 const items: NavItem[] = [
@@ -16,7 +17,6 @@ const items: NavItem[] = [
   { name: "students", label: "学生档案", icon: "users" },
   { name: "photos", label: "图片记录", icon: "image" },
   { name: "recycle-bin", label: "回收站", icon: "trash" },
-  { name: "design", label: "设计系统", icon: "sparkle" },
   { name: "settings", label: "数据与设置", icon: "gear" },
 ];
 
@@ -31,14 +31,12 @@ const activeName = computed(() => {
   <aside class="flex w-60 shrink-0 flex-col gap-6 bg-parchment p-5">
     <!-- Brand -->
     <div class="flex items-center gap-2.5">
-      <div class="flex h-7 w-7 items-center justify-center rounded-sm bg-ink">
-        <svg width="28" height="28" viewBox="0 0 28 28" fill="none" aria-hidden="true">
-          <path
-            d="M14 6.5L20.8 21.5H17.3L14 14.1L10.7 21.5H7.2L14 6.5Z"
-            fill="#FFFFFF"
-          />
-        </svg>
-      </div>
+      <img
+        :src="appIcon"
+        alt="aprilio"
+        class="h-7 w-7 rounded-sm object-cover"
+        draggable="false"
+      />
       <span class="text-[19px] font-semibold -tracking-[0.4px] text-ink">aprilio</span>
     </div>
 
@@ -172,25 +170,13 @@ const activeName = computed(() => {
           />
         </svg>
         <svg
-          v-else-if="item.icon === 'sparkle'"
+          v-else
           width="16"
           height="16"
           viewBox="0 0 16 16"
           fill="none"
           aria-hidden="true"
         >
-          <path
-            d="M8 2.2l1.5 3.7L13.2 7.4 9.5 8.9 8 12.6 6.5 8.9 2.8 7.4 6.5 5.9 8 2.2z"
-            :stroke="activeName === item.name ? '#1d1d1f' : '#333333'"
-            stroke-width="1.4"
-            stroke-linejoin="round"
-          />
-          <path
-            d="M12.6 11.4l.5 1.3 1.3.5-1.3.5-.5 1.3-.5-1.3-1.3-.5 1.3-.5.5-1.3z"
-            :fill="activeName === item.name ? '#1d1d1f' : '#333333'"
-          />
-        </svg>
-        <svg v-else width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
           <circle
             cx="8"
             cy="8"

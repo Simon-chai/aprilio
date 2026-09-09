@@ -179,6 +179,7 @@ export async function runEvalSuite(
   const categoryMap: Record<EvalCategory, { total: number; passed: number }> = {
     navigation: { total: 0, passed: 0 },
     data_query: { total: 0, passed: 0 },
+    analysis: { total: 0, passed: 0 },
     docs_search: { total: 0, passed: 0 },
     confirm_gate: { total: 0, passed: 0 },
     fallback: { total: 0, passed: 0 },

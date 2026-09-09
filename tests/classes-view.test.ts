@@ -5,7 +5,6 @@ import ClassesView from "../src/views/ClassesView.vue";
 import AppButton from "../src/components/ui/AppButton.vue";
 import StudentFormDialog from "../src/components/StudentFormDialog.vue";
 import { deleteStudent, listRecycleItems, listStudents } from "../src/lib/db";
-
 describe("ClassesView.vue", () => {
   function createTestRouter() {
     return createRouter({

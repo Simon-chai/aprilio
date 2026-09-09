@@ -19,6 +19,8 @@ export interface ToolDefinition {
         type: string;
         description: string;
         enum?: string[];
+        /** 数组元素 schema（如 file_paths: string[]）；运行时经 JSON 原样透传给模型 */
+        items?: { type: string };
       }
     >;
     required?: string[];

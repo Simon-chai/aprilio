@@ -8,8 +8,10 @@ const props = withDefaults(
     variant?: "search" | "field";
     width?: string;
     type?: string;
+    /** 透传给内部 input（如密钥框传 off 防浏览器记忆） */
+    autocomplete?: string;
   }>(),
-  { placeholder: "", variant: "search", width: "240px", type: "text" }
+  { placeholder: "", variant: "search", width: "240px", type: "text", autocomplete: undefined }
 );
 
 const emit = defineEmits<{ "update:modelValue": [value: string] }>();
@@ -41,6 +43,7 @@ const shellCls = computed(() => [
       :value="props.modelValue"
       :type="props.type"
       :placeholder="props.placeholder"
+      :autocomplete="props.autocomplete"
       class="w-full bg-transparent text-caption text-ink outline-none placeholder:text-weak"
       @input="onInput"
     />

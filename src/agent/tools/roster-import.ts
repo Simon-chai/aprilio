@@ -14,12 +14,13 @@ import { isTauri } from "../../lib/db";
 import { logError, logInfo } from "../../lib/logger";
 import {
   loadRosterTable,
-  pickRosterFile,
+  pickRosterFiles,
   runSmartImportTable,
   type LoadedRoster,
   type SmartImportOutcome,
 } from "../../lib/roster";
 import { detectScoreSheet, runSmartScoreImport, type SmartScoreImportOutcome } from "../../lib/scores";
+import { applyInferredClassMeta } from "../../lib/semester-ai";
 import { defineAgentTool } from "../define";
 
 export default defineAgentTool({
@@ -28,7 +29,9 @@ export default defineAgentTool({
   description:
     "导入学生花名册表格（XLSX/XLS/XLSM/XLSB/ODS/CSV/TSV/TXT）。使用智能导入：自动根据表头与单元格内容识别姓名列，" +
     "其余列按表头自动映射（学号/性别/班级/监护人电话等），学号已存在或同名同生日的记录自动跳过。" +
-    "file_path 缺省时弹出系统文件选择框由用户选择文件。" +
+    "整批无班级信息时会自动新建「未命名班级N」单立一班（两次导入分成两个班，重导入同一批则复用原班不搬家）。" +
+    "一次可导入多个文件（file_paths 数组，每文件独立识别、独立落库），也可用 file_path 传单个文件；" +
+    "file_path / file_paths 缺省时弹出文件选择框由用户选择（可多选）。" +
     "识别置信度低时会返回候选列，需询问用户姓名在哪一列后带 name_column 参数（列名或列号）重新调用。" +
     "此工具会批量创建学生档案，必须先征得用户同意并附带 confirm:true 确认。",
   tags: ["students", "write"],
@@ -39,6 +42,11 @@ export default defineAgentTool({
       file_path: {
         type: "string",
         description: "花名册文件路径（Excel 或 CSV/TSV/TXT）。缺省时弹出文件选择框让用户选择",
+      },
+      file_paths: {
+        type: "array",
+        items: { type: "string" },
+        description: "一次导入多个花名册文件（每文件独立识别、独立落库）。与 file_path 二选一，都缺省时弹出文件选择框",
       },
       name_column: {
         type: "string",
@@ -61,20 +69,27 @@ export default defineAgentTool({
       };
     }
 
-    let loaded: LoadedRoster;
+    let loadedList: LoadedRoster[];
+    const rawPaths = Array.isArray(args.file_paths)
+      ? (args.file_paths as unknown[]).map((p) => String(p ?? "").trim()).filter(Boolean)
+      : [];
     const filePath = typeof args.file_path === "string" ? args.file_path.trim() : "";
-    if (filePath) {
-      try {
-        loaded = await loadRosterTable(filePath);
-      } catch (e) {
-        return { ok: false, summary: "", error: `读取花名册失败：${e instanceof Error ? e.message : String(e)}` };
+    const paths = rawPaths.length ? rawPaths : filePath ? [filePath] : [];
+    if (paths.length) {
+      loadedList = [];
+      for (const p of paths) {
+        try {
+          loadedList.push(await loadRosterTable(p));
+        } catch (e) {
+          return { ok: false, summary: "", error: `读取花名册失败「${p}」：${e instanceof Error ? e.message : String(e)}` };
+        }
       }
     } else {
-      const picked = await pickRosterFile();
-      if (!picked) {
+      const picked = await pickRosterFiles();
+      if (!picked || !picked.length) {
         return { ok: false, summary: "", error: "用户没有选择文件，导入已取消。" };
       }
-      loaded = picked;
+      loadedList = picked;
     }
 
     const nameColumnArg =
@@ -82,80 +97,128 @@ export default defineAgentTool({
         ? args.name_column.trim()
         : undefined;
 
-    // 成绩单分流：花名册智能导入最常见的起点就是一份成绩单——识别到科目成绩列时
-    // 转入成绩导入管道（自动建档 + 智能生成一次考试），而不是把成绩列当垃圾丢掉。
-    const scoreDetection = detectScoreSheet(loaded.table, { fileName: loaded.fileName });
-    if (scoreDetection && scoreDetection.confidence !== "low") {
-      return importScoreFromRosterTool(loaded, nameColumnArg);
-    }
+    // 多文件：每文件独立处理（成绩单分流各自判断），结果聚合回复。
+    let totalImported = 0;
+    let totalUpdated = 0;
+    let totalSkipped = 0;
+    let totalFailed = 0;
+    const fileLines: string[] = [];
+    const metaNotes: string[] = [];
+    const multi = loadedList.length > 1;
 
-    let outcome: SmartImportOutcome;
-    try {
-      // 不传 config：runSmartImportTable 缺省读本机模型配置，已配置模型时叠加 AI 识别
-      outcome = await runSmartImportTable(loaded.table, { nameColumn: nameColumnArg });
-    } catch (e) {
-      logError("花名册导入失败", e);
-      return { ok: false, summary: "", error: `花名册导入失败：${e instanceof Error ? e.message : String(e)}` };
-    }
+    for (const loaded of loadedList) {
+      // 成绩单分流：花名册智能导入最常见的起点就是一份成绩单——识别到科目成绩列时
+      // 转入成绩导入管道（自动建档 + 智能生成一次考试），而不是把成绩列当垃圾丢掉。
+      const scoreDetection = detectScoreSheet(loaded.table, { fileName: loaded.fileName });
+      if (scoreDetection && scoreDetection.confidence !== "low") {
+        const r = await importScoreFromRosterTool(loaded, nameColumnArg);
+        if (!r.ok) {
+          return { ok: false, summary: "", error: multi ? `「${loaded.fileName}」${r.error}` : String(r.error) };
+        }
+        const d = (r.data ?? {}) as { imported?: number; updated?: number; skipped?: number; failed?: number };
+        totalImported += d.imported ?? 0;
+        totalUpdated += d.updated ?? 0;
+        totalSkipped += d.skipped ?? 0;
+        totalFailed += d.failed ?? 0;
+        fileLines.push(`「${loaded.fileName}」按成绩单导入：${String(r.summary).replace(/。$/, "")}`);
+        continue;
+      }
 
-    if (outcome.status === "error") {
-      return { ok: false, summary: "", error: outcome.message };
-    }
+      let outcome: SmartImportOutcome;
+      try {
+        // 不传 config：runSmartImportTable 缺省读本机模型配置，已配置模型时叠加 AI 识别
+        outcome = await runSmartImportTable(loaded.table, { nameColumn: nameColumnArg });
+      } catch (e) {
+        logError("花名册导入失败", e);
+        return { ok: false, summary: "", error: `花名册导入失败「${loaded.fileName}」：${e instanceof Error ? e.message : String(e)}` };
+      }
 
-    if (outcome.status === "need-column") {
-      return { ok: false, summary: "", error: outcome.message };
-    }
+      if (outcome.status === "error") {
+        return { ok: false, summary: "", error: multi ? `「${loaded.fileName}」${outcome.message}` : outcome.message };
+      }
 
-    const { detection, mapping, result } = outcome;
-    const fileLabel = loaded.fileName;
-    const sheetSuffix = loaded.kind === "table" && loaded.sheet ? `（工作表「${loaded.sheet}」）` : "";
-    const detectDesc = `第${mapping.nameColumn + 1}列「${detection.candidates[0]?.header ?? ""}」（${
-      detection.method === "ai" ? "AI 识别" : "规则识别"
-    }，置信度${detection.confidence === "high" ? "高" : detection.confidence === "medium" ? "中" : "低"}）`;
+      if (outcome.status === "need-column") {
+        return { ok: false, summary: "", error: multi ? `「${loaded.fileName}」${outcome.message}` : outcome.message };
+      }
 
-    if (!result) {
-      return { ok: false, summary: "", error: "导入流程异常：缺少导入结果。" };
-    }
+      const { detection, mapping, result } = outcome;
+      const fileLabel = loaded.fileName;
+      const sheetSuffix = loaded.kind === "table" && loaded.sheet ? `（工作表「${loaded.sheet}」）` : "";
+      const detectDesc = `第${mapping.nameColumn + 1}列「${detection.candidates[0]?.header ?? ""}」（${
+        detection.method === "ai" ? "AI 识别" : "规则识别"
+      }，置信度${detection.confidence === "high" ? "高" : detection.confidence === "medium" ? "中" : "低"}）`;
 
-    const parts = [
-      `已从「${fileLabel}」${sheetSuffix}导入 ${result.imported} 名学生（姓名列：${detectDesc}）`,
-    ];
-    if (result.updated) {
-      parts.push(`覆盖更新 ${result.updated} 名（姓名与学号均相同，用新上传数据覆盖）`);
-    }
-    if (result.skipped.length) {
-      parts.push(
-        `跳过 ${result.skipped.length} 条（${result.skipped
-          .slice(0, 3)
-          .map((s) => `${s.name}:${s.reason}`)
-          .join("；")}${result.skipped.length > 3 ? " 等" : ""}）`,
+      if (!result) {
+        return { ok: false, summary: "", error: "导入流程异常：缺少导入结果。" };
+      }
+
+      totalImported += result.imported;
+      totalUpdated += result.updated;
+      totalSkipped += result.skipped.length;
+      totalFailed += result.failed.length;
+      const parts = [
+        `「${fileLabel}」${sheetSuffix}导入 ${result.imported} 名学生（姓名列：${detectDesc}）`,
+      ];
+      // 未命名批次已自动单立新班：明确告诉模型与用户，避免误以为并入「未分班」
+      if (result.autoClass) {
+        parts.push(`未检测到班级信息，已自动新建班级「${result.autoClass}」（与之前导入的分开，可重命名）`);
+      }
+      if (result.updated) {
+        parts.push(`覆盖更新 ${result.updated} 名（姓名与学号均相同，用新上传数据覆盖）`);
+      }
+      if (result.skipped.length) {
+        parts.push(
+          `跳过 ${result.skipped.length} 条（${result.skipped
+            .slice(0, 3)
+            .map((s) => `${s.name}:${s.reason}`)
+            .join("；")}${result.skipped.length > 3 ? " 等" : ""}）`,
+        );
+      }
+      if (result.failed.length) {
+        parts.push(
+          `失败 ${result.failed.length} 条（${result.failed
+            .slice(0, 3)
+            .map((f) => `第${f.row || "?"}行 ${f.name || "空姓名"}:${f.reason}`)
+            .join("；")}${result.failed.length > 3 ? " 等" : ""}）`,
+        );
+      }
+      fileLines.push(parts.join("。"));
+
+      logInfo(
+        `花名册导入完成：成功 ${result.imported}，更新 ${result.updated}，跳过 ${result.skipped.length}，失败 ${result.failed.length}`,
       );
-    }
-    if (result.failed.length) {
-      parts.push(
-        `失败 ${result.failed.length} 条（${result.failed
-          .slice(0, 3)
-          .map((f) => `第${f.row || "?"}行 ${f.name || "空姓名"}:${f.reason}`)
-          .join("；")}${result.failed.length > 3 ? " 等" : ""}）`,
-      );
-    }
 
-    logInfo(
-      `花名册导入完成：成功 ${result.imported}，更新 ${result.updated}，跳过 ${result.skipped.length}，失败 ${result.failed.length}`,
-    );
+      // 导入收尾：从文件名 / 标题行识别年级与学期，补写班级元信息（失败静默）
+      // 未命名批次用自动分配的班级，保证元信息落在新班上
+      const gradeCol = mapping.fields.grade_class;
+      const targetClasses = result.autoClass
+        ? [result.autoClass].filter((c) => c !== "未分班")
+        : gradeCol === undefined
+          ? []
+          : [...new Set(loaded.table.rows.map((r) => (r[gradeCol] ?? "").trim()))].filter(Boolean);
+      for (const cls of targetClasses) {
+        const guess = await applyInferredClassMeta(cls, [fileLabel, ...(loaded.table.titleText ?? [])]);
+        if (guess && (guess.grade != null || guess.semester != null)) {
+          metaNotes.push(
+            `${cls} 登记为${guess.grade != null ? `${guess.grade}年级` : ""}${guess.semester ? ` ${guess.semester}` : ""}`,
+          );
+        }
+      }
+    }
+    if (metaNotes.length) fileLines.push(`已识别班级信息：${metaNotes.join("；")}`);
 
+    const head = multi
+      ? `共导入 ${loadedList.length} 个文件：成功 ${totalImported} 名，覆盖更新 ${totalUpdated} 名，跳过 ${totalSkipped} 条，失败 ${totalFailed} 条。分文件：`
+      : "";
     return {
       ok: true,
-      summary: `${parts.join("。")}。`,
+      summary: `${head}${fileLines.join(multi ? "；" : "。")}。`,
       data: {
-        file: loaded.path,
-        sheet: loaded.sheet,
-        name_column: mapping.nameColumn + 1,
-        detection: { method: detection.method, confidence: detection.confidence },
-        imported: result.imported,
-        updated: result.updated,
-        skipped: result.skipped.length,
-        failed: result.failed.length,
+        files: loadedList.map((l) => l.path),
+        imported: totalImported,
+        updated: totalUpdated,
+        skipped: totalSkipped,
+        failed: totalFailed,
       },
     };
   },

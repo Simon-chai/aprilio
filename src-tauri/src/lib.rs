@@ -75,9 +75,14 @@ fn migrations() -> Vec<Migration> {
       );
 
       -- 显式班级（列表页班级卡片的权威来源，学生/照片上的班级名聚合为补充）
+      -- entry_grade/entry_semester：建档初始年级与起始学期，当前年级由前端实时推导；
+      -- archived_at：NULL=在用，有值=已归档（历史带过的班）。旧库由 ensureSchema 幂等补列。
       CREATE TABLE IF NOT EXISTS classes (
-        name       TEXT PRIMARY KEY,
-        created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+        name           TEXT PRIMARY KEY,
+        entry_grade    INTEGER,
+        entry_semester TEXT,
+        archived_at    TEXT,
+        created_at     TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
       );
 
       CREATE TABLE IF NOT EXISTS profile (
@@ -145,6 +150,22 @@ fn migrations() -> Vec<Migration> {
       );
 
       CREATE INDEX IF NOT EXISTS idx_comment_presets_dim_type ON behavior_comment_presets(dimension_id, type, use_count DESC);
+
+      -- 学期评语：一个学生在一个学期一条期末评语（UNIQUE 保证 upsert 幂等）
+      -- 与 behavior_comment_presets 并存：前者是学期总结，后者是日常记录用词
+      CREATE TABLE IF NOT EXISTS student_term_comments (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        student_id INTEGER NOT NULL,
+        semester   TEXT NOT NULL,
+        content    TEXT NOT NULL DEFAULT '',
+        source     TEXT NOT NULL DEFAULT 'manual',
+        created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        UNIQUE (student_id, semester),
+        FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_term_comments_student ON student_term_comments(student_id, semester);
 
       INSERT INTO behavior_comment_presets (dimension_id, type, content, source) VALUES
         (1, 'praise',  '书写工整规范，解题步骤完整清晰', 'system'),
@@ -396,6 +417,29 @@ fn migrations() -> Vec<Migration> {
         SELECT class_name, memo_date, 'memo', content, done, created_at, updated_at FROM calendar_memos;
 
       DROP TABLE calendar_memos;
+    "#,
+    kind: MigrationKind::Up,
+  },
+  Migration {
+    version: 7,
+    description: "add_student_term_comments",
+    // 学期化班级管理：新增学期评语表。classes 的 entry_grade/entry_semester/archived_at
+    // 由前端 ensureSchema try-ALTER 幂等补列（不能放这里 ALTER：被 ensureSchema 先补过列的
+    // 库会因 duplicate column 使整个迁移失败，同 v3 注释）。
+    sql: r#"
+      CREATE TABLE IF NOT EXISTS student_term_comments (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        student_id INTEGER NOT NULL,
+        semester   TEXT NOT NULL,
+        content    TEXT NOT NULL DEFAULT '',
+        source     TEXT NOT NULL DEFAULT 'manual',
+        created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        UNIQUE (student_id, semester),
+        FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_term_comments_student ON student_term_comments(student_id, semester);
     "#,
     kind: MigrationKind::Up,
   }]

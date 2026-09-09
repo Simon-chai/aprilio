@@ -41,8 +41,6 @@ const NAV_ALIASES: [string, string][] = [
   ["相册", "photos"],
   ["个人资料", "profile"],
   ["教师资料", "profile"],
-  ["设计系统", "design"],
-  ["设计规范", "design"],
 ];
 
 /** 「打开学生列表」→ 命中的导航目标 key */
@@ -52,6 +50,12 @@ function matchNavTarget(text: string): string | undefined {
   const byRegistry = NAV_TARGETS.find((t) => text.includes(t.label) || text.includes(t.key));
   if (byRegistry) return byRegistry.key;
   return NAV_ALIASES.find(([alias]) => text.includes(alias))?.[1];
+}
+
+/** 从「归档三年级二班」这类指令里提取班级名（如 三年级二班 / 3年级2班） */
+function extractClassName(text: string): string {
+  const m = text.match(/([一二三四五六1-6]\s*年级\s*[一二三四五六七八九十0-9]+?\s*班)/);
+  return m ? m[1].replace(/\s+/g, "") : "";
 }
 
 function extractKeyword(text: string): string {
@@ -82,6 +86,41 @@ export function mockLlm(): AgentLlm {
       }
 
       const userText = [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
+
+      // 班级查询优先于归档/导航：「看看我归档过哪些班级」是查询，不是归档动作；
+      // 显式导航短语（班级管理 / 班级列表）仍走导航。
+      const explicitClassNav = /班级管理|班级列表|进入班级/.test(userText);
+      if (
+        userText.includes("班级") &&
+        !explicitClassNav &&
+        ["哪些", "多少", "几个", "列表", "有哪些", "查", "看看", "在用", "历史"].some((w) =>
+          userText.includes(w)
+        )
+      ) {
+        const call: ToolCallPayload = { id: nextCallId(), name: "query_data", arguments: { entity: "classes" } };
+        return { content: "", toolCalls: [call] };
+      }
+
+      // 归档 / 恢复班级：写操作，优先于导航；显式「确认」后带 confirm:true
+      if (userText.includes("归档") && userText.includes("班")) {
+        const isConfirmed = userText.includes("确认") || userText.includes("确定");
+        const className = extractClassName(userText);
+        const args: Record<string, unknown> = { page: "classes", action: "archive-class" };
+        if (className) args.args = { class_name: className };
+        if (isConfirmed) args.confirm = true;
+        const call: ToolCallPayload = { id: nextCallId(), name: "ui_action", arguments: args };
+        return { content: "", toolCalls: [call] };
+      }
+
+      if (userText.includes("恢复") && userText.includes("班")) {
+        const isConfirmed = userText.includes("确认") || userText.includes("确定");
+        const className = extractClassName(userText);
+        const args: Record<string, unknown> = { page: "classes", action: "restore-class" };
+        if (className) args.args = { class_name: className };
+        if (isConfirmed) args.confirm = true;
+        const call: ToolCallPayload = { id: nextCallId(), name: "ui_action", arguments: args };
+        return { content: "", toolCalls: [call] };
+      }
 
       const navTarget = matchNavTarget(userText);
       if (navTarget) {
@@ -115,6 +154,27 @@ export function mockLlm(): AgentLlm {
 
       if (STATS_WORDS.some((w) => userText.includes(w))) {
         const call: ToolCallPayload = { id: nextCallId(), name: "query_data", arguments: { entity: "stats" } };
+        return { content: "", toolCalls: [call] };
+      }
+
+      // 学期汇总：命中「学期 + 汇总/报告」时走 analyze（有学生姓名 → 个人，否则班级）
+      if (userText.includes("学期") && /汇总|报告|总结|表现/.test(userText)) {
+        const keyword = extractKeyword(userText);
+        const payload: Record<string, unknown> = {};
+        if (keyword) {
+          payload.name = keyword;
+          const call: ToolCallPayload = {
+            id: nextCallId(),
+            name: "analyze",
+            arguments: { kind: "student_term_report", payload },
+          };
+          return { content: "", toolCalls: [call] };
+        }
+        const call: ToolCallPayload = {
+          id: nextCallId(),
+          name: "analyze",
+          arguments: { kind: "semester_overview", payload },
+        };
         return { content: "", toolCalls: [call] };
       }
 

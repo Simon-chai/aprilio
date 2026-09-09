@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 
-type IconName = "classes" | "students" | "photos" | "settings" | "timetable" | "sparkle";
+type IconName = "classes" | "students" | "photos" | "settings" | "timetable";
 
 const props = withDefaults(
   defineProps<{ name: IconName; size?: number; color?: string }>(),
@@ -45,12 +45,6 @@ const d = computed(() => {
       return [
         "M12 15.1a3.1 3.1 0 1 0 0-6.2 3.1 3.1 0 0 0 0 6.2Z",
         "M19.2 14.6a1.5 1.5 0 0 0 .3 1.7l.1.1a1.9 1.9 0 1 1-2.7 2.7l-.1-.1a1.5 1.5 0 0 0-2.5 1v.3a1.9 1.9 0 1 1-3.8 0v-.2a1.5 1.5 0 0 0-2.6-1l-.1.1a1.9 1.9 0 1 1-2.7-2.7l.1-.1a1.5 1.5 0 0 0-1-2.5H4a1.9 1.9 0 1 1 0-3.8h.2a1.5 1.5 0 0 0 1-2.6l-.1-.1a1.9 1.9 0 1 1 2.7-2.7l.1.1a1.5 1.5 0 0 0 2.5-1V4a1.9 1.9 0 1 1 3.8 0v.2a1.5 1.5 0 0 0 2.5 1l.1-.1a1.9 1.9 0 1 1 2.7 2.7l-.1.1a1.5 1.5 0 0 0 1 2.5h.2a1.9 1.9 0 1 1 0 3.8h-.2a1.5 1.5 0 0 0-1.2.9Z",
-      ];
-    // 设计系统：星芒
-    default:
-      return [
-        "M12 2.6l2.3 5.6 5.6 2.3-5.6 2.3L12 18.4l-2.3-5.6L4.1 10.5l5.6-2.3L12 2.6Z",
-        "M18.8 16.4l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7.7-1.8Z",
       ];
   }
 });

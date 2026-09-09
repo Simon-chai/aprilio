@@ -7,6 +7,8 @@ const props = defineProps<{
   records: ClassBehaviorRecord[];
   loading?: boolean;
   classStudents?: StudentRow[];
+  /** 只读态（归档班级）：隐藏记表现与删除入口 */
+  readonly?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -182,6 +184,7 @@ const groupedRecords = computed<DateGroup[]>(() => {
 
       <!-- 右侧快捷记表现操作 -->
       <button
+        v-if="!readonly"
         type="button"
         class="inline-flex items-center gap-1.5 rounded-full bg-primary px-3.5 py-1 text-fine font-medium text-white transition-opacity hover:opacity-90 cursor-pointer shadow-xs"
         @click="emit('add')"
@@ -290,9 +293,10 @@ const groupedRecords = computed<DateGroup[]>(() => {
       </div>
       <p class="text-body font-medium text-ink">本班暂无日常表现记录</p>
       <p class="mt-1 text-fine text-weak">
-        可点击上方或下方按钮，为本班学生快速记录课堂表现、作业情况等。
+        {{ readonly ? "这个班级已归档，表现记录为只读。" : "可点击上方或下方按钮，为本班学生快速记录课堂表现、作业情况等。" }}
       </p>
       <button
+        v-if="!readonly"
         data-test="empty-add-btn"
         type="button"
         class="mt-4 rounded-full bg-primary px-4 py-1.5 text-caption font-medium text-white transition-opacity hover:opacity-90 cursor-pointer"
@@ -401,6 +405,7 @@ const groupedRecords = computed<DateGroup[]>(() => {
                     <span class="block whitespace-pre-wrap">{{ item.comment }}</span>
                     <span class="mt-1 flex items-center justify-end border-t border-white/15 pt-1">
                       <button
+                        v-if="!readonly"
                         type="button"
                         data-test="comment-delete-btn"
                         class="rounded px-1.5 py-0.5 text-[11px] font-medium transition-colors"

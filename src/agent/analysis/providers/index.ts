@@ -7,3 +7,8 @@ export {
   createScoreAnalysisProvider,
   registerScoreAnalysisProvider,
 } from "./score-analysis";
+export {
+  SEMESTER_ANALYSIS_KINDS,
+  createSemesterAnalysisProvider,
+  registerSemesterAnalysisProvider,
+} from "./semester-analysis";

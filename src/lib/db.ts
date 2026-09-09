@@ -19,6 +19,7 @@ import type {
   CalendarEventType,
   ClassBehaviorRecord,
   ClassExamTrendPoint,
+  ClassMeta,
   ClassScoreOverviewRow,
   ClassSnapshot,
   ClassSummary,
@@ -44,6 +45,7 @@ import type {
   StudentRow,
   StudentScoreReport,
   StudentSnapshot,
+  StudentTermComment,
   Stats,
   Timetable,
   TimetableException,
@@ -106,8 +108,11 @@ const SCHEMA_DDL: string[] = [
     FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE
   )`,
   `CREATE TABLE IF NOT EXISTS classes (
-    name       TEXT PRIMARY KEY,
-    created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+    name           TEXT PRIMARY KEY,
+    entry_grade    INTEGER,
+    entry_semester TEXT,
+    archived_at    TEXT,
+    created_at     TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
   )`,
   `CREATE TABLE IF NOT EXISTS profile (
     id           INTEGER PRIMARY KEY,
@@ -159,6 +164,18 @@ const SCHEMA_DDL: string[] = [
     FOREIGN KEY (dimension_id) REFERENCES behavior_dimensions(id) ON DELETE CASCADE
   )`,
   `CREATE INDEX IF NOT EXISTS idx_comment_presets_dim_type ON behavior_comment_presets(dimension_id, type, use_count DESC)`,
+  `CREATE TABLE IF NOT EXISTS student_term_comments (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id INTEGER NOT NULL,
+    semester   TEXT NOT NULL,
+    content    TEXT NOT NULL DEFAULT '',
+    source     TEXT NOT NULL DEFAULT 'manual',
+    created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    UNIQUE (student_id, semester),
+    FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_term_comments_student ON student_term_comments(student_id, semester)`,
   `CREATE TABLE IF NOT EXISTS recycle_bin (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     entity_type TEXT NOT NULL,
@@ -316,6 +333,24 @@ async function ensureSchema(db: Database): Promise<void> {
   } catch {
     /* 列已存在 */
   }
+  try {
+    // 班级初始年级（2026-09-09）：旧库幂等补列；NULL = 未登记，回退旧行为
+    await db.execute("ALTER TABLE classes ADD COLUMN entry_grade INTEGER");
+  } catch {
+    /* 列已存在 */
+  }
+  try {
+    // 班级起始学期（2026-09-09）：NULL = 未登记
+    await db.execute("ALTER TABLE classes ADD COLUMN entry_semester TEXT");
+  } catch {
+    /* 列已存在 */
+  }
+  try {
+    // 班级归档时刻（2026-09-09）：NULL = 在用；有值 = 历史带过的班
+    await db.execute("ALTER TABLE classes ADD COLUMN archived_at TEXT");
+  } catch {
+    /* 列已存在 */
+  }
   await migrateLegacyCalendarMemos(db);
 }
 
@@ -355,6 +390,10 @@ interface MemoryStore {
   students: Student[];
   photos: Photo[];
   classes: string[];
+  /** 班级元信息（初始年级 / 起始学期 / 归档），按班级名索引 */
+  classMeta: Record<string, ClassMeta>;
+  /** 学期评语（每生每学期一条） */
+  termComments: StudentTermComment[];
   guardians: Guardian[];
   behaviorDimensions: BehaviorDimension[];
   behaviorRecords: StudentBehaviorRecord[];
@@ -379,6 +418,7 @@ interface MemoryStore {
   nextTimetableSlotId: number;
   nextTimetableExceptionId: number;
   nextCalendarEventId: number;
+  nextTermCommentId: number;
 }
 
 /** 与 SQLite datetime('now','localtime') 同格式的本地时间戳 */
@@ -845,6 +885,8 @@ function seedStore(): MemoryStore {
     students,
     photos,
     classes: initialClasses,
+    classMeta: {},
+    termComments: [],
     guardians,
     behaviorDimensions: BEHAVIOR_DIMENSIONS.map((d) => ({ ...d })),
     behaviorRecords: [],
@@ -877,6 +919,7 @@ function seedStore(): MemoryStore {
     nextTimetableSlotId: slotId,
     nextTimetableExceptionId: timetableExceptions.length + 1,
     nextCalendarEventId: calendarEvents.length + 1,
+    nextTermCommentId: 1,
   };
 }
 
@@ -1161,7 +1204,8 @@ function buildStudentSnapshot(
   student: Student,
   guardians: Guardian[],
   photos: Photo[],
-  behaviors: StudentBehaviorRecord[]
+  behaviors: StudentBehaviorRecord[],
+  termComments: StudentTermComment[] = []
 ): StudentSnapshot {
   return {
     student: {
@@ -1193,6 +1237,11 @@ function buildStudentSnapshot(
       recorded_date: b.recorded_date,
       created_at: b.created_at,
     })),
+    termComments: termComments.map((c) => ({
+      semester: c.semester,
+      content: c.content,
+      source: c.source,
+    })),
   };
 }
 
@@ -1222,8 +1271,10 @@ export async function deleteStudent(id: number): Promise<void> {
     const behaviors = store.behaviorRecords.filter((r) => r.student_id === id);
     store.behaviorRecords = store.behaviorRecords.filter((r) => r.student_id !== id);
     store.examScores = store.examScores.filter((r) => r.student_id !== id);
+    const termComments = store.termComments.filter((c) => c.student_id === id);
+    store.termComments = store.termComments.filter((c) => c.student_id !== id);
 
-    const snap = buildStudentSnapshot(student, guardians, photos, behaviors);
+    const snap = buildStudentSnapshot(student, guardians, photos, behaviors, termComments);
     const ts = now();
     store.recycleBin.unshift({
       id: store.nextRecycleId++,
@@ -1250,8 +1301,12 @@ export async function deleteStudent(id: number): Promise<void> {
     "SELECT * FROM student_behavior_records WHERE student_id = ?",
     [id]
   );
+  const termComments = await db.select<StudentTermComment[]>(
+    "SELECT * FROM student_term_comments WHERE student_id = ?",
+    [id]
+  );
 
-  const snap = buildStudentSnapshot(student, guardians, photos, behaviors);
+  const snap = buildStudentSnapshot(student, guardians, photos, behaviors, termComments);
   await db.execute(
     "INSERT INTO recycle_bin (entity_type, label, summary, payload) VALUES ('student', ?, ?, ?)",
     [student.name, studentSummary(snap), JSON.stringify(snap)]
@@ -1259,6 +1314,7 @@ export async function deleteStudent(id: number): Promise<void> {
   await db.execute("DELETE FROM guardians WHERE student_id = ?", [id]);
   await db.execute("DELETE FROM photos WHERE student_id = ?", [id]);
   await db.execute("DELETE FROM student_behavior_records WHERE student_id = ?", [id]);
+  await db.execute("DELETE FROM student_term_comments WHERE student_id = ?", [id]);
   await db.execute("DELETE FROM exam_scores WHERE student_id = ?", [id]);
   await db.execute("DELETE FROM students WHERE id = ?", [id]);
 }
@@ -1361,6 +1417,16 @@ async function insertStudentSnapshot(db: Database, snap: StudentSnapshot): Promi
       ]
     );
   }
+  for (const c of snap.termComments ?? []) {
+    await db.execute(
+      `INSERT INTO student_term_comments (student_id, semester, content, source)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(student_id, semester) DO UPDATE SET
+         content = excluded.content,
+         source = excluded.source`,
+      [studentId, c.semester, c.content, c.source]
+    );
+  }
   return studentId;
 }
 
@@ -1390,6 +1456,17 @@ function insertStudentSnapshotMemory(store: MemoryStore, snap: StudentSnapshot):
     student_id: id,
   }));
   store.behaviorRecords.push(...behaviors);
+  for (const c of snap.termComments ?? []) {
+    store.termComments.push({
+      id: store.nextTermCommentId++,
+      student_id: id,
+      semester: c.semester,
+      content: c.content,
+      source: c.source,
+      created_at: ts,
+      updated_at: ts,
+    });
+  }
   store.students.push({
     ...snap.student,
     id,
@@ -1611,6 +1688,7 @@ export async function listClasses(): Promise<ClassSummary[]> {
   let students: Student[];
   let photos: Photo[];
   const classNames = new Set<string>();
+  const metaByName = new Map<string, ClassMeta>();
 
   if (!isTauri()) {
     const store = mem();
@@ -1619,13 +1697,23 @@ export async function listClasses(): Promise<ClassSummary[]> {
     for (const c of store.classes) {
       if (c && c !== "未分班") classNames.add(c);
     }
+    for (const [name, meta] of Object.entries(store.classMeta)) {
+      metaByName.set(name, meta);
+    }
   } else {
     const db = await getDb();
     students = await db.select<Student[]>("SELECT * FROM students");
     photos = await db.select<Photo[]>("SELECT * FROM photos");
-    const explicitClasses = await db.select<{ name: string }[]>("SELECT name FROM classes");
+    const explicitClasses = await db.select<
+      { name: string; entry_grade: number | null; entry_semester: string | null; archived_at: string | null }[]
+    >("SELECT name, entry_grade, entry_semester, archived_at FROM classes");
     for (const row of explicitClasses) {
       if (row.name && row.name !== "未分班") classNames.add(row.name);
+      metaByName.set(row.name, {
+        entry_grade: row.entry_grade ?? null,
+        entry_semester: row.entry_semester ?? null,
+        archived_at: row.archived_at ?? null,
+      });
     }
   }
 
@@ -1672,6 +1760,9 @@ export async function listClasses(): Promise<ClassSummary[]> {
       photoCount: classPhotoCount + studentPhotoCount,
       classPhotoCount,
       studentPhotoCount,
+      entry_grade: metaByName.get(name)?.entry_grade ?? null,
+      entry_semester: metaByName.get(name)?.entry_semester ?? null,
+      archived_at: metaByName.get(name)?.archived_at ?? null,
     });
   }
 
@@ -1691,11 +1782,212 @@ export async function createClass(name: string): Promise<void> {
     if (!store.classes.includes(trimmed)) {
       store.classes.push(trimmed);
     }
+    if (!store.classMeta[trimmed]) {
+      store.classMeta[trimmed] = { entry_grade: null, entry_semester: null, archived_at: null };
+    }
     return;
   }
 
   const db = await getDb();
   await db.execute("INSERT OR IGNORE INTO classes (name) VALUES (?)", [trimmed]);
+}
+
+/** 班级元信息（初始年级 / 起始学期 / 归档）；未登记返回三个 null */
+export async function getClassMeta(name: string): Promise<ClassMeta> {
+  const trimmed = name.trim();
+  const empty: ClassMeta = { entry_grade: null, entry_semester: null, archived_at: null };
+  if (!trimmed) return empty;
+
+  if (!isTauri()) {
+    return { ...empty, ...(mem().classMeta[trimmed] ?? {}) };
+  }
+
+  const db = await getDb();
+  const rows = await db.select<
+    { entry_grade: number | null; entry_semester: string | null; archived_at: string | null }[]
+  >("SELECT entry_grade, entry_semester, archived_at FROM classes WHERE name = ?", [trimmed]);
+  const row = rows[0];
+  if (!row) return empty;
+  return {
+    entry_grade: row.entry_grade ?? null,
+    entry_semester: row.entry_semester ?? null,
+    archived_at: row.archived_at ?? null,
+  };
+}
+
+/**
+ * 保存班级元信息（部分字段）：初始年级 / 起始学期。
+ * 传 `undefined` 的字段保持不变；传 `null` 表示清空。归档状态由 archiveClass/restoreClass 管。
+ */
+export async function saveClassMeta(
+  name: string,
+  meta: { entry_grade?: number | null; entry_semester?: string | null }
+): Promise<void> {
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error("班级名称不能为空");
+  if (meta.entry_grade != null && (!Number.isInteger(meta.entry_grade) || meta.entry_grade < 1 || meta.entry_grade > 6)) {
+    throw new Error("年级需为 1~6");
+  }
+  if (meta.entry_semester != null && meta.entry_semester !== "" && !/^\d{4}-\d{4}-[12]$/.test(meta.entry_semester.trim())) {
+    throw new Error("学期号格式应为 YYYY-YYYY-1/2");
+  }
+  const grade = meta.entry_grade === undefined ? undefined : meta.entry_grade;
+  const semester =
+    meta.entry_semester === undefined ? undefined : meta.entry_semester ? meta.entry_semester.trim() : null;
+
+  if (!isTauri()) {
+    const store = mem();
+    if (!store.classes.includes(trimmed)) store.classes.push(trimmed);
+    const current = store.classMeta[trimmed] ?? { entry_grade: null, entry_semester: null, archived_at: null };
+    store.classMeta[trimmed] = {
+      entry_grade: grade === undefined ? current.entry_grade : grade,
+      entry_semester: semester === undefined ? current.entry_semester : semester,
+      archived_at: current.archived_at,
+    };
+    return;
+  }
+
+  const db = await getDb();
+  await db.execute("INSERT OR IGNORE INTO classes (name) VALUES (?)", [trimmed]);
+  const sets: string[] = [];
+  const params: unknown[] = [];
+  if (grade !== undefined) {
+    sets.push("entry_grade = ?");
+    params.push(grade);
+  }
+  if (semester !== undefined) {
+    sets.push("entry_semester = ?");
+    params.push(semester);
+  }
+  if (!sets.length) return;
+  params.push(trimmed);
+  await db.execute(`UPDATE classes SET ${sets.join(", ")} WHERE name = ?`, params);
+}
+
+/** 归档班级：从班级管理移出，进入「历史带过的班」；数据全部保留 */
+export async function archiveClass(name: string): Promise<void> {
+  await setClassArchived(name, true);
+}
+
+/** 恢复归档班级：回到在用班级列表 */
+export async function restoreClass(name: string): Promise<void> {
+  await setClassArchived(name, false);
+}
+
+async function setClassArchived(name: string, archived: boolean): Promise<void> {
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error("班级名称不能为空");
+
+  if (!isTauri()) {
+    const store = mem();
+    const current = store.classMeta[trimmed] ?? { entry_grade: null, entry_semester: null, archived_at: null };
+    store.classMeta[trimmed] = { ...current, archived_at: archived ? now() : null };
+    return;
+  }
+
+  const db = await getDb();
+  await db.execute("UPDATE classes SET archived_at = ? WHERE name = ?", [
+    archived ? now() : null,
+    trimmed,
+  ]);
+}
+
+/* ------------------------------------------------------------------ */
+/* 学期评语：一个学生一个学期一条（upsert 幂等）                          */
+/* ------------------------------------------------------------------ */
+
+/** 学生的全部学期评语（按学期倒序） */
+export async function listTermComments(studentId: number): Promise<StudentTermComment[]> {
+  if (!isTauri()) {
+    return mem()
+      .termComments.filter((c) => c.student_id === studentId)
+      .sort((a, b) => (a.semester < b.semester ? 1 : -1));
+  }
+  const db = await getDb();
+  return db.select<StudentTermComment[]>(
+    "SELECT * FROM student_term_comments WHERE student_id = ? ORDER BY semester DESC",
+    [studentId]
+  );
+}
+
+/** 取某学生某学期的评语；没有返回 null */
+export async function getTermComment(
+  studentId: number,
+  semester: string
+): Promise<StudentTermComment | null> {
+  if (!isTauri()) {
+    return (
+      mem().termComments.find((c) => c.student_id === studentId && c.semester === semester) ?? null
+    );
+  }
+  const db = await getDb();
+  const rows = await db.select<StudentTermComment[]>(
+    "SELECT * FROM student_term_comments WHERE student_id = ? AND semester = ? LIMIT 1",
+    [studentId, semester]
+  );
+  return rows[0] ?? null;
+}
+
+/** 写入/覆盖某学生某学期的评语（upsert 幂等） */
+export async function upsertTermComment(
+  studentId: number,
+  semester: string,
+  content: string,
+  source: "manual" | "ai" = "manual"
+): Promise<void> {
+  const sem = semester.trim();
+  if (!sem) throw new Error("学期不能为空");
+  const text = content.trim();
+  if (!text) throw new Error("评语内容不能为空");
+
+  if (!isTauri()) {
+    const store = mem();
+    const idx = store.termComments.findIndex(
+      (c) => c.student_id === studentId && c.semester === sem
+    );
+    const ts = now();
+    if (idx >= 0) {
+      store.termComments[idx] = { ...store.termComments[idx], content: text, source, updated_at: ts };
+    } else {
+      store.termComments.push({
+        id: store.nextTermCommentId++,
+        student_id: studentId,
+        semester: sem,
+        content: text,
+        source,
+        created_at: ts,
+        updated_at: ts,
+      });
+    }
+    return;
+  }
+
+  const db = await getDb();
+  await db.execute(
+    `INSERT INTO student_term_comments (student_id, semester, content, source)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(student_id, semester) DO UPDATE SET
+       content = excluded.content,
+       source = excluded.source,
+       updated_at = datetime('now','localtime')`,
+    [studentId, sem, text, source]
+  );
+}
+
+/** 删除某学生某学期的评语（留空时用） */
+export async function deleteTermComment(studentId: number, semester: string): Promise<void> {
+  if (!isTauri()) {
+    const store = mem();
+    store.termComments = store.termComments.filter(
+      (c) => !(c.student_id === studentId && c.semester === semester)
+    );
+    return;
+  }
+  const db = await getDb();
+  await db.execute("DELETE FROM student_term_comments WHERE student_id = ? AND semester = ?", [
+    studentId,
+    semester,
+  ]);
 }
 
 export async function renameClass(oldName: string, newName: string): Promise<void> {
@@ -1724,11 +2016,24 @@ export async function renameClass(oldName: string, newName: string): Promise<voi
         p.grade_class = newTrimmed;
       }
     }
+    if (store.classMeta[oldTrimmed]) {
+      store.classMeta[newTrimmed] = store.classMeta[oldTrimmed];
+      delete store.classMeta[oldTrimmed];
+    }
     return;
   }
 
   const db = await getDb();
   await db.execute("INSERT OR IGNORE INTO classes (name) VALUES (?)", [newTrimmed]);
+  // 元信息随改名迁移（新行已 INSERT OR IGNORE，这里把旧行的年级/学期/归档补过去）
+  await db.execute(
+    `UPDATE classes
+        SET entry_grade = (SELECT entry_grade FROM classes WHERE name = ?),
+            entry_semester = (SELECT entry_semester FROM classes WHERE name = ?),
+            archived_at = (SELECT archived_at FROM classes WHERE name = ?)
+      WHERE name = ?`,
+    [oldTrimmed, oldTrimmed, oldTrimmed, newTrimmed]
+  );
   if (oldTrimmed === "未分班") {
     await db.execute(
       "UPDATE students SET grade_class = ?, updated_at = datetime('now','localtime') WHERE grade_class = ? OR grade_class IS NULL OR grade_class = ''",
@@ -1764,7 +2069,8 @@ export async function deleteClass(name: string): Promise<void> {
       const guardians = store.guardians.filter((g) => g.student_id === s.id);
       const photos = store.photos.filter((p) => p.student_id === s.id);
       const behaviors = store.behaviorRecords.filter((r) => r.student_id === s.id);
-      return buildStudentSnapshot(s, guardians, photos, behaviors);
+      const termComments = store.termComments.filter((c) => c.student_id === s.id);
+      return buildStudentSnapshot(s, guardians, photos, behaviors, termComments);
     });
 
     const photoTotal = classPhotos.length + studentSnaps.reduce((n, s) => n + s.photos.length, 0);
@@ -1790,6 +2096,7 @@ export async function deleteClass(name: string): Promise<void> {
         (p.student_id === null || !memberIds.has(p.student_id))
     );
     store.behaviorRecords = store.behaviorRecords.filter((r) => !memberIds.has(r.student_id));
+    store.termComments = store.termComments.filter((c) => !memberIds.has(c.student_id));
     const classExamIds = new Set(store.exams.filter((e) => e.class_name === trimmed).map((e) => e.id));
     store.exams = store.exams.filter((e) => e.class_name !== trimmed);
     store.examScores = store.examScores.filter(
@@ -1806,6 +2113,7 @@ export async function deleteClass(name: string): Promise<void> {
     );
     store.calendarEvents = store.calendarEvents.filter((e) => e.class_name !== trimmed);
     store.classes = store.classes.filter((c) => c !== trimmed);
+    delete store.classMeta[trimmed];
     return;
   }
 
@@ -1833,7 +2141,11 @@ export async function deleteClass(name: string): Promise<void> {
       "SELECT * FROM student_behavior_records WHERE student_id = ?",
       [s.id]
     );
-    studentSnaps.push(buildStudentSnapshot(s, guardians, photos, behaviors));
+    const termComments = await db.select<StudentTermComment[]>(
+      "SELECT * FROM student_term_comments WHERE student_id = ?",
+      [s.id]
+    );
+    studentSnaps.push(buildStudentSnapshot(s, guardians, photos, behaviors, termComments));
   }
 
   const photoTotal = classPhotos.length + studentSnaps.reduce((n, s) => n + s.photos.length, 0);
@@ -1868,6 +2180,10 @@ export async function deleteClass(name: string): Promise<void> {
   await db.execute("DELETE FROM calendar_events WHERE class_name = ?", [trimmed]);
   await db.execute(
     `DELETE FROM student_behavior_records WHERE student_id IN (SELECT id FROM students WHERE ${memberWhere})`,
+    memberParams
+  );
+  await db.execute(
+    `DELETE FROM student_term_comments WHERE student_id IN (SELECT id FROM students WHERE ${memberWhere})`,
     memberParams
   );
   await db.execute(
@@ -2090,6 +2406,8 @@ export async function clearAll(): Promise<void> {
     memory.students = [];
     memory.photos = [];
     memory.classes = [];
+    memory.classMeta = {};
+    memory.termComments = [];
     memory.guardians = [];
     memory.behaviorRecords = [];
     memory.exams = [];
@@ -2106,6 +2424,7 @@ export async function clearAll(): Promise<void> {
   await db.execute("DELETE FROM photos");
   await db.execute("DELETE FROM students");
   await db.execute("DELETE FROM student_behavior_records");
+  await db.execute("DELETE FROM student_term_comments");
   await db.execute("DELETE FROM exam_scores");
   await db.execute("DELETE FROM exams");
   await db.execute("DELETE FROM timetable_slots");

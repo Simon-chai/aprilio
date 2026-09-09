@@ -27,6 +27,9 @@ src/
 │   ├── roster.ts          # 花名册导入（解析 / 姓名列智能识别 / 批量落库）
 │   ├── scores.ts          # 成绩导入（成绩单识别 / 科目列映射 / 考试批次落库）
 │   ├── score-analysis.ts  # 成绩分析纯函数（班级统计 / 排名 / 档位 / 趋势，界面与 AI 共用）
+│   ├── semester.ts        # 学期化班级纯函数（学期线性化 / 年级实时推导 / 升级提醒）
+│   ├── semester-ai.ts     # 年级学期智能识别（规则优先 + AI 兜底，导入收尾补写班级元信息）
+│   ├── comment-ai.ts      # 学期评语 AI 草稿（无 AI 返回 null，手工兜底）
 │   └── timetable.ts       # 课程表纯函数（学期推导 / 网格构建 / 我的课表聚合）
 ├── components/
 │   ├── AppSidebar.vue
@@ -36,7 +39,7 @@ src/
 │   ├── ImportRosterDialog.vue / ImportScoreDialog.vue
 │   ├── ExamScorePanel.vue / StudentScorePanel.vue
 │   └── ui/                # AppButton / AppInput / AppCard / StatusChip / EmptyState
-└── views/                 # StudentsView · StudentDetailView · PhotosView · RecycleBinView · DesignSystemView · SettingsView
+└── views/                 # StudentsView · StudentDetailView · PhotosView · RecycleBinView · SettingsView
 
 src-tauri/
 ├── src/db.rs              # SQLite 直连（MCP 子进程只读 / RAG 读写）
@@ -58,6 +61,9 @@ src-tauri/
 
 `timetables` + `timetable_slots` — 班级全科课表（一班一学期一张，格子 = 天 × 节 × 自由文本科目），以万年历为主视图展示；
 `calendar_memos` — 班级维度的日历备忘；「我的课表」按 `profile.my_subjects`（任教学科）从各班课表聚合，不落库（见 [docs/TIMETABLE.md](docs/TIMETABLE.md)）
+
+`classes` 扩展 + `student_term_comments` — 学期化班级管理：班级登记「初始年级 + 起始学期」随时间实时推导当前年级、可归档进「历史带过的班」（只读可恢复）；
+学期评语每生每学期一条，成绩/表现按日期实时归属学期（见 [docs/SEMESTER_MANAGEMENT.md](docs/SEMESTER_MANAGEMENT.md)）
 
 `recycle_bin` — 回收站：删除的班级 / 学生整体快照（JSON），保留 7 天内可恢复，过期在应用启动或打开回收站时彻底删除（含落盘图片）
 
@@ -116,7 +122,7 @@ npm run typecheck     # 类型检查
 - 不给卡片、按钮、文字加阴影 —— 全站只有图片和窗口有投影
 - 标题负字距（`-0.22 ~ -0.4px`），正文 17px / 行高 1.47
 - 胶囊圆角 = 主操作，`18px` = 卡片，`8px` = 缩略图与输入
-- 应用内「设计系统」页可直接查看全部 token
+- 完整 token 与规则见 [docs/DESIGN_SYSTEM.md](docs/DESIGN_SYSTEM.md)，唯一事实源是 `src/style.css` 的 `@theme`
 
 对应的 Ardot 设计稿：fileId `720132402843853`
 

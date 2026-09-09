@@ -66,7 +66,7 @@ src/agent/loop.ts —— tool-calling 循环（TS 侧）
 ### navigate —— 页面跳转
 
 `NAV_TARGETS`（src/agent/tools/navigation.ts）是**应用界面注册表**，
-Agent 可达页面的唯一清单：home / classes / students / photos / profile / design / settings，
+Agent 可达页面的唯一清单：home / classes / students / photos / profile / settings，
 另支持 `student-detail` + `student_id` 跳学生详情（先查库校验存在性）。
 
 ### query_data —— 数据查询
@@ -212,7 +212,9 @@ TS 没有运行时反射，「扫描」注定是构建期的（`import.meta.glob
 
 ## 隐私与安全
 
-- API 密钥只存在本机 localStorage，LLM 请求由本机 Rust 进程发出。
+- API 密钥只存在本机 localStorage（`enc1:` 混淆存放、不躺明文，历史明文自动兼容读入），
+  设置页默认脱敏显示（`maskApiKey` 只露头尾，「查看」一键明文、保存后自动收起），
+  LLM 请求由本机 Rust 进程发出。注意混淆只是防偷窥而非加密，不防能读本机文件的人。
 - `query_data` 的查询结果会进入 LLM 上下文：本地模型无碍；
   **走云 API 时含监护人电话等敏感字段，待加脱敏开关**（字段白名单/打码）后再默认开启云调用。
 - 工具默认只读。写操作（`dangerous: true`）有两道闸：

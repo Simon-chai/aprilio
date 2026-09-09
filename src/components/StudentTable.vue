@@ -4,7 +4,10 @@ import type { BehaviorPolarity, StudentRow } from "../types";
 import { formatShort } from "../lib/format";
 import QuickBehaviorPopover from "./QuickBehaviorPopover.vue";
 
-defineProps<{ rows: StudentRow[] }>();
+withDefaults(
+  defineProps<{ rows: StudentRow[]; readonly?: boolean }>(),
+  { readonly: false }
+);
 const emit = defineEmits<{
   open: [row: StudentRow];
   /** 表格内快捷记表现保存成功，供父组件局部刷新表现数据 */
@@ -80,6 +83,7 @@ onBeforeUnmount(() => clearTimeout(toastTimer));
         <!-- 双操作单元：阻断冒泡，避免触发整行跳详情 -->
         <div class="flex items-center gap-3" @click.stop>
           <button
+            v-if="!readonly"
             data-test="quick-record-btn"
             class="rounded-full bg-primary-soft px-3 py-1 text-fine font-medium text-primary transition-colors hover:bg-primary hover:text-white"
             @click="openQuick(row, $event)"

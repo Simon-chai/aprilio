@@ -11,7 +11,7 @@
 import { createLlm } from "../agent/providers";
 import type { AgentLlm } from "../agent/types";
 import { isAiConfigured, loadAiConfig, type AiConfig } from "./ai";
-import { createStudent, isTauri, listStudents, updateStudent } from "./db";
+import { createClass, createStudent, isTauri, listClasses, listStudents, updateStudent } from "./db";
 import type { Gender, Guardian, StudentInput } from "../types";
 
 /* ------------------------------------------------------------------ */
@@ -105,6 +105,11 @@ export interface RosterImportResult {
   updated: number;
   skipped: { name: string; reason: string }[];
   failed: RosterRowIssue[];
+  /**
+   * 未命名批次自动分班的目标班级（本次新建或复用的「未命名班级N」/「未分班」）。
+   * 具名批次（表内自带班级）不填，由调用方按行内班级推断跳转。
+   */
+  autoClass?: string | null;
 }
 
 /* ------------------------------------------------------------------ */
@@ -135,19 +140,33 @@ export function isTableSpreadsheet(path: string): boolean {
  * 弹出系统文件选择框并把文件解析为表格矩阵（桌面端）。
  * 浏览器演示态返回 null——没有 Rust 解码通道，Excel 无法解析，由调用方
  * 回退到 <input type=file>（仅文本格式，decodeRosterBytes）。
+ *
+ * 多文件导入：支持一次选择多个文件（每文件独立识别、独立落库，
+ * 成绩导入场景下每文件独立生成考试批次）。
  */
-export async function pickRosterFile(): Promise<LoadedRoster | null> {
+export async function pickRosterFiles(): Promise<LoadedRoster[] | null> {
   if (!isTauri()) return null;
 
   const { open } = await import("@tauri-apps/plugin-dialog");
   const selected = await open({
-    multiple: false,
+    multiple: true,
     directory: false,
     filters: [{ name: "花名册表格", extensions: [...TEXT_EXTENSIONS, ...TABLE_EXTENSIONS] }],
   });
-  if (!selected || Array.isArray(selected)) return null;
+  if (!selected) return null;
+  const paths = (Array.isArray(selected) ? selected : [selected]).map(String).filter(Boolean);
+  if (!paths.length) return null;
 
-  return loadRosterTable(String(selected));
+  const out: LoadedRoster[] = [];
+  for (const p of paths) {
+    out.push(await loadRosterTable(p));
+  }
+  return out;
+}
+
+export async function pickRosterFile(): Promise<LoadedRoster | null> {
+  const files = await pickRosterFiles();
+  return files?.[0] ?? null;
 }
 
 /** 按扩展名读取并解析花名册（桌面端）：xlsx/xls 走 roster_read_table，文本走 roster_read_text */
@@ -735,19 +754,61 @@ export function prepareRosterRows(table: RosterTable, mapping: RosterMapping): R
 /* 落库                                                                */
 /* ------------------------------------------------------------------ */
 
+/** 未命名批次自动分班的前缀：无班级信息的整批导入每次新建「未命名班级N」，不再并入「未分班」 */
+export const UNNAMED_CLASS_PREFIX = "未命名班级";
+
+/** 整批行都没有填写班级（去空白后全空）→ 视为未命名批次，需自动分班 */
+export function isUnnamedBatch(rows: StudentInput[]): boolean {
+  return rows.length > 0 && rows.every((r) => !(r.grade_class ?? "").trim());
+}
+
+/** 在已有班级名集合之外取最小的可用序号：未命名班级1、2、3…… */
+export function suggestUnnamedClassName(existingNames: Set<string>): string {
+  let n = 1;
+  while (existingNames.has(`${UNNAMED_CLASS_PREFIX}${n}`)) n++;
+  return `${UNNAMED_CLASS_PREFIX}${n}`;
+}
+
+/** 查出现有班级并分配一个新的未命名班级名（含显式建班与学生行带出的隐式班级） */
+export async function allocateUnnamedClassName(): Promise<string> {
+  const classes = await listClasses();
+  const names = new Set(classes.map((c) => c.name));
+  const next = suggestUnnamedClassName(names);
+  // 显式建班占位，避免并发导入撞名；失败静默（学生行本身也能带出班级）
+  try {
+    await createClass(next);
+  } catch {
+    /* 忽略 */
+  }
+  return next;
+}
+
+function normalizeClassName(value: string | null | undefined): string {
+  const trimmed = (value ?? "").trim();
+  return trimmed === "未分班" ? "" : trimmed;
+}
+
 /**
  * 批量导入学生：学号已存在且姓名相同 → 用新上传的数据覆盖该记录
  * （保留原记录 id，照片、表现记录等关联不受影响）；学号已存在但姓名不同
  * → 跳过并提示，避免把新学生覆盖到他人档案上；无学号时按「姓名+出生日期」
  * 兜底跳过，并生成 R 前缀临时学号。
+ *
+ * 未命名批次（整批无班级）自动分班：互不相交的两批不再并入同一个「未分班」，
+ * 全新一批新建「未命名班级N」；重导入/追增命中同一原班级时复用原班级，
+ * 存量学生的原班级不会被清空覆盖。
  */
 export async function importRosterStudents(prep: RosterPrepareResult): Promise<RosterImportResult> {
   const existing = await listStudents();
-  const existingByNo = new Map<string, { id: number; name: string }>(
-    existing.filter((s) => s.student_no).map((s) => [s.student_no, { id: s.id, name: s.name }]),
+  const existingByNo = new Map<string, { id: number; name: string; grade_class: string }>(
+    existing
+      .filter((s) => s.student_no)
+      .map((s) => [s.student_no, { id: s.id, name: s.name, grade_class: s.grade_class ?? "" }]),
   );
-  const existingNameBirth = new Set(
-    existing.filter((s) => s.birth_date).map((s) => `${s.name}|${s.birth_date}`),
+  const existingNameBirth = new Map<string, string>(
+    existing
+      .filter((s) => s.birth_date)
+      .map((s) => [`${s.name}|${s.birth_date}`, s.grade_class ?? ""]),
   );
 
   const result: RosterImportResult = {
@@ -755,18 +816,133 @@ export async function importRosterStudents(prep: RosterPrepareResult): Promise<R
     updated: 0,
     skipped: [],
     failed: [...prep.issues],
+    autoClass: null,
   };
+
+  // 非未命名批次：保持原行为（行内显式班级落库，更新时可随新表迁移班级）
+  if (!isUnnamedBatch(prep.rows)) {
+    const nameBirthSet = new Set(existingNameBirth.keys());
+    const stamp = Date.now().toString().slice(-8);
+    let seq = 0;
+    for (const row of prep.rows) {
+      if (row.student_no) {
+        const hit = existingByNo.get(row.student_no);
+        if (hit) {
+          if (hit.name === row.name) {
+            try {
+              await updateStudent(hit.id, row);
+              if (row.birth_date) nameBirthSet.add(`${row.name}|${row.birth_date}`);
+              result.updated++;
+            } catch (e) {
+              result.failed.push({
+                row: 0,
+                name: row.name,
+                reason: e instanceof Error ? e.message : String(e),
+              });
+            }
+          } else {
+            result.skipped.push({
+              name: row.name,
+              reason: `学号 ${row.student_no} 已对应学生「${hit.name}」，姓名不一致未覆盖`,
+            });
+          }
+          continue;
+        }
+      } else if (row.birth_date && nameBirthSet.has(`${row.name}|${row.birth_date}`)) {
+        result.skipped.push({ name: row.name, reason: "同名同出生日期的记录已存在" });
+        continue;
+      }
+
+      let studentNo = row.student_no;
+      if (!studentNo) {
+        do {
+          studentNo = `R${stamp}${String(++seq).padStart(3, "0")}`;
+        } while (existingByNo.has(studentNo));
+      }
+
+      try {
+        const newId = await createStudent({ ...row, student_no: studentNo });
+        existingByNo.set(studentNo, { id: newId, name: row.name, grade_class: row.grade_class });
+        if (row.birth_date) nameBirthSet.add(`${row.name}|${row.birth_date}`);
+        result.imported++;
+      } catch (e) {
+        result.failed.push({
+          row: 0,
+          name: row.name,
+          reason: e instanceof Error ? e.message : String(e),
+        });
+      }
+    }
+    return result;
+  }
+
+  // 未命名批次：先分类（命中存量 vs 全新），再决定新行去向，避免两批无辜合并
+  const matchedClasses = new Set<string>();
+  const newRows: StudentInput[] = [];
+  for (const row of prep.rows) {
+    if (row.student_no) {
+      const hit = existingByNo.get(row.student_no);
+      if (hit) {
+        // 姓名不一致的行最终会跳过，不计入命中班级，避免干扰新行去向
+        if (hit.name === row.name) {
+          matchedClasses.add(normalizeClassName(hit.grade_class));
+        }
+        continue;
+      }
+      newRows.push(row);
+    } else if (row.birth_date && existingNameBirth.has(`${row.name}|${row.birth_date}`)) {
+      matchedClasses.add(normalizeClassName(existingNameBirth.get(`${row.name}|${row.birth_date}`)));
+    } else {
+      newRows.push(row);
+    }
+  }
+
+  let targetForNew = "";
+  if (newRows.length === 0) {
+    // 纯重导入：没有新行，不分配；跳转复用唯一的原班级
+    if (matchedClasses.size === 1) {
+      const single = [...matchedClasses][0];
+      result.autoClass = single ? single : "未分班";
+    } else {
+      result.autoClass = null;
+    }
+  } else if (matchedClasses.size === 0) {
+    // 全新一批：分配新班级，两次导入自然分成两个班
+    targetForNew = await allocateUnnamedClassName();
+    result.autoClass = targetForNew;
+  } else if (matchedClasses.size === 1) {
+    const single = [...matchedClasses][0];
+    if (single) {
+      // 追增到同一原班级：新行并入该班
+      targetForNew = single;
+      result.autoClass = single;
+    } else {
+      // 存量全在 legacy「未分班」：新行留在未分班，与命中的老同学保持同组
+      targetForNew = "";
+      result.autoClass = "未分班";
+    }
+  } else {
+    // 命中横跨多个原班级：新行单立一个新班，存量各留原位不搬家
+    targetForNew = await allocateUnnamedClassName();
+    result.autoClass = targetForNew;
+  }
+
   const stamp = Date.now().toString().slice(-8);
   let seq = 0;
+  const touchNameBirth = (name: string, birth: string | null, gradeClass: string) => {
+    if (birth) existingNameBirth.set(`${name}|${birth}`, gradeClass);
+  };
 
   for (const row of prep.rows) {
     if (row.student_no) {
       const hit = existingByNo.get(row.student_no);
       if (hit) {
         if (hit.name === row.name) {
+          // 未命名重导入不搬家：保留存量班级，不用空值覆盖
+          const effective = { ...row, grade_class: hit.grade_class ?? "" };
           try {
-            await updateStudent(hit.id, row);
-            if (row.birth_date) existingNameBirth.add(`${row.name}|${row.birth_date}`);
+            await updateStudent(hit.id, effective);
+            touchNameBirth(row.name, row.birth_date, hit.grade_class ?? "");
             result.updated++;
           } catch (e) {
             result.failed.push({
@@ -788,7 +964,8 @@ export async function importRosterStudents(prep: RosterPrepareResult): Promise<R
       continue;
     }
 
-    let studentNo = row.student_no;
+    const effective: StudentInput = { ...row, grade_class: targetForNew };
+    let studentNo = effective.student_no;
     if (!studentNo) {
       do {
         studentNo = `R${stamp}${String(++seq).padStart(3, "0")}`;
@@ -796,9 +973,9 @@ export async function importRosterStudents(prep: RosterPrepareResult): Promise<R
     }
 
     try {
-      const newId = await createStudent({ ...row, student_no: studentNo });
-      existingByNo.set(studentNo, { id: newId, name: row.name });
-      if (row.birth_date) existingNameBirth.add(`${row.name}|${row.birth_date}`);
+      const newId = await createStudent({ ...effective, student_no: studentNo });
+      existingByNo.set(studentNo, { id: newId, name: effective.name, grade_class: targetForNew });
+      touchNameBirth(effective.name, effective.birth_date, targetForNew);
       result.imported++;
     } catch (e) {
       result.failed.push({

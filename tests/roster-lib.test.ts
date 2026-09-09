@@ -8,15 +8,18 @@ import {
   findNameColumnByHeader,
   importRosterStudents,
   isTableSpreadsheet,
+  isUnnamedBatch,
   parseRosterTable,
   prepareRosterRows,
   rosterTableFromGrid,
   rosterTemplateCsv,
   runSmartImport,
   runSmartImportTable,
+  suggestUnnamedClassName,
   validateTemplateTable,
+  UNNAMED_CLASS_PREFIX,
 } from "../src/lib/roster";
-import { deleteStudent, listStudents } from "../src/lib/db";
+import { deleteClass, deleteStudent, listStudents } from "../src/lib/db";
 import type { AiConfig } from "../src/lib/ai";
 import type { AgentLlm, NameDetection } from "../src/agent/types";
 
@@ -490,5 +493,143 @@ describe("template helpers", () => {
     const table = parseRosterTable("学号,性别\n1,男");
     expect(validateTemplateTable(table)).toEqual({ ok: false, missing: ["姓名"] });
     expect(findNameColumnByHeader(table)).toBe(-1);
+  });
+});
+
+describe("未命名批次自动分班", () => {
+  it("suggests the smallest free 未命名班级N", () => {
+    expect(suggestUnnamedClassName(new Set())).toBe(`${UNNAMED_CLASS_PREFIX}1`);
+    expect(suggestUnnamedClassName(new Set([`${UNNAMED_CLASS_PREFIX}1`]))).toBe(
+      `${UNNAMED_CLASS_PREFIX}2`,
+    );
+    expect(
+      suggestUnnamedClassName(new Set([`${UNNAMED_CLASS_PREFIX}1`, `${UNNAMED_CLASS_PREFIX}2`])),
+    ).toBe(`${UNNAMED_CLASS_PREFIX}3`);
+  });
+
+  it("detects unnamed batches only when every row lacks a class", () => {
+    expect(isUnnamedBatch([])).toBe(false);
+    expect(isUnnamedBatch([{ grade_class: "" } as never])).toBe(true);
+    expect(isUnnamedBatch([{ grade_class: "  " } as never])).toBe(true);
+    expect(
+      isUnnamedBatch([{ grade_class: "" } as never, { grade_class: "三年级二班" } as never]),
+    ).toBe(false);
+  });
+
+  async function cleanupNosAndClass(nos: string[], autoClass?: string | null) {
+    await cleanupByNos(nos);
+    if (autoClass && autoClass !== "未分班") {
+      try {
+        await deleteClass(autoClass);
+      } catch {
+        /* 已清理或不存在 */
+      }
+    }
+  }
+
+  it("两次导入互不相交的未命名花名册 → 分成两个班", async () => {
+    const nosA = ["9100101", "9100102"];
+    const nosB = ["9100201", "9100202"];
+    await cleanupByNos([...nosA, ...nosB]);
+    let autoA: string | null | undefined;
+    let autoB: string | null | undefined;
+    try {
+      const tableA = parseRosterTable("姓名,学号\n分班甲一,9100101\n分班甲二,9100102");
+      const prepA = prepareRosterRows(tableA, detectFieldMapping(tableA, 0));
+      expect(prepA.rows.every((r) => !r.grade_class)).toBe(true);
+      const resultA = await importRosterStudents(prepA);
+      expect(resultA.imported).toBe(2);
+      autoA = resultA.autoClass;
+      expect(autoA).toMatch(/^未命名班级\d+$/);
+
+      const tableB = parseRosterTable("姓名,学号\n分班乙一,9100201\n分班乙二,9100202");
+      const resultB = await importRosterStudents(
+        prepareRosterRows(tableB, detectFieldMapping(tableB, 0)),
+      );
+      expect(resultB.imported).toBe(2);
+      autoB = resultB.autoClass;
+      expect(autoB).toMatch(/^未命名班级\d+$/);
+      expect(autoB).not.toBe(autoA);
+
+      const all = await listStudents();
+      const classOf = (no: string) => all.find((s) => s.student_no === no)?.grade_class;
+      expect(classOf("9100101")).toBe(autoA);
+      expect(classOf("9100102")).toBe(autoA);
+      expect(classOf("9100201")).toBe(autoB);
+      expect(classOf("9100202")).toBe(autoB);
+    } finally {
+      await cleanupNosAndClass(nosA, autoA);
+      await cleanupNosAndClass(nosB, autoB);
+    }
+  });
+
+  it("重导入同一未命名花名册 → 复用原班不搬家不新建", async () => {
+    const nos = ["9100301", "9100302"];
+    await cleanupByNos(nos);
+    let autoClass: string | null | undefined;
+    try {
+      const text = "姓名,学号\n复导入一,9100301\n复导入二,9100302";
+      const first = await importRosterStudents(
+        prepareRosterRows(parseRosterTable(text), detectFieldMapping(parseRosterTable(text), 0)),
+      );
+      autoClass = first.autoClass;
+      expect(first.imported).toBe(2);
+      const before = (await listStudents()).filter((s) => nos.includes(s.student_no));
+
+      const table = parseRosterTable(text);
+      const again = await importRosterStudents(
+        prepareRosterRows(table, detectFieldMapping(table, 0)),
+      );
+      expect(again.imported).toBe(0);
+      expect(again.updated).toBe(2);
+      expect(again.autoClass).toBe(autoClass);
+
+      const after = (await listStudents()).filter((s) => nos.includes(s.student_no));
+      expect(after.map((s) => s.id).sort()).toEqual(before.map((s) => s.id).sort());
+      expect(new Set(after.map((s) => s.grade_class)).size).toBe(1);
+      expect(after[0].grade_class).toBe(autoClass);
+    } finally {
+      await cleanupNosAndClass(nos, autoClass);
+    }
+  });
+
+  it("未命名追增（命中同一原班+新行）→ 新行并入原班", async () => {
+    const nos = ["9100401", "9100402", "9100403"];
+    await cleanupByNos(nos);
+    let autoClass: string | null | undefined;
+    try {
+      const v1 = parseRosterTable("姓名,学号\n追增一,9100401\n追增二,9100402");
+      const r1 = await importRosterStudents(prepareRosterRows(v1, detectFieldMapping(v1, 0)));
+      autoClass = r1.autoClass;
+      expect(r1.imported).toBe(2);
+
+      const v2 = parseRosterTable("姓名,学号\n追增二,9100402\n追增三,9100403");
+      const r2 = await importRosterStudents(prepareRosterRows(v2, detectFieldMapping(v2, 0)));
+      expect(r2.updated).toBe(1);
+      expect(r2.imported).toBe(1);
+      expect(r2.autoClass).toBe(autoClass);
+
+      const all = await listStudents();
+      expect(all.find((s) => s.student_no === "9100403")?.grade_class).toBe(autoClass);
+    } finally {
+      await cleanupNosAndClass(nos, autoClass);
+    }
+  });
+
+  it("具名批次不触发自动分班（autoClass 为空）", async () => {
+    const nos = ["9100501"];
+    await cleanupByNos(nos);
+    try {
+      const table = parseRosterTable("姓名,学号,年级班级\n具名生,9100501,三年级二班");
+      const result = await importRosterStudents(
+        prepareRosterRows(table, detectFieldMapping(table, 0)),
+      );
+      expect(result.imported).toBe(1);
+      expect(result.autoClass ?? null).toBeNull();
+      const [s] = (await listStudents()).filter((x) => x.student_no === "9100501");
+      expect(s.grade_class).toBe("三年级二班");
+    } finally {
+      await cleanupByNos(nos);
+    }
   });
 });

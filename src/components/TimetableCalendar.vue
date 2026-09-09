@@ -44,14 +44,19 @@ import {
 } from "../lib/timetable";
 import type { CalendarEvent, CalendarEventType, Timetable, TimetableException, TimetableSlot } from "../types";
 
-const props = defineProps<{
-  className: string;
-  timetable: (Timetable & { slots: TimetableSlot[] }) | null;
-  /** 课表背景图样式（个人资料里设置的课表背景），铺在万年历卡片表面；未设置不传 */
-  surfaceStyle?: Record<string, string>;
-  /** 与 surfaceStyle 配套的比例约束（有背景图时统一 16:9）；未设置不传 */
-  surfaceClass?: string;
-}>();
+const props = withDefaults(
+  defineProps<{
+    className: string;
+    timetable: (Timetable & { slots: TimetableSlot[] }) | null;
+    /** 课表背景图样式（个人资料里设置的课表背景），铺在万年历卡片表面；未设置不传 */
+    surfaceStyle?: Record<string, string>;
+    /** 与 surfaceStyle 配套的比例约束（有背景图时统一 16:9）；未设置不传 */
+    surfaceClass?: string;
+    /** 只读态（归档班级）：隐藏调课 / 日程编辑入口 */
+    readonly?: boolean;
+  }>(),
+  { readonly: false }
+);
 
 const emit = defineEmits<{ edit: [] }>();
 
@@ -321,6 +326,7 @@ const MAX_CELL_ITEMS = 3;
             回到今天
           </AppLink>
           <button
+            v-if="!readonly"
             type="button"
             data-test="edit-timetable-btn"
             class="flex h-8 items-center gap-1.5 rounded-sm border border-hairline bg-pearl px-3 text-caption text-muted transition-colors hover:border-ink hover:text-ink"
@@ -502,7 +508,10 @@ const MAX_CELL_ITEMS = 3;
               <span v-if="c.note" class="truncate text-fine text-weak" :title="c.note">{{ c.note }}</span>
             </span>
             <!-- 调课操作：悬浮出现；有例外时可恢复默认 -->
-            <span class="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover/course:opacity-100">
+            <span
+              v-if="!readonly"
+              class="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover/course:opacity-100"
+            >
               <template v-if="!hasException(c)">
                 <AppLink
                   data-test="course-swap-btn"
@@ -562,7 +571,7 @@ const MAX_CELL_ITEMS = 3;
             </div>
           </li>
           <!-- 加课 -->
-          <li v-if="!addPeriodOpen && props.timetable" class="pt-0.5">
+          <li v-if="!readonly && !addPeriodOpen && props.timetable" class="pt-0.5">
             <AppLink
               data-test="add-course-btn"
               variant="action"
@@ -618,7 +627,7 @@ const MAX_CELL_ITEMS = 3;
       <div class="rounded-lg border border-hairline bg-canvas p-4">
         <p class="text-fine font-medium text-weak">日程</p>
         <p v-if="!selectedEvents.length" class="mt-1.5 text-caption text-weak">
-          还没有日程，记一条吧（如：收回执单、单元测验、布置作业）
+          {{ readonly ? "这一天没有日程" : "还没有日程，记一条吧（如：收回执单、单元测验、布置作业）" }}
         </p>
         <ul v-else class="mt-1.5 space-y-1">
           <li
@@ -632,6 +641,7 @@ const MAX_CELL_ITEMS = 3;
               class="flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] border transition-colors"
               :class="e.done ? 'border-primary bg-primary' : 'border-weak hover:border-primary'"
               :aria-label="e.done ? '标记为待办' : '标记为已完成'"
+              :disabled="readonly"
               @click="toggleEvent(e)"
             >
               <svg v-if="e.done" width="10" height="10" viewBox="0 0 16 16" fill="none" aria-hidden="true">
@@ -653,6 +663,7 @@ const MAX_CELL_ITEMS = 3;
               {{ e.content }}
             </span>
             <button
+              v-if="!readonly"
               type="button"
               class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-faint opacity-0 transition-opacity hover:bg-danger-soft hover:text-danger group-hover:opacity-100"
               aria-label="删除日程"
@@ -664,30 +675,32 @@ const MAX_CELL_ITEMS = 3;
             </button>
           </li>
         </ul>
-        <div class="mt-3 flex flex-wrap gap-1">
-          <button
-            v-for="t in CALENDAR_EVENT_TYPES"
-            :key="t"
-            type="button"
-            data-test="event-type-pill"
-            class="flex items-center gap-1 rounded-pill border px-2 py-0.5 text-fine transition-colors"
-            :class="newEventType === t ? 'border-ink bg-ink font-medium text-canvas' : 'border-hairline text-muted hover:border-ink'"
-            @click="newEventType = t"
-          >
-            <span class="h-1.5 w-1.5 rounded-full" :class="CALENDAR_EVENT_META[t].dot" />
-            {{ CALENDAR_EVENT_META[t].label }}
-          </button>
-        </div>
-        <div class="mt-2 flex items-center gap-2">
-          <input
-            v-model="newEvent"
-            data-test="event-input"
-            placeholder="添加日程，回车确认"
-            class="h-8 flex-1 rounded-sm border border-hairline bg-canvas px-2 text-caption text-ink outline-none focus:border-primary-focus"
-            @keydown.enter.prevent="addEvent"
-          />
-          <AppButton variant="pearl" :disabled="!newEvent.trim() || eventSaving" @click="addEvent">添加</AppButton>
-        </div>
+        <template v-if="!readonly">
+          <div class="mt-3 flex flex-wrap gap-1">
+            <button
+              v-for="t in CALENDAR_EVENT_TYPES"
+              :key="t"
+              type="button"
+              data-test="event-type-pill"
+              class="flex items-center gap-1 rounded-pill border px-2 py-0.5 text-fine transition-colors"
+              :class="newEventType === t ? 'border-ink bg-ink font-medium text-canvas' : 'border-hairline text-muted hover:border-ink'"
+              @click="newEventType = t"
+            >
+              <span class="h-1.5 w-1.5 rounded-full" :class="CALENDAR_EVENT_META[t].dot" />
+              {{ CALENDAR_EVENT_META[t].label }}
+            </button>
+          </div>
+          <div class="mt-2 flex items-center gap-2">
+            <input
+              v-model="newEvent"
+              data-test="event-input"
+              placeholder="添加日程，回车确认"
+              class="h-8 flex-1 rounded-sm border border-hairline bg-canvas px-2 text-caption text-ink outline-none focus:border-primary-focus"
+              @keydown.enter.prevent="addEvent"
+            />
+            <AppButton variant="pearl" :disabled="!newEvent.trim() || eventSaving" @click="addEvent">添加</AppButton>
+          </div>
+        </template>
       </div>
     </div>
   </div>

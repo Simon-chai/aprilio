@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { RouterLink } from "vue-router";
 import { onPageAction } from "../agent/page-action-bus";
 import FeatureIcon from "../components/FeatureIcon.vue";
+import appIcon from "../assets/app-icon.png";
 import BackgroundPickerDialog from "../components/BackgroundPickerDialog.vue";
 import { useClock } from "../composables/useClock";
 import { usePagedScroll } from "../composables/usePagedScroll";
@@ -490,7 +491,15 @@ const dotClass = (i: number) => {
         class="absolute inset-x-0 top-0 flex h-[76px] items-center justify-between px-12"
         :style="heroTextStyle"
       >
-        <span class="text-tagline font-semibold -tracking-[0.3px] text-white">aprilio</span>
+        <div class="flex items-center gap-2.5">
+          <img
+            :src="appIcon"
+            alt="aprilio"
+            class="h-8 w-8 rounded-sm object-cover shadow-sm"
+            draggable="false"
+          />
+          <span class="text-tagline font-semibold -tracking-[0.3px] text-white">aprilio</span>
+        </div>
 
         <div class="flex items-center gap-3">
           <RouterLink
@@ -943,7 +952,6 @@ const dotClass = (i: number) => {
 
         <div class="mt-7 flex items-center justify-between">
           <p class="text-fine text-faint">滚轮、↓ 键、空格都能翻页 · 点头像可编辑资料和首页大图</p>
-          <RouterLink to="/design" class="text-fine text-faint hover:text-weak">设计系统</RouterLink>
         </div>
         </div>
       </div>

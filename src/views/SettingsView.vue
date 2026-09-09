@@ -8,6 +8,7 @@ import {
   aiProviderById,
   isAiConfigured,
   loadAiConfig,
+  maskApiKey,
   saveAiConfig,
   type AiConfig,
 } from "../lib/ai";
@@ -57,6 +58,8 @@ async function onFetchWallpapers() {
 /* ---- AI 模型配置 ---- */
 const ai = ref<AiConfig>(loadAiConfig());
 const aiSaved = ref(false);
+/* 密钥默认脱敏显示（password），点「查看」一键明文展示，再点收起 */
+const showApiKey = ref(false);
 
 const aiProvider = computed(
   () => aiProviderById(ai.value.provider) ?? AI_PROVIDERS[0]
@@ -71,6 +74,8 @@ function onProviderChange() {
 
 function onSaveAi() {
   saveAiConfig({ ...ai.value });
+  // 存完即收起明文，避免密钥长时间暴露在界面上
+  showApiKey.value = false;
   aiSaved.value = true;
   window.setTimeout(() => (aiSaved.value = false), 2000);
 }
@@ -104,7 +109,7 @@ async function onClear() {
       <AppCard>
         <h3 class="mb-1 text-body font-semibold text-ink">AI 模型</h3>
         <p class="mb-4 text-caption text-weak">
-          接入主流大模型，用于首页的 AI 助手。密钥只保存在本机，不出现在任何服务器。
+          接入主流大模型，用于首页的 AI 助手。密钥只保存在本机（混淆存放，不以明文躺在存储里），不出现在任何服务器。
         </p>
 
         <div class="space-y-4">
@@ -136,14 +141,28 @@ async function onClear() {
 
           <div v-if="aiProvider.needsKey">
             <label class="mb-1.5 block text-fine text-weak" for="ai-key">API 密钥</label>
-            <AppInput
-              id="ai-key"
-              v-model="ai.apiKey"
-              type="password"
-              variant="field"
-              width="100%"
-              placeholder="sk-…"
-            />
+            <div class="flex items-center gap-2">
+              <AppInput
+                id="ai-key"
+                v-model="ai.apiKey"
+                :type="showApiKey ? 'text' : 'password'"
+                variant="field"
+                width="100%"
+                placeholder="sk-…"
+                autocomplete="off"
+              />
+              <AppButton
+                variant="pearl"
+                data-test="ai-key-toggle"
+                :aria-label="showApiKey ? '隐藏密钥' : '查看密钥'"
+                @click="showApiKey = !showApiKey"
+              >
+                {{ showApiKey ? "隐藏" : "查看" }}
+              </AppButton>
+            </div>
+            <p v-if="ai.apiKey && !showApiKey" class="mt-1 text-fine text-faint">
+              已保存：{{ maskApiKey(ai.apiKey) }}（点「查看」显示完整密钥）
+            </p>
           </div>
 
           <div>
