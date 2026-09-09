@@ -32,15 +32,19 @@ import type {
   ExamWithStats,
   Gender,
   Guardian,
+  HomeworkInput,
+  HomeworkStatus,
   Photo,
   Profile,
   RecycleEntityType,
   RecycleItem,
   Student,
   StudentBehaviorRecord,
+  StudentEvalReport,
   StudentExamReport,
   StudentExamScore,
   StudentExamSubject,
+  StudentHomeworkRecord,
   StudentInput,
   StudentRow,
   StudentScoreReport,
@@ -262,6 +266,33 @@ const SCHEMA_DDL: string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_calendar_events_date ON calendar_events(event_date)`,
   `CREATE INDEX IF NOT EXISTS idx_calendar_events_class_date ON calendar_events(class_name, event_date)`,
+  `CREATE TABLE IF NOT EXISTS student_homework_records (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id    INTEGER NOT NULL,
+    homework_date TEXT NOT NULL,
+    subject       TEXT NOT NULL DEFAULT '',
+    status        TEXT NOT NULL DEFAULT 'done',
+    score         REAL,
+    comment       TEXT,
+    created_at    TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    updated_at    TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_homework_student_date ON student_homework_records(student_id, homework_date)`,
+  `CREATE TABLE IF NOT EXISTS student_eval_reports (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id    INTEGER NOT NULL,
+    range_start   TEXT NOT NULL,
+    range_end     TEXT NOT NULL,
+    semester      TEXT,
+    title         TEXT NOT NULL DEFAULT '',
+    content_md    TEXT NOT NULL DEFAULT '',
+    short_comment TEXT NOT NULL DEFAULT '',
+    source        TEXT NOT NULL DEFAULT 'manual',
+    created_at    TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_eval_reports_student ON student_eval_reports(student_id, range_start)`,
 ];
 
 /**
@@ -405,6 +436,10 @@ interface MemoryStore {
   timetableSlots: TimetableSlot[];
   timetableExceptions: TimetableException[];
   calendarEvents: CalendarEvent[];
+  /** 个人作业台账 */
+  homeworks: StudentHomeworkRecord[];
+  /** 评价报告存档 */
+  evalReports: StudentEvalReport[];
   nextStudentId: number;
   nextPhotoId: number;
   nextGuardianId: number;
@@ -419,6 +454,8 @@ interface MemoryStore {
   nextTimetableExceptionId: number;
   nextCalendarEventId: number;
   nextTermCommentId: number;
+  nextHomeworkId: number;
+  nextEvalReportId: number;
 }
 
 /** 与 SQLite datetime('now','localtime') 同格式的本地时间戳 */
@@ -920,6 +957,10 @@ function seedStore(): MemoryStore {
     nextTimetableExceptionId: timetableExceptions.length + 1,
     nextCalendarEventId: calendarEvents.length + 1,
     nextTermCommentId: 1,
+    homeworks: [],
+    evalReports: [],
+    nextHomeworkId: 1,
+    nextEvalReportId: 1,
   };
 }
 
@@ -1273,6 +1314,8 @@ export async function deleteStudent(id: number): Promise<void> {
     store.examScores = store.examScores.filter((r) => r.student_id !== id);
     const termComments = store.termComments.filter((c) => c.student_id === id);
     store.termComments = store.termComments.filter((c) => c.student_id !== id);
+    store.homeworks = store.homeworks.filter((r) => r.student_id !== id);
+    store.evalReports = store.evalReports.filter((r) => r.student_id !== id);
 
     const snap = buildStudentSnapshot(student, guardians, photos, behaviors, termComments);
     const ts = now();
@@ -1316,6 +1359,8 @@ export async function deleteStudent(id: number): Promise<void> {
   await db.execute("DELETE FROM student_behavior_records WHERE student_id = ?", [id]);
   await db.execute("DELETE FROM student_term_comments WHERE student_id = ?", [id]);
   await db.execute("DELETE FROM exam_scores WHERE student_id = ?", [id]);
+  await db.execute("DELETE FROM student_homework_records WHERE student_id = ?", [id]);
+  await db.execute("DELETE FROM student_eval_reports WHERE student_id = ?", [id]);
   await db.execute("DELETE FROM students WHERE id = ?", [id]);
 }
 
@@ -1990,6 +2035,245 @@ export async function deleteTermComment(studentId: number, semester: string): Pr
   ]);
 }
 
+/* ------------------------------------------------------------------ */
+/* 作业台账：个人完成度（P2 先行，评价报告的输入之一）                    */
+/* ------------------------------------------------------------------ */
+
+const HOMEWORK_STATUSES: ReadonlySet<string> = new Set([
+  "done",
+  "excellent",
+  "late",
+  "missing",
+  "exempt",
+]);
+
+function assertHomeworkInput(input: HomeworkInput): { subject: string; comment: string | null } {
+  if (!input.student_id) throw new Error("缺少学生");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.homework_date)) throw new Error("日期格式应为 YYYY-MM-DD");
+  if (input.homework_date > localDateStr()) throw new Error("不能录入未来日期");
+  const subject = (input.subject ?? "").trim();
+  if (!subject) throw new Error("科目不能为空");
+  if (!HOMEWORK_STATUSES.has(input.status)) throw new Error("作业状态不合法");
+  const comment = (input.comment ?? "").trim();
+  if (comment.length > 200) throw new Error("备注请控制在 200 字以内");
+  if (input.score !== undefined && input.score !== null) {
+    if (typeof input.score !== "number" || Number.isNaN(input.score)) throw new Error("分数应为数字");
+    if (input.score < 0 || input.score > 100) throw new Error("分数应在 0~100 之间");
+  }
+  return { subject, comment: comment ? comment : null };
+}
+
+/** 新增一条作业记录，返回新 id */
+export async function addHomeworkRecord(input: HomeworkInput): Promise<number> {
+  const { subject, comment } = assertHomeworkInput(input);
+  const score = input.score ?? null;
+  if (!isTauri()) {
+    const store = mem();
+    const id = store.nextHomeworkId++;
+    const ts = now();
+    store.homeworks.push({
+      id,
+      student_id: input.student_id,
+      homework_date: input.homework_date,
+      subject,
+      status: input.status,
+      score,
+      comment,
+      created_at: ts,
+      updated_at: ts,
+    });
+    return id;
+  }
+  const db = await getDb();
+  const result = await db.execute(
+    `INSERT INTO student_homework_records (student_id, homework_date, subject, status, score, comment)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [input.student_id, input.homework_date, subject, input.status, score, comment]
+  );
+  return Number(result.lastInsertId ?? 0);
+}
+
+export interface HomeworkQuery {
+  start?: string;
+  end?: string;
+  subject?: string;
+  limit?: number;
+}
+
+/** 按学生查作业记录（日期倒序，默认 200 条） */
+export async function listHomeworkRecords(
+  studentId: number,
+  query: HomeworkQuery = {}
+): Promise<StudentHomeworkRecord[]> {
+  const limit = query.limit && query.limit > 0 ? Math.min(Math.floor(query.limit), 500) : 200;
+  const subject = (query.subject ?? "").trim();
+  if (!isTauri()) {
+    return mem()
+      .homeworks.filter((r) => r.student_id === studentId)
+      .filter((r) => (!query.start || r.homework_date >= query.start) && (!query.end || r.homework_date <= query.end))
+      .filter((r) => (!subject || r.subject === subject))
+      .sort((a, b) => (a.homework_date < b.homework_date ? 1 : -1) || b.id - a.id)
+      .slice(0, limit);
+  }
+  const db = await getDb();
+  const conditions = ["student_id = ?"];
+  const params: unknown[] = [studentId];
+  if (query.start) {
+    conditions.push("homework_date >= ?");
+    params.push(query.start);
+  }
+  if (query.end) {
+    conditions.push("homework_date <= ?");
+    params.push(query.end);
+  }
+  if (subject) {
+    conditions.push("subject = ?");
+    params.push(subject);
+  }
+  params.push(limit);
+  return db.select<StudentHomeworkRecord[]>(
+    `SELECT * FROM student_homework_records WHERE ${conditions.join(" AND ")} ORDER BY homework_date DESC, id DESC LIMIT ?`,
+    params
+  );
+}
+
+/** 更新一条作业记录（部分字段） */
+export async function updateHomeworkRecord(
+  id: number,
+  patch: Partial<Pick<HomeworkInput, "homework_date" | "subject" | "status" | "score" | "comment">>
+): Promise<void> {
+  if (!isTauri()) {
+    const store = mem();
+    const rec = store.homeworks.find((r) => r.id === id);
+    if (!rec) return;
+    const merged: HomeworkInput = {
+      student_id: rec.student_id,
+      homework_date: patch.homework_date ?? rec.homework_date,
+      subject: patch.subject ?? rec.subject,
+      status: patch.status ?? rec.status,
+      score: patch.score !== undefined ? patch.score : rec.score,
+      comment: patch.comment !== undefined ? patch.comment : rec.comment,
+    };
+    const { subject, comment } = assertHomeworkInput(merged);
+    rec.homework_date = merged.homework_date;
+    rec.subject = subject;
+    rec.status = merged.status;
+    rec.score = merged.score ?? null;
+    rec.comment = comment;
+    rec.updated_at = now();
+    return;
+  }
+  const db = await getDb();
+  const rows = await db.select<StudentHomeworkRecord[]>(
+    "SELECT * FROM student_homework_records WHERE id = ? LIMIT 1",
+    [id]
+  );
+  const rec = rows[0];
+  if (!rec) return;
+  const merged: HomeworkInput = {
+    student_id: rec.student_id,
+    homework_date: patch.homework_date ?? rec.homework_date,
+    subject: patch.subject ?? rec.subject,
+    status: (patch.status as HomeworkStatus | undefined) ?? rec.status,
+    score: patch.score !== undefined ? patch.score : rec.score,
+    comment: patch.comment !== undefined ? patch.comment : rec.comment,
+  };
+  const { subject, comment } = assertHomeworkInput(merged);
+  await db.execute(
+    `UPDATE student_homework_records SET homework_date = ?, subject = ?, status = ?, score = ?, comment = ?, updated_at = datetime('now','localtime') WHERE id = ?`,
+    [merged.homework_date, subject, merged.status, merged.score ?? null, comment, id]
+  );
+}
+
+/** 删除一条作业记录 */
+export async function deleteHomeworkRecord(id: number): Promise<void> {
+  if (!isTauri()) {
+    const store = mem();
+    store.homeworks = store.homeworks.filter((r) => r.id !== id);
+    return;
+  }
+  const db = await getDb();
+  await db.execute("DELETE FROM student_homework_records WHERE id = ?", [id]);
+}
+
+/* ------------------------------------------------------------------ */
+/* 评价报告存档：一次生成一条历史（P1）                                   */
+/* ------------------------------------------------------------------ */
+
+/** 保存一次生成的报告，返回新 id */
+export async function createEvalReport(input: {
+  student_id: number;
+  range_start: string;
+  range_end: string;
+  semester?: string | null;
+  title: string;
+  content_md: string;
+  short_comment?: string;
+  source?: "ai" | "manual";
+}): Promise<number> {
+  if (!input.student_id) throw new Error("缺少学生");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.range_start)) throw new Error("起始日期格式应为 YYYY-MM-DD");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.range_end)) throw new Error("结束日期格式应为 YYYY-MM-DD");
+  if (input.range_start > input.range_end) throw new Error("起始日期不能晚于结束日期");
+  const title = (input.title ?? "").trim() || "评价报告";
+  const content = (input.content_md ?? "").trim();
+  if (!content) throw new Error("报告内容不能为空");
+  const shortComment = (input.short_comment ?? "").trim();
+  const source = input.source === "ai" ? "ai" : "manual";
+  const semester = input.semester?.trim() ? input.semester.trim() : null;
+  if (!isTauri()) {
+    const store = mem();
+    const id = store.nextEvalReportId++;
+    store.evalReports.push({
+      id,
+      student_id: input.student_id,
+      range_start: input.range_start,
+      range_end: input.range_end,
+      semester,
+      title,
+      content_md: content,
+      short_comment: shortComment,
+      source,
+      created_at: now(),
+    });
+    return id;
+  }
+  const db = await getDb();
+  const result = await db.execute(
+    `INSERT INTO student_eval_reports (student_id, range_start, range_end, semester, title, content_md, short_comment, source)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [input.student_id, input.range_start, input.range_end, semester, title, content, shortComment, source]
+  );
+  return Number(result.lastInsertId ?? 0);
+}
+
+/** 按学生查报告历史（创建时间倒序） */
+export async function listEvalReports(studentId: number, limit = 50): Promise<StudentEvalReport[]> {
+  const n = limit > 0 ? Math.min(Math.floor(limit), 200) : 50;
+  if (!isTauri()) {
+    return mem()
+      .evalReports.filter((r) => r.student_id === studentId)
+      .sort((a, b) => b.id - a.id)
+      .slice(0, n);
+  }
+  const db = await getDb();
+  return db.select<StudentEvalReport[]>(
+    "SELECT * FROM student_eval_reports WHERE student_id = ? ORDER BY id DESC LIMIT ?",
+    [studentId, n]
+  );
+}
+
+/** 删除一条报告 */
+export async function deleteEvalReport(id: number): Promise<void> {
+  if (!isTauri()) {
+    const store = mem();
+    store.evalReports = store.evalReports.filter((r) => r.id !== id);
+    return;
+  }
+  const db = await getDb();
+  await db.execute("DELETE FROM student_eval_reports WHERE id = ?", [id]);
+}
+
 export async function renameClass(oldName: string, newName: string): Promise<void> {
   const oldTrimmed = oldName.trim();
   const newTrimmed = newName.trim();
@@ -2097,6 +2381,8 @@ export async function deleteClass(name: string): Promise<void> {
     );
     store.behaviorRecords = store.behaviorRecords.filter((r) => !memberIds.has(r.student_id));
     store.termComments = store.termComments.filter((c) => !memberIds.has(c.student_id));
+    store.homeworks = store.homeworks.filter((r) => !memberIds.has(r.student_id));
+    store.evalReports = store.evalReports.filter((r) => !memberIds.has(r.student_id));
     const classExamIds = new Set(store.exams.filter((e) => e.class_name === trimmed).map((e) => e.id));
     store.exams = store.exams.filter((e) => e.class_name !== trimmed);
     store.examScores = store.examScores.filter(
@@ -2184,6 +2470,14 @@ export async function deleteClass(name: string): Promise<void> {
   );
   await db.execute(
     `DELETE FROM student_term_comments WHERE student_id IN (SELECT id FROM students WHERE ${memberWhere})`,
+    memberParams
+  );
+  await db.execute(
+    `DELETE FROM student_homework_records WHERE student_id IN (SELECT id FROM students WHERE ${memberWhere})`,
+    memberParams
+  );
+  await db.execute(
+    `DELETE FROM student_eval_reports WHERE student_id IN (SELECT id FROM students WHERE ${memberWhere})`,
     memberParams
   );
   await db.execute(

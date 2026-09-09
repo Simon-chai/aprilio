@@ -178,6 +178,28 @@ export function mockLlm(): AgentLlm {
         return { content: "", toolCalls: [call] };
       }
 
+      // 评价报告：命中「评价报告」时走 analyze（有学生姓名 → 个人汇总）
+      if (userText.includes("评价报告")) {
+        const keyword = extractKeyword(userText);
+        const payload: Record<string, unknown> = {};
+        if (keyword) payload.name = keyword;
+        const call: ToolCallPayload = {
+          id: nextCallId(),
+          name: "analyze",
+          arguments: { kind: "student_eval_report", payload },
+        };
+        return { content: "", toolCalls: [call] };
+      }
+
+      // 作业台账：命中「作业」时走 query_data（按评语/科目关键词查，需带 student_id 时由下一轮补齐）
+      if (userText.includes("作业")) {
+        const keyword = extractKeyword(userText);
+        const args: Record<string, unknown> = { entity: "homeworks" };
+        if (keyword) args.keyword = keyword;
+        const call: ToolCallPayload = { id: nextCallId(), name: "query_data", arguments: args };
+        return { content: "", toolCalls: [call] };
+      }
+
       if (PHOTO_WORDS.some((w) => userText.includes(w))) {
         const call: ToolCallPayload = { id: nextCallId(), name: "query_data", arguments: { entity: "photos" } };
         return { content: "", toolCalls: [call] };

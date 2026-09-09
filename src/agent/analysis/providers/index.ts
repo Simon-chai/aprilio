@@ -12,3 +12,8 @@ export {
   createSemesterAnalysisProvider,
   registerSemesterAnalysisProvider,
 } from "./semester-analysis";
+export {
+  REPORT_ANALYSIS_KINDS,
+  createReportAnalysisProvider,
+  registerReportAnalysisProvider,
+} from "./report-analysis";

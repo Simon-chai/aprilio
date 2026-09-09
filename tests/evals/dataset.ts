@@ -158,6 +158,26 @@ export const EVAL_DATASET: EvalCase[] = [
       args: (args) => args.kind === "semester_overview",
     },
   },
+  {
+    id: "query-homeworks",
+    description: "作业台账查询 → query_data homeworks",
+    category: "data_query",
+    input: "查一下林知远的作业情况",
+    expected: {
+      tool: "query_data",
+      args: { entity: "homeworks" },
+    },
+  },
+  {
+    id: "analysis-eval-report",
+    description: "评价报告生成 → analyze student_eval_report",
+    category: "analysis",
+    input: "给林知远生成一份评价报告",
+    expected: {
+      tool: "analyze",
+      args: (args) => args.kind === "student_eval_report",
+    },
+  },
 
   // ==================== 3. 文档检索 (Docs Search) ====================
   {

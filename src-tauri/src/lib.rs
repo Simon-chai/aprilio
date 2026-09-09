@@ -442,6 +442,44 @@ fn migrations() -> Vec<Migration> {
       CREATE INDEX IF NOT EXISTS idx_term_comments_student ON student_term_comments(student_id, semester);
     "#,
     kind: MigrationKind::Up,
+  },
+  Migration {
+    version: 8,
+    description: "add_homework_and_eval_reports",
+    // 作业台账（P2）+ 评价报告存档（P1）：两张新表，前端 ensureSchema 同构建表兜底。
+    sql: r#"
+      CREATE TABLE IF NOT EXISTS student_homework_records (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        student_id    INTEGER NOT NULL,
+        homework_date TEXT NOT NULL,
+        subject       TEXT NOT NULL DEFAULT '',
+        status        TEXT NOT NULL DEFAULT 'done',
+        score         REAL,
+        comment       TEXT,
+        created_at    TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        updated_at    TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_homework_student_date ON student_homework_records(student_id, homework_date);
+
+      CREATE TABLE IF NOT EXISTS student_eval_reports (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        student_id    INTEGER NOT NULL,
+        range_start   TEXT NOT NULL,
+        range_end     TEXT NOT NULL,
+        semester      TEXT,
+        title         TEXT NOT NULL DEFAULT '',
+        content_md    TEXT NOT NULL DEFAULT '',
+        short_comment TEXT NOT NULL DEFAULT '',
+        source        TEXT NOT NULL DEFAULT 'manual',
+        created_at    TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_eval_reports_student ON student_eval_reports(student_id, range_start);
+    "#,
+    kind: MigrationKind::Up,
   }]
 }
 

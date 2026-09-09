@@ -570,3 +570,86 @@ export interface RecycleItem {
   /** deleted_at + 保留天数，超过即被彻底清除 */
   expire_at: string;
 }
+
+/* ------------------------------------------------------------------ */
+/* 作业台账：个人完成度（一生一次一条），评价报告的输入之一               */
+/* ------------------------------------------------------------------ */
+
+/** 作业完成状态：按时完成 | 优秀 | 迟交 | 缺交 | 免做 */
+export type HomeworkStatus = "done" | "excellent" | "late" | "missing" | "exempt";
+
+export const HOMEWORK_STATUS_ORDER: HomeworkStatus[] = [
+  "excellent",
+  "done",
+  "late",
+  "missing",
+  "exempt",
+];
+
+/** 个人作业记录 */
+export interface StudentHomeworkRecord {
+  id: number;
+  student_id: number;
+  /** 作业日期 YYYY-MM-DD */
+  homework_date: string;
+  /** 科目自由文本，和成绩科目同口径 */
+  subject: string;
+  status: HomeworkStatus;
+  /** 可空分数（百分制或等级折算分） */
+  score: number | null;
+  comment: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface HomeworkInput {
+  student_id: number;
+  homework_date: string;
+  subject: string;
+  status: HomeworkStatus;
+  score?: number | null;
+  comment?: string | null;
+}
+
+/** 作业汇总（区间统计用，纯函数产出） */
+export interface HomeworkSummary {
+  total: number;
+  excellent: number;
+  done: number;
+  late: number;
+  missing: number;
+  exempt: number;
+  /** 按时率 = (excellent+done) / (total-exempt)，分母为 0 时为 null */
+  onTimeRate: number | null;
+  /** 按科目计数 */
+  bySubject: Record<string, number>;
+}
+
+/* ------------------------------------------------------------------ */
+/* 评价报告：区间聚合 + AI 双输出 + 存档                                 */
+/* ------------------------------------------------------------------ */
+
+/** 报告时间范围：学期模式按学期号过滤，自定义按起止日期过滤 */
+export interface ReportRange {
+  mode: "semester" | "custom";
+  /** 学期模式时的学期号，如 2026-2027-1；自定义时为 null */
+  semester: string | null;
+  /** 起止日期 YYYY-MM-DD（含两端） */
+  start: string;
+  end: string;
+}
+
+/** 评价报告存档：一次生成一条历史 */
+export interface StudentEvalReport {
+  id: number;
+  student_id: number;
+  range_start: string;
+  range_end: string;
+  semester: string | null;
+  title: string;
+  content_md: string;
+  short_comment: string;
+  /** ai AI 生成 | manual 数据版/手工 */
+  source: "ai" | "manual";
+  created_at: string;
+}

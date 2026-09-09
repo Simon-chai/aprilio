@@ -12,6 +12,8 @@ import QuickBehaviorPopover from "../components/QuickBehaviorPopover.vue";
 import StudentBehaviorTimeline from "../components/StudentBehaviorTimeline.vue";
 import StudentScorePanel from "../components/StudentScorePanel.vue";
 import TermCommentPanel from "../components/TermCommentPanel.vue";
+import HomeworkPanel from "../components/HomeworkPanel.vue";
+import EvalReportPanel from "../components/EvalReportPanel.vue";
 import {
   addPhoto,
   deleteBehaviorRecord,
@@ -39,7 +41,7 @@ const student = ref<Student | null>(null);
 const photos = ref<Photo[]>([]);
 const behaviors = ref<StudentBehaviorRecord[]>([]);
 const examScores = ref<StudentExamScore[]>([]);
-const activeTab = ref<"behaviors" | "photos" | "scores" | "comment">("behaviors");
+const activeTab = ref<"behaviors" | "photos" | "scores" | "comment" | "homework" | "report">("behaviors");
 const photosDir = ref("");
 const loading = ref(true);
 const error = ref("");
@@ -400,6 +402,24 @@ function goBack() {
               >
                 学期评语
               </button>
+              <button
+                type="button"
+                data-test="tab-homework"
+                class="rounded-sm px-3.5 py-1.5 text-caption font-medium transition-colors"
+                :class="activeTab === 'homework' ? 'bg-ink text-canvas' : 'text-weak hover:text-ink hover:bg-pearl'"
+                @click="activeTab = 'homework'"
+              >
+                作业
+              </button>
+              <button
+                type="button"
+                data-test="tab-report"
+                class="rounded-sm px-3.5 py-1.5 text-caption font-medium transition-colors"
+                :class="activeTab === 'report' ? 'bg-ink text-canvas' : 'text-weak hover:text-ink hover:bg-pearl'"
+                @click="activeTab = 'report'"
+              >
+                评价报告
+              </button>
             </div>
             <div v-if="activeTab === 'behaviors'">
               <button
@@ -466,6 +486,21 @@ function goBack() {
               :semester="activeSemester"
               :behaviors="semesterBehaviors"
               :exam-scores="examScores"
+            />
+          </div>
+
+          <!-- Tab 内容：作业台账 -->
+          <div v-else-if="activeTab === 'homework'">
+            <HomeworkPanel :student-id="student.id" :semester="activeSemester" />
+          </div>
+
+          <!-- Tab 内容：评价报告 -->
+          <div v-else-if="activeTab === 'report'">
+            <EvalReportPanel
+              :student-id="student.id"
+              :student-name="student.name"
+              :grade-class="student.grade_class"
+              :semester="activeSemester"
             />
           </div>
         </AppCard>

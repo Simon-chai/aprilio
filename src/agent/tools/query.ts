@@ -9,8 +9,10 @@ import {
   getStats,
   listBehaviorRecords,
   listClasses,
+  listEvalReports,
   listExamScores,
   listExams,
+  listHomeworkRecords,
   listPhotos,
   listStudents,
   listTermComments,
@@ -33,7 +35,7 @@ export default defineAgentTool({
   name: "query_data",
   label: "数据查询",
   description:
-    "查询应用数据库：学生档案（students）、照片记录（photos）、汇总统计（stats）、日常表现（behaviors）、考试批次（exams）、成绩明细（scores）。" +
+    "查询应用数据库：学生档案（students）、照片记录（photos）、汇总统计（stats）、日常表现（behaviors）、考试批次（exams）、成绩明细（scores）、作业台账（homeworks）、评价报告存档（eval_reports）。" +
     "数据分析、数量统计、条件筛选都用它；查成绩统计与排名时先用它拿到班级/考试/学生 ID，再配合 analyze 工具做深度分析。",
   tags: ["readonly"],
   parameters: {
@@ -41,7 +43,7 @@ export default defineAgentTool({
     properties: {
       entity: {
         type: "string",
-        enum: ["students", "photos", "stats", "behaviors", "exams", "scores", "classes", "term_comments"],
+        enum: ["students", "photos", "stats", "behaviors", "exams", "scores", "classes", "term_comments", "homeworks", "eval_reports"],
         description: "查询实体",
       },
       keyword: {
@@ -260,10 +262,69 @@ export default defineAgentTool({
       };
     }
 
+    if (entity === "homeworks") {
+      const studentId = Number.isInteger(Number(args.student_id))
+        ? Number(args.student_id)
+        : undefined;
+      const subject = typeof args.subject === "string" ? args.subject.trim() : "";
+      if (studentId !== undefined) {
+        const rows = await listHomeworkRecords(studentId, { subject: subject || undefined, limit });
+        const summary = rows.map((r) => `[${r.homework_date}] ${r.subject} ${r.status}${r.comment ? ` ${r.comment}` : ""}`).join("\n");
+        return {
+          ok: true,
+          summary: `作业台账查询：命中 ${rows.length} 条。\n${summary || JSON.stringify(rows)}`,
+          data: rows,
+        };
+      }
+      // 未带 student_id 时按姓名关键词兜底：先定位学生再聚合其作业
+      if (keyword) {
+        const students = await listStudents(keyword);
+        const hits = students.filter((s) => s.name.includes(keyword)).slice(0, 3);
+        if (!hits.length) {
+          return { ok: false, summary: "", error: `找不到姓名含「${keyword}」的学生，请提供 student_id。` };
+        }
+        const all: unknown[] = [];
+        for (const s of hits) {
+          const rows = await listHomeworkRecords(s.id, { subject: subject || undefined, limit });
+          for (const r of rows) all.push({ ...r, student_name: s.name });
+        }
+        const rows = (all as unknown as { homework_date: string; id: number }[])
+          .sort((a, b) => (a.homework_date < b.homework_date ? 1 : -1) || b.id - a.id)
+          .slice(0, limit);
+        const summary = (
+          rows as unknown as { homework_date: string; subject: string; status: string; student_name: string }[]
+        )
+          .map((r) => `${r.student_name} [${r.homework_date}] ${r.subject} ${r.status}`)
+          .join("\n");
+        return {
+          ok: true,
+          summary: `作业台账查询：命中 ${rows.length} 条。\n${summary || JSON.stringify(rows)}`,
+          data: rows,
+        };
+      }
+      return { ok: false, summary: "", error: "homeworks 需要 student_id（或用 keyword 带学生姓名兜底）" };
+    }
+
+    if (entity === "eval_reports") {
+      const studentId = Number.isInteger(Number(args.student_id))
+        ? Number(args.student_id)
+        : undefined;
+      if (studentId === undefined) {
+        return { ok: false, summary: "", error: "eval_reports 需要 student_id" };
+      }
+      const rows = await listEvalReports(studentId, limit);
+      const summary = rows.map((r) => `${r.title}（${r.range_start}~${r.range_end}）：${r.short_comment || r.content_md.slice(0, 60)}`).join("\n");
+      return {
+        ok: true,
+        summary: `评价报告查询：命中 ${rows.length} 条。\n${summary || JSON.stringify(rows)}`,
+        data: rows,
+      };
+    }
+
     return {
       ok: false,
       summary: "",
-      error: `未知查询实体 "${entity}"，可选：students、photos、stats、behaviors、exams、scores、classes、term_comments。`,
+      error: `未知查询实体 "${entity}"，可选：students、photos、stats、behaviors、exams、scores、classes、term_comments、homeworks、eval_reports。`,
     };
   },
 });

@@ -8,6 +8,7 @@
  */
 import {
   defaultAnalysisEngine,
+  registerReportAnalysisProvider,
   registerScoreAnalysisProvider,
   registerSemesterAnalysisProvider,
   type AnalysisContext,
@@ -17,10 +18,11 @@ import {
 import { defineAgentTool } from "../define";
 import type { AgentTool, AgentToolContext, ToolResult } from "../types";
 
-// 内置分析器装配：成绩分析 + 学期汇总（幂等注册，重复调用安全）。
+// 内置分析器装配：成绩分析 + 学期汇总 + 评价报告汇总（幂等注册，重复调用安全）。
 // 新增分析器时在这里补一行 registerXxx，保证 analyze 工具开箱可用。
 registerScoreAnalysisProvider(defaultAnalysisEngine);
 registerSemesterAnalysisProvider(defaultAnalysisEngine);
+registerReportAnalysisProvider(defaultAnalysisEngine);
 
 function parsePayload(raw: unknown): unknown {
   if (typeof raw === "string") {
@@ -49,6 +51,7 @@ export function createAnalyzeTool(engine: AnalysisEngine = defaultAnalysisEngine
       "score_rank（班级总分排行榜，payload 传 class_name）、score_trend（成绩走势：payload 传 student_id/姓名 → 个人总分走势；传 class_name → 班级多次考试趋势）。" +
       "学期汇总可用 kind：semester_overview（某班某学期成绩汇总，payload 传 class_name，可选 semester）、" +
       "student_term_report（某生某学期成绩与表现轨迹，payload 传 student_id 或 name，可选 semester；semester 格式 YYYY-YYYY-1/2，缺省当前学期）。" +
+      "评价报告可用 kind：student_eval_report（某生区间评价汇总：成绩+表现+作业，payload 传 student_id 或 name，可选 semester 或 start/end）。" +
       "也支持 text2sql、aggregation、document 等扩展类型。",
     tags: ["readonly", "analysis"],
     parameters: {
@@ -57,7 +60,7 @@ export function createAnalyzeTool(engine: AnalysisEngine = defaultAnalysisEngine
         kind: {
           type: "string",
           description:
-            "分析类型。成绩：score_overview / score_class / score_student / score_rank / score_trend；学期：semester_overview / student_term_report；扩展：text2sql、aggregation、document 等",
+            "分析类型。成绩：score_overview / score_class / score_student / score_rank / score_trend；学期：semester_overview / student_term_report；评价报告：student_eval_report；扩展：text2sql、aggregation、document 等",
         },
         payload: {
           type: "object",
