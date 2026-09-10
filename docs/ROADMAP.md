@@ -54,12 +54,14 @@ README 只描述「现在是什么」，这里记录「为什么这么选、接�
 - pixi.js ~450KB gzip：组件 dynamic import，AI 助手挂载时才加载，不占首屏
 - 模型风格选扁平/简约，贴合 Apple 视觉，避免与设计系统冲突
 
-### 待办（POC，未排期）
+### 落地（2026-09-10 细化）
 
-- [ ] `npm i easy-live2d pixi.js` + Cubism Core 落位 + `index.html` script 引入
-- [ ] `AgentPet.vue`：canvas 挂载 + 模型加载 + 暴露 `startMotion` / `setExpression` / 嘴动接口
-- [ ] Agent 事件联动：`ai_chat_stream` 逐 token → `ParamMouthOpenY` 嘴动；工具调用/结果 → 动作与表情
-- [ ] 模型授权确认 + 正式形象选型（扁平/简约风）
+**架构定为三层：宠物包（`pet.json`）+ `PetRuntime` 适配器 + Agent 事件桥；Live2D 只是适配器之一，不与宠物系统本体绑死。完整方案见 [DESKTOP_PET.md](DESKTOP_PET.md)。**
+
+- [x] P0 · 可运行原型三个：`pet-studio.html`（接入演示：三只矢量宠物 + 图片 / pet.json 导入 + 状态机 + Agent 事件模拟）、`pet-rig.html`（矢量装配台：分层 SVG 解析与样式内联 + 结构校验 + 锚点可视化编辑 + 导出 pet.json）、`pet-raster.html`（贴图装配台：分层 PNG 部位自动识别 + 同尺寸原位对齐 + 拖拽摆位 + 图层排序 + 锚点编辑 + 从矢量模板生成演示贴图 + 导出 pet.json）；模板 `templates/layered-cat.pet.svg`
+- [ ] P1 · 三个适配器：`vector-layered`（读 `assets/model.svg`，按 slots / pivots 驱动）+ `raster-layered`（按 `layers` 数组叠图，同尺寸对齐）+ `sprite`（单图 / 序列帧）；`appLocalDataDir/pets/` 目录 + Rust `list_pets` / `import_pet_dir` / `delete_pet` + `assetProtocol.scope` 加 `$APPLOCALDATA/pets/**` + 设置页选宠物
+- [ ] P2 · live2d 适配器：`npm i easy-live2d pixi.js`（dynamic import，不占首屏）+ Cubism Core 放 `public/Core/` 并在 `index.html` 引入；`setState/setParams` 映射到 `startMotion` / `setExpression` / `setParameterValueById`
+- [ ] P3 · 模型授权确认 + 正式形象选型（扁平/简约风）
 
 ## 待办
 

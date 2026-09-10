@@ -1,0 +1,27 @@
+{
+  "schema": "aprilio.pet/1",
+  "id": "mint-rabbit",
+  "name": "薄荷",
+  "runtime": "vector",
+  "author": "sample",
+  "version": "1.0.0",
+  "vector": {
+    "species": "兔",
+    "palette": {
+      "body": "#a8e6cf",
+      "belly": "#f4fffb",
+      "ear": "#ffc8dd",
+      "accent": "#2f4f45"
+    },
+    "ears": "long",
+    "tail": "puff",
+    "whiskers": false,
+    "size": 0.94,
+    "tailAmp": 0.6
+  },
+  "behavior": {
+    "idleMotion": "sway",
+    "blinkIntervalMs": [2600, 5000],
+    "tailAmp": 0.6
+  }
+}

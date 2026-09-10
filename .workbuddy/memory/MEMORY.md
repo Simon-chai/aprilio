@@ -38,3 +38,24 @@
   （与 vitest 4 小写盘符坑同源），dev 模式整个前端模块图崩掉
 - 本会话环境有 HTTP_PROXY（127.0.0.1:53332）：启动 app.exe 验证前端时要
   `env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy` 清代理，否则 WebView 加载被劫持
+- **AI 宠物形象层（2026-09-10 定架构）**：三层 = 宠物包 `pet.json`（`runtime`: vector / vector-layered /
+  raster-layered / sprite / live2d）+ `PetRuntime` 适配器 + Agent 事件桥；**Live2D 只是 P2 的一个适配器**，
+  不与宠物本体绑死。方案 + 素材规范见 `docs/DESKTOP_PET.md`；原型 `prototypes/pet/`：
+  `pet-studio.html`（接入演示）、`pet-rig.html`（矢量装配台：分层 SVG 校验 + 锚点编辑）、
+  `pet-raster.html`（贴图装配台：分层 PNG 部位识别 + 原位对齐 + 摆位 + 导出 pet.json）、
+  `templates/layered-cat.pet.svg`（画布 512、脚底线 y=478、图层 id = slot 名）。
+  素材精度阶梯：矢量 2~6h < 分层贴图 1~3d（同一画布尺寸对齐导出）< Live2D 1~2 周。
+  自检：`node prototypes/pet/smoke.mjs`（73 断言：抠图数学 + 真实画布链路 + UI 接线）。
+- **AI 出图的素材板路线（2026-09-10）**：AI 文生图只能出不透明整图，所以让它按 3×3 网格
+  在一张图上画 9 个孤立部件（顺序：身体/头(不含耳)/尾/睁眼/笑眼/睡眼/闭嘴/张嘴/单耳），
+  背景用角色配色里不存在的纯色（暖色角色→品红 `#FF00FF`，粉紫角色→绿 `#00FF00`），
+  再由 `pet-raster.html` 的「素材板切片」切开、抠背景、自动镜像补另一侧。
+  提示词手册：`prototypes/pet/AI_PROMPTS.md`。
+  抠图用 **YCbCr 色度距离**（RGB 距离抠不干净抗锯齿边），色度距离 ÷ 背景色度模长 ≈ 前景覆盖率，
+  可直接当 alpha，再按 alpha 反解前景色去色溢。pet.json 的 `canvas.align` 区分
+  `same-size`（逐层等宽原位）与 `placed`（自然尺寸 × scale，中心在 x/y；切片路线输出这个）。
+- **本地单文件 HTML 原型要验真实画布时**：Edge/Chrome 无头 `--dump-dom` 在本机沙箱里静默无输出，
+  改用 **`@napi-rs/canvas` 垫进 jsdom**（依赖装 `~/node_modules`，项目零污染）：
+  `beforeParse` 里替换 `document.createElement('canvas')` 与 `window.Image`（loadImage 是异步的，
+  解完再触发 onload），并给 context 原型 `drawImage` 打补丁解包垫片。
+  只测纯函数不够——变量提升一类的状态泄漏只在多像素连续扫描时显现。

@@ -1,0 +1,924 @@
+<!doctype html>
+<html lang="zh-CN" data-page-node-id="Qg7zVJoLvwGQXsBZIlxiRE">
+<head data-page-node-id="ZC6ve24ClEE1JjqDNbzNur">
+<meta charset="utf-8" data-page-node-id="GUHNEhH46gxNJFgQcqfDtC" />
+<meta name="viewport" content="width=device-width, initial-scale=1" data-page-node-id="TfMt5FKfGkoUwNBfICq6Hx" />
+<title>aprilio · 自定义宠物接入样例</title>
+<style>
+  :root{
+    --bg:#0f0f11; --panel:#1a1a1d; --panel2:#212126; --line:rgba(255,255,255,.09);
+    --ink:#f5f5f7; --ink2:#a1a1a6; --ink3:#6e6e73;
+    --blue:#0a84ff; --blue-dim:rgba(10,132,255,.16);
+    --green:#30d158; --amber:#ffd60a; --pink:#ff6482; --purple:#bf5af2;
+    --r:14px;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{
+    background:var(--bg); color:var(--ink); overflow:hidden;
+    font:14px/1.55 -apple-system,"SF Pro Text","Segoe UI",system-ui,"Microsoft YaHei",sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  header{display:flex;align-items:baseline;gap:10px;padding:16px 20px 10px}
+  header h1{font-size:15px;font-weight:600;margin:0;letter-spacing:-.01em}
+  header .sub{font-size:12px;color:var(--ink3)}
+  header .tag{
+    margin-left:auto;font-size:11px;color:var(--ink2);border:1px solid var(--line);
+    padding:3px 9px;border-radius:999px;background:var(--panel)
+  }
+
+  main{
+    display:grid;grid-template-columns:minmax(360px,1fr) 372px;
+    gap:14px;padding:0 20px 18px;height:calc(100% - 58px);
+  }
+
+  /* ---------- 舞台 ---------- */
+  .stage-col{display:flex;flex-direction:column;gap:12px;min-width:0}
+  .stage{
+    position:relative;flex:1;min-height:340px;border-radius:18px;overflow:hidden;
+    border:1px solid var(--line);cursor:pointer;user-select:none;
+    background:radial-gradient(120% 90% at 50% 18%, #23232a 0%, #16161a 52%, #101013 100%);
+  }
+  .stage::after{
+    content:"";position:absolute;inset:0;pointer-events:none;
+    background:radial-gradient(60% 40% at 50% 96%, rgba(0,0,0,.5), transparent 70%);
+  }
+  .stage.drag{border-color:var(--blue);box-shadow:inset 0 0 0 1px var(--blue-dim)}
+  .ground{
+    position:absolute;left:50%;bottom:34px;width:210px;height:26px;transform:translateX(-50%);
+    background:radial-gradient(50% 50% at 50% 50%, rgba(0,0,0,.55), transparent 72%);
+    border-radius:50%;filter:blur(2px);
+  }
+  .pet-wrap{position:absolute;left:50%;bottom:44px;width:230px;height:230px;transform:translateX(-50%)}
+  .pet-wrap svg{width:100%;height:100%;display:block;overflow:visible}
+  .pet-sprite{
+    position:absolute;left:50%;bottom:0;width:auto;height:auto;
+    max-width:240px;max-height:236px;object-fit:contain;
+    will-change:transform;filter:drop-shadow(0 12px 22px rgba(0,0,0,.5));
+  }
+  .bubble{
+    position:absolute;left:26px;top:26px;max-width:230px;padding:9px 13px;
+    background:rgba(255,255,255,.09);border:1px solid var(--line);
+    border-radius:14px 14px 14px 4px;font-size:13px;line-height:1.45;color:var(--ink);
+    backdrop-filter:blur(12px);opacity:0;transform:translateY(6px);
+    transition:opacity .22s ease, transform .22s ease;pointer-events:none;
+  }
+  .bubble.show{opacity:1;transform:none}
+  .bubble .who{display:block;font-size:11px;color:var(--ink3);margin-bottom:2px}
+
+  .stage-bar{
+    position:absolute;left:14px;bottom:14px;right:14px;display:flex;align-items:center;gap:8px;
+    font-size:11px;color:var(--ink3);pointer-events:none;
+  }
+  .chip{
+    display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;
+    background:rgba(255,255,255,.06);border:1px solid var(--line);color:var(--ink2);
+  }
+  .chip .dot{width:6px;height:6px;border-radius:50%;background:var(--green)}
+  .chip[data-state="thinking"] .dot{background:var(--amber);animation:pulse 1s infinite}
+  .chip[data-state="talking"] .dot{background:var(--blue)}
+  .chip[data-state="working"] .dot{background:var(--purple);animation:pulse .6s infinite}
+  .chip[data-state="happy"] .dot{background:var(--pink)}
+  .chip[data-state="asleep"] .dot{background:var(--ink3)}
+  .chip[data-state="sad"] .dot{background:#ff9f0a}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+
+  .log{
+    height:104px;overflow-y:auto;border-radius:var(--r);border:1px solid var(--line);
+    background:var(--panel);padding:9px 12px;
+    font:11.5px/1.7 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--ink2);
+  }
+  .log .t{color:var(--ink3)}
+  .log .k-blue{color:#6cb6ff} .log .k-purple{color:#d59bff}
+  .log .k-green{color:#7ee39a} .log .k-pink{color:#ff92a8}
+
+  /* ---------- 右侧面板 ---------- */
+  aside{display:flex;flex-direction:column;gap:11px;overflow-y:auto;padding-right:2px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:13px 14px}
+  .card > h2{
+    font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
+    color:var(--ink3);margin:0 0 10px;
+  }
+  .row{display:flex;flex-wrap:wrap;gap:6px}
+  .btn{
+    appearance:none;border:1px solid var(--line);background:var(--panel2);color:var(--ink);
+    padding:6px 11px;border-radius:999px;font:12.5px/1 inherit;cursor:pointer;
+    transition:background .15s,border-color .15s,color .15s;
+  }
+  .btn:hover{background:#2b2b31}
+  .btn.active{background:var(--blue-dim);border-color:rgba(10,132,255,.45);color:#7db8ff}
+  .btn.primary{background:var(--blue);border-color:var(--blue);color:#fff;font-weight:500}
+  .btn.primary:hover{background:#3a9bff}
+  .btn.wide{width:100%;text-align:center;padding:8px 11px}
+  .hint{font-size:11.5px;color:var(--ink3);margin:9px 0 0;line-height:1.6}
+  .pet-btn{display:inline-flex;align-items:center;gap:7px}
+  .swatch{width:11px;height:11px;border-radius:50%;box-shadow:inset 0 0 0 1px rgba(0,0,0,.25)}
+
+  .slider{display:grid;grid-template-columns:78px 1fr 34px;align-items:center;gap:9px;margin-bottom:7px}
+  .slider label{font-size:11.5px;color:var(--ink2)}
+  .slider output{font:11px ui-monospace,monospace;color:var(--ink3);text-align:right}
+  input[type=range]{width:100%;accent-color:var(--blue);height:3px}
+
+  pre.manifest{
+    margin:0;max-height:180px;overflow:auto;background:#111114;border:1px solid var(--line);
+    border-radius:10px;padding:10px;font:11px/1.6 ui-monospace,monospace;color:#9fd0a8;white-space:pre;
+  }
+  .split{display:flex;gap:6px;margin-top:8px}
+  .split .btn{flex:1;text-align:center}
+  .legend{font-size:11px;color:var(--ink3);margin-top:8px;line-height:1.7}
+  .legend code{color:var(--ink2);background:rgba(255,255,255,.06);padding:1px 5px;border-radius:5px;font-size:10.5px}
+  ::-webkit-scrollbar{width:9px;height:9px}
+  ::-webkit-scrollbar-thumb{background:rgba(255,255,255,.13);border-radius:9px}
+  ::-webkit-scrollbar-track{background:transparent}
+  @media (max-width:900px){
+    body{overflow:auto}
+    main{grid-template-columns:1fr;height:auto}
+    .stage{min-height:320px}
+  }
+</style>
+</head>
+<body data-page-node-id="GgkCwui6MaDmOBTNVxnZCX">
+<header data-page-node-id="SV10SaLwkqJabdJjhEbkBq">
+  <h1 data-page-node-id="FsExUbcLhd7EkCt9gFk2Hc">自定义宠物接入样例</h1>
+  <span class="sub" data-page-node-id="1B7DtgbNreQM5JApzFLjKA">aprilio · Agent 形象层原型</span>
+  <span class="tag" data-page-node-id="tFHoxOP6wLi6p9WDnl6Joj">零依赖 · 双击即开</span>
+</header>
+
+<main data-page-node-id="aqLTlXWb3gLi7asClY6zYw">
+  <div class="stage-col" data-page-node-id="DybbAaVpSlGL0gLLFF83DN">
+    <div class="stage" id="stage" data-page-node-id="VUerReCGFjVbl85AbtWpLh">
+      <div class="ground" data-page-node-id="o6DvhTBdTeotqCw1ZSHA5T"></div>
+      <div class="pet-wrap" id="petWrap" data-page-node-id="JL8GGbqIx7f5q2Rh2JCyl0"></div>
+      <div class="bubble" id="bubble" data-page-node-id="s3ckDGzYHrPnymC81oJsBf"><span class="who" id="bubbleWho" data-page-node-id="hvygvzzHOaFmU3VCs6VHfb">橘子</span><span id="bubbleText" data-page-node-id="RAZMDMF7tZhDHAaA0aCkFz"></span></div>
+      <div class="stage-bar" data-page-node-id="6QHHSYGIcBjvHpKxYxq0el">
+        <span class="chip" id="stateChip" data-state="idle" data-page-node-id="ROqqwoDJLGaAEpXLeDro0x"><span class="dot" data-page-node-id="q4b65MxKilAhK8Gh13UjZF"></span><span id="stateLabel" data-page-node-id="CjGYioh9L0oD59aT4oVRVG">待机</span></span>
+        <span class="chip" id="modeChip" data-page-node-id="7rD8TQK8vG2oWoSmiRJPI6">矢量渲染</span>
+        <span style="margin-left:auto" data-page-node-id="GCaeG2GNDvzXmQjDNujMz2">点击宠物 / 拖素材进来</span>
+      </div>
+    </div>
+    <div class="log" id="log" data-page-node-id="5GmVwWGRkjUPdD5eMG4jwF"></div>
+  </div>
+
+  <aside data-page-node-id="seU76gTXma6hlUUa1Qe0vA">
+    <div class="card" data-page-node-id="Gmb9idPCi33lkxJYu8UAGu">
+      <h2 data-page-node-id="h9Hu3Y7Ar7ur4ilKx1Q2KV">形象</h2>
+      <div class="row" id="petBtns" data-page-node-id="K60rnk5KDLAAxo4aWbRqBJ"></div>
+      <div class="split" data-page-node-id="2r2nGrryfZgGuoFD3tLMpH">
+        <button class="btn" id="btnUploadImg" data-page-node-id="RvXZGaLYXThEgujwcvqDh9">上传图片</button>
+        <button class="btn" id="btnLoadJson" data-page-node-id="SFE8RGaPrGcw5bB2ENE0C7">载入 pet.json</button>
+      </div>
+      <p class="hint" data-page-node-id="SHLlMCWsjMHcaCaqHDwrfK">
+        拖到舞台上也行：<b data-page-node-id="dWMc9AFD4vQCC7WJisVuhn">PNG/JPG</b> → 用你的图当形象（多张自动序列帧）；<b data-page-node-id="dTCgyFWectVlXc61WSZKdi">JSON</b> → 按宠物包参数重建形象。
+      </p>
+      <input type="file" id="fileImg" accept="image/*" multiple hidden data-page-node-id="0Ld6p9pFLomAgeaj4rLIDF" />
+      <input type="file" id="fileJson" accept=".json,application/json" hidden data-page-node-id="nuZ9Ia59rUSc7ac4jNQBqC" />
+    </div>
+
+    <div class="card" data-page-node-id="zCq6PDNK5qyWLNlffxNKJ1">
+      <h2 data-page-node-id="RZI59WymMKpOZGdq7Fn6eQ">状态</h2>
+      <div class="row" id="stateBtns" data-page-node-id="vOjkl66mrGDCXLLtkkh5uQ"></div>
+      <p class="hint" data-page-node-id="78woO4RCUgsHVLpJnOh51g">这些状态由 Agent 事件驱动，点按钮是手动触发同一套状态机。</p>
+    </div>
+
+    <div class="card" data-page-node-id="flqleAQ4oWRpZcz0CVzjrk">
+      <h2 data-page-node-id="pEw1FHw3ISdvlBNrggozxl">模拟 Agent 回合</h2>
+      <button class="btn primary wide" id="btnSimTools" data-page-node-id="GpPsABKRmbZY9zoGxQUnA2">带工具调用的回合</button>
+      <div class="split" data-page-node-id="w5P08CwOE6tBTqTCd0pnnq">
+        <button class="btn" id="btnSimText" data-page-node-id="8SyGDetapkydDiKRdkiiX2">纯文本回合</button>
+        <button class="btn" id="btnSimFail" data-page-node-id="Qonqk5X2jV3DWPGVIHr7xI">失败回合</button>
+      </div>
+      <p class="hint" data-page-node-id="6KxRz6cR8x7LTUyxSOpOy6">走一遍真实事件序列：<code data-page-node-id="lxOHWCKuDiAKrJ6TJ7lcnI">text-delta</code> → 嘴动，<code data-page-node-id="8O4f4k96Yym6cqv0tFATvh">tool-start</code> → 忙碌，<code data-page-node-id="sl8uJFoCCmC633GjlcoFNn">tool-end</code> → 完成反馈。</p>
+    </div>
+
+    <div class="card" data-page-node-id="4cBbuCAV4iflvvlPfrA4lt">
+      <h2 data-page-node-id="gAaTtcbh2XRdnH0MBiwfOi">参数调校</h2>
+      <div class="slider" data-page-node-id="tzq348cRIdL2oNlqifLg6u"><label data-page-node-id="nn4OMG06jRrlhPS3QlW6X3">嘴开合</label><input type="range" id="pMouth" min="0" max="100" value="0" data-page-node-id="jNb5DTwIO2Dy2DpewZsHfb"><output id="oMouth" data-page-node-id="uzLK574WNeLJmsUgvyK7MD">0</output></div>
+      <div class="slider" data-page-node-id="zjtFSut5Td7vgBe7apnu7f"><label data-page-node-id="DuL2snLNIGVKJnDgn9O55m">眼球 X</label><input type="range" id="pEyeX" min="-100" max="100" value="0" data-page-node-id="6j6bZBe83KjrYV1HLLXpAn"><output id="oEyeX" data-page-node-id="j1KvnLieNALHeUtkAbWjAg">0</output></div>
+      <div class="slider" data-page-node-id="TMehRseShTiR5WwaKbrBWR"><label data-page-node-id="aRi37abBIPZwrDYNWHAJCl">眼球 Y</label><input type="range" id="pEyeY" min="-100" max="100" value="0" data-page-node-id="BGp2p1w3JxiUHAczKXQnd6"><output id="oEyeY" data-page-node-id="d77TpRYXuWSToUrQ0TJhlp">0</output></div>
+      <div class="slider" data-page-node-id="f9PeyDXGH16lbmdzFVzFul"><label data-page-node-id="YjimlPPsX5jq3h9mSunzHu">身体倾斜</label><input type="range" id="pTilt" min="-100" max="100" value="0" data-page-node-id="pBzUlb1ti6m8erxkhrlqBq"><output id="oTilt" data-page-node-id="1PNG7urTeDjAbQ2kqE54Sq">0</output></div>
+      <div class="slider" data-page-node-id="CT935AvQPqBpALFPPX1uCU"><label data-page-node-id="B5Ut251Nl50wkfEJCONVHF">尾巴摆幅</label><input type="range" id="pTail" min="0" max="100" value="50" data-page-node-id="GAe3xmjJ7FieAwNUmx2BvC"><output id="oTail" data-page-node-id="Vlt7uJPCXskfV3BQVlB869">50</output></div>
+      <div class="split" data-page-node-id="rwV9FHOYOdX1eGGEkrZXjx"><button class="btn" id="btnManual" data-page-node-id="CqwEcoGjGJYlMQwFBeFwvu">切换手动模式</button></div>
+      <p class="hint" data-page-node-id="IaNidhs02jy8eQwV6LDXLP">
+        这就是 Live2D 参数模型的简化版：<code data-page-node-id="a7OzmGbWTk7MpOJqwTaDLp">ParamMouthOpenY</code>、<code data-page-node-id="cTrITrHjXVJHN4payE7qD3">ParamEyeBallX/Y</code>、
+        <code data-page-node-id="0cHFMDQFVbIsHZZHKBVSYU">ParamBodyAngleZ</code> —— 换成 Live2D 后端时接口完全一致。
+      </p>
+    </div>
+
+    <div class="card" data-page-node-id="XACUAglWxTvhkBONqNFnEq">
+      <h2 data-page-node-id="s4qbKGUA6RqBGRIHW6poIS">当前宠物包</h2>
+      <pre class="manifest" id="manifest" data-page-node-id="nI8XTZSPQCkPN5qkl1GWK8"></pre>
+      <div class="split" data-page-node-id="LNygbma6vadDwQzOsjUhlX">
+        <button class="btn" id="btnCopy" data-page-node-id="jEBsCdEyod6BAWWHw5uDZ6">复制</button>
+        <button class="btn" id="btnDownload" data-page-node-id="KlscEbFdXPbSzzpE4LPu4m">下载 pet.json</button>
+      </div>
+      <div class="legend" data-page-node-id="pXiKGgHq6Io0dMc9HwOEWf">
+        <code data-page-node-id="latJXkvYudvmmizxN8yskl">runtime</code> 决定用哪个渲染适配器：vector / sprite / live2d。<br  data-page-node-id="YfRteMELDudQjD3NBJyDs8"/>
+        宠物包放 <code data-page-node-id="YVCH8BGTYrqwsZ9UGY0Dx5">appLocalDataDir/pets/&lt;id&gt;/</code>，启动时扫描注册。
+      </div>
+    </div>
+  </aside>
+</main>
+
+<script>
+(function () {
+  "use strict";
+  var $ = function (s, r) { return (r || document).querySelector(s); };
+  var $$ = function (s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); };
+
+  /* ============================================================
+   * 1. 宠物包（pet.json）—— 内置三只矢量宠物
+   * ============================================================ */
+  var BUILTIN = [
+    {
+      id: "mikan", name: "橘子", species: "猫",
+      palette: { body: "#f2a75c", belly: "#fff1da", ear: "#e08b45", accent: "#3b2a22" },
+      ears: "triangle", tail: "long", whiskers: true, size: 1, tailAmp: 1
+    },
+    {
+      id: "momo", name: "桃子", species: "柴犬",
+      palette: { body: "#e5974f", belly: "#fff6e8", ear: "#d3843c", accent: "#3b2a22" },
+      ears: "round", tail: "curl", whiskers: false, size: 1.02, tailAmp: 0.85
+    },
+    {
+      id: "yuki", name: "雪球", species: "兔",
+      palette: { body: "#f1f1f4", belly: "#ffffff", ear: "#ffd7e0", accent: "#4a4a52" },
+      ears: "long", tail: "puff", whiskers: true, size: 0.96, tailAmp: 0.7
+    }
+  ];
+
+  function toManifest(s) {
+    return {
+      schema: "aprilio.pet/1",
+      id: s.id,
+      name: s.name,
+      runtime: "vector",
+      author: "aprilio",
+      version: "1.0.0",
+      vector: {
+        species: s.species,
+        palette: s.palette,
+        ears: s.ears,
+        tail: s.tail,
+        whiskers: !!s.whiskers,
+        size: s.size,
+        tailAmp: s.tailAmp
+      },
+      behavior: { idleMotion: "sway", blinkIntervalMs: [2400, 5200], tailAmp: s.tailAmp }
+    };
+  }
+
+  function fromManifest(m) {
+    if (!m || typeof m !== "object") throw new Error("不是合法的 JSON 对象");
+    var v = m.vector || {};
+    var p = v.palette || {};
+    var bg = p.body || "#b8b8c0";
+    return {
+      id: String(m.id || "custom-" + Math.random().toString(36).slice(2, 7)),
+      name: String(m.name || "自定义"),
+      species: String(v.species || "未标注"),
+      palette: {
+        body: bg,
+        belly: p.belly || "#ffffff",
+        ear: p.ear || bg,
+        accent: p.accent || "#3b2a22"
+      },
+      ears: ["triangle", "round", "long", "none"].indexOf(v.ears) >= 0 ? v.ears : "triangle",
+      tail: ["long", "curl", "puff", "none"].indexOf(v.tail) >= 0 ? v.tail : "long",
+      whiskers: !!v.whiskers,
+      size: typeof v.size === "number" ? Math.min(1.6, Math.max(0.5, v.size)) : 1,
+      tailAmp: typeof v.tailAmp === "number" ? Math.min(2, Math.max(0, v.tailAmp)) : 1
+    };
+  }
+
+  /* ============================================================
+   * 2. 参数模型 —— 与 Live2D 参数 ID 一一对应
+   * ============================================================ */
+  var PARAM_KEYS = [
+    "mouthOpenY", "mouthWide", "eyeBallX", "eyeBallY", "eyeScaleY",
+    "blush", "breath", "tailSway", "bodyAngleZ", "headAngleZ",
+    "headDrop", "hop", "squish", "blink"
+  ];
+  var P = {}, T = {};
+  PARAM_KEYS.forEach(function (k) { P[k] = 0; T[k] = 0; });
+  T.eyeScaleY = 1; P.eyeScaleY = 1;
+  var FAST_KEYS = ["mouthOpenY", "blink", "hop", "squish"];
+
+  /* ============================================================
+   * 3. 矢量渲染适配器
+   * ============================================================ */
+  var petWrap = $("#petWrap");
+  var refs = {};
+  var spec = BUILTIN[0];
+  var mode = "vector";
+  var currentName = BUILTIN[0].name;
+  var currentSpecies = BUILTIN[0].species;
+
+  function buildVectorSVG(s) {
+    var c = s.palette;
+    var uid = "p"; // 固定前缀：每次 mount 都重建 DOM，不会冲突
+    var ears = "";
+    if (s.ears === "triangle") {
+      ears =
+        '<path d="M72 68 L79 16 L115 54 Z" fill="' + c.ear + '"/>' +
+        '<path d="M148 68 L141 16 L105 54 Z" fill="' + c.ear + '"/>';
+    } else if (s.ears === "round") {
+      ears =
+        '<circle cx="77" cy="55" r="18" fill="' + c.ear + '"/>' +
+        '<circle cx="143" cy="55" r="18" fill="' + c.ear + '"/>';
+    } else if (s.ears === "long") {
+      ears =
+        '<ellipse cx="88" cy="32" rx="11.5" ry="33" fill="' + c.ear + '" transform="rotate(-11 88 32)"/>' +
+        '<ellipse cx="132" cy="32" rx="11.5" ry="33" fill="' + c.ear + '" transform="rotate(11 132 32)"/>';
+    }
+
+    var tail = "";
+    if (s.tail === "long") {
+      tail = '<path d="M156 170 q44 -6 32 -58" fill="none" stroke="' + c.body +
+        '" stroke-width="15" stroke-linecap="round"/>';
+    } else if (s.tail === "curl") {
+      tail = '<path d="M158 168 q38 -8 30 -44 q-7 -27 -27 -19" fill="none" stroke="' + c.body +
+        '" stroke-width="14" stroke-linecap="round"/>';
+    } else if (s.tail === "puff") {
+      tail = '<circle cx="163" cy="171" r="13" fill="' + c.belly + '"/>';
+    }
+
+    var whiskers = s.whiskers
+      ? '<g stroke="' + c.accent + '" stroke-width="1.3" stroke-linecap="round" opacity=".45">' +
+        '<path d="M78 112 h-20"/><path d="M79 118 l-19 6"/>' +
+        '<path d="M142 112 h20"/><path d="M141 118 l19 6"/></g>'
+      : "";
+
+    return '' +
+      '<svg viewBox="0 0 220 220" preserveAspectRatio="xMidYMax meet">' +
+        '<g id="' + uid + 'root">' +
+          '<g id="' + uid + 'tail" transform="rotate(0 156 172)">' + tail + '</g>' +
+          '<ellipse cx="110" cy="170" rx="55" ry="43" fill="' + c.body + '"/>' +
+          '<ellipse cx="110" cy="180" rx="34" ry="27" fill="' + c.belly + '"/>' +
+          '<ellipse cx="84" cy="205" rx="18" ry="10" fill="' + c.belly + '"/>' +
+          '<ellipse cx="136" cy="205" rx="18" ry="10" fill="' + c.belly + '"/>' +
+          '<g id="' + uid + 'head">' +
+            ears +
+            '<ellipse cx="110" cy="94" rx="46" ry="43" fill="' + c.body + '"/>' +
+            '<ellipse cx="110" cy="113" rx="25" ry="18" fill="' + c.belly + '" opacity=".9"/>' +
+            '<g id="' + uid + 'eyeL"><ellipse cx="91" cy="90" rx="7.4" ry="9" fill="' + c.accent + '"/>' +
+              '<circle id="' + uid + 'pupilL" cx="91" cy="90" r="3.4" fill="#fff" opacity=".95"/></g>' +
+            '<g id="' + uid + 'eyeR"><ellipse cx="129" cy="90" rx="7.4" ry="9" fill="' + c.accent + '"/>' +
+              '<circle id="' + uid + 'pupilR" cx="129" cy="90" r="3.4" fill="#fff" opacity=".95"/></g>' +
+            '<ellipse id="' + uid + 'blushL" cx="74" cy="108" rx="9" ry="5.5" fill="#ff7a9a" opacity="0"/>' +
+            '<ellipse id="' + uid + 'blushR" cx="146" cy="108" rx="9" ry="5.5" fill="#ff7a9a" opacity="0"/>' +
+            whiskers +
+            '<ellipse id="' + uid + 'mouth" cx="110" cy="116" rx="8" ry="1.6" fill="' + c.accent + '"/>' +
+          '</g>' +
+        '</g>' +
+      '</svg>';
+  }
+
+  function mountVector(s) {
+    mode = "vector";
+    spec = s;
+    currentName = s.name;
+    currentSpecies = s.species;
+    petWrap.innerHTML = buildVectorSVG(s);
+    var pick = function (n) { return document.getElementById("p" + n); };
+    refs = {
+      root: pick("root"), tail: pick("tail"), head: pick("head"),
+      eyeL: pick("eyeL"), eyeR: pick("eyeR"),
+      pupilL: pick("pupilL"), pupilR: pick("pupilR"),
+      mouth: pick("mouth"), blushL: pick("blushL"), blushR: pick("blushR")
+    };
+    $("#bubbleWho").textContent = s.name;
+    $("#modeChip").textContent = "矢量渲染 · " + s.species + (spec.id.indexOf("custom") === 0 ? "（自定义）" : "");
+    renderPetButtons();
+    renderManifest();
+  }
+
+  function applyVector() {
+    var r = refs;
+    if (!r.root) return;
+    var sc = spec.size || 1;
+    var sx = (1 - P.squish * 0.045) * sc;
+    var sy = (1 + P.squish * 0.06) * sc;
+    var ty = -P.hop * 20 + P.breath * 1.7;
+    r.root.setAttribute("transform",
+      "translate(110 " + (206 + ty) + ") rotate(" + P.bodyAngleZ + ") scale(" + sx + " " + sy + ") translate(-110 -206)");
+
+    r.head.setAttribute("transform",
+      "translate(0 " + (P.headDrop * 7) + ") rotate(" + P.headAngleZ + " 110 94)");
+
+    var ex = P.eyeBallX * 2.5;
+    var ey = P.eyeBallY * 2.3;
+    var esy = Math.max(0.06, P.eyeScaleY * (1 - P.blink * 0.94));
+    r.eyeL.setAttribute("transform", "translate(91 90) scale(1 " + esy + ") translate(-91 -90)");
+    r.eyeR.setAttribute("transform", "translate(129 90) scale(1 " + esy + ") translate(-129 -90)");
+    [["pupilL", 91], ["pupilR", 129]].forEach(function (pair) {
+      var p = r[pair[0]];
+      if (!p) return;
+      p.setAttribute("cx", pair[1] + ex);
+      p.setAttribute("cy", 90 + ey);
+      p.setAttribute("opacity", esy < 0.35 ? 0 : 0.95);
+    });
+
+    r.mouth.setAttribute("rx", 8 + P.mouthWide * 7);
+    r.mouth.setAttribute("ry", 1.4 + P.mouthOpenY * 7.5);
+    r.mouth.setAttribute("cy", 115 + P.mouthOpenY * 2.5);
+
+    var blush = Math.max(0, Math.min(1, P.blush)) * 0.7;
+    r.blushL.setAttribute("opacity", blush);
+    r.blushR.setAttribute("opacity", blush);
+
+    r.tail.setAttribute("transform", "rotate(" + P.tailSway * 14 * (spec.tailAmp || 1) + " 156 172)");
+  }
+
+  /* ============================================================
+   * 4. 精灵图适配器（用户上传的图片）
+   * ============================================================ */
+  var sprite = { frames: [], img: null, idx: 0 };
+
+  function mountSprite(frames, name) {
+    mode = "sprite";
+    petWrap.innerHTML = "";
+    sprite.frames = frames;
+    sprite.idx = 0;
+    currentName = name || "我的图片";
+    currentSpecies = "图片宠物";
+    var img = document.createElement("img");
+    img.className = "pet-sprite";
+    img.alt = currentName;
+    img.src = frames[0];
+    petWrap.appendChild(img);
+    sprite.img = img;
+    refs = {};
+    $("#modeChip").textContent = frames.length > 1
+      ? "图片 · 序列帧 " + frames.length + " 帧"
+      : "图片 · 单帧";
+    renderPetButtons();
+    renderManifest();
+  }
+
+  function applySprite() {
+    var img = sprite.img;
+    if (!img) return;
+    var fps = state === "working" ? 14 : state === "talking" ? 9 : state === "happy" ? 11 : 4;
+    if (sprite.frames.length > 1) {
+      var i = Math.floor((performance.now() / 1000) * fps) % sprite.frames.length;
+      if (i !== sprite.idx) { sprite.idx = i; img.src = sprite.frames[i]; }
+    }
+    var sx = 1 - P.squish * 0.05 + P.mouthOpenY * 0.025;
+    var sy = 1 + P.squish * 0.06 - P.mouthOpenY * 0.02;
+    img.style.transform =
+      "translateX(-50%) translateY(" + (-P.hop * 24 + P.breath * 2) + "px)" +
+      " rotate(" + P.bodyAngleZ * 0.7 + "deg) scale(" + sx + "," + sy + ")";
+  }
+
+  /* ============================================================
+   * 5. 状态机 —— Agent 事件 → 宠物反应
+   * ============================================================ */
+  var STATES = {
+    idle:     { label: "待机",   bubble: null },
+    thinking: { label: "思考中", bubble: "让我想想…" },
+    talking:  { label: "说话中", bubble: null },
+    working:  { label: "执行中", bubble: "正在调用工具…" },
+    happy:    { label: "开心",   bubble: null },
+    asleep:   { label: "睡觉",   bubble: "💤" },
+    sad:      { label: "受挫",   bubble: null }
+  };
+
+  var state = "idle";
+  var stateAt = 0;
+  var bubbleHold = 0;
+  var idleNext = 0;
+  var idleImpulse = 0;
+  var blink = 0, blinkUntil = 0, nextBlink = 0;
+  var manual = false;
+  var tailAmpManual = 1;
+  var speak = null;
+
+  function setState(next) {
+    if (!STATES[next]) return;
+    var changed = state !== next;
+    state = next;
+    stateAt = performance.now();
+    $("#stateChip").dataset.state = next;
+    $("#stateLabel").textContent = STATES[next].label;
+    $$("#stateBtns .btn").forEach(function (b) {
+      b.classList.toggle("active", b.dataset.state === next);
+    });
+    if (changed && !manual) {
+      var b = STATES[next].bubble;
+      if (b) showBubble(b, 0); else hideBubble();
+    }
+    if (next === "happy" || next === "sad") {
+      window.setTimeout(function () { if (state === next) setState("idle"); }, 1600);
+    }
+  }
+
+  function showBubble(text, ms) {
+    $("#bubbleText").textContent = text;
+    $("#bubbleWho").textContent = currentName;
+    $("#bubble").classList.add("show");
+    bubbleHold = ms > 0 ? performance.now() + ms : 0;
+  }
+  function hideBubble() {
+    $("#bubble").classList.remove("show");
+    bubbleHold = 0;
+  }
+
+  function drive() {
+    var t = performance.now() / 1000;
+
+    if (manual) {
+      // 手动模式：只保留呼吸与尾巴自动摆动，其余参数由滑块直接给定
+      T.breath = Math.sin(t * 1.8);
+      T.tailSway = Math.sin(t * 2.2) * tailAmpManual * 2;
+      tickIdleAndBlink();
+      return;
+    }
+
+    // 通用底噪
+    T.blush = 0.25; T.squish = 0; T.headDrop = 0; T.mouthWide = 0;
+    T.eyeScaleY = 1; T.hop = 0; T.headAngleZ = 0;
+
+    if (state === "idle") {
+      T.breath = Math.sin(t * 1.8);
+      T.tailSway = Math.sin(t * 2.1) * (1 + idleImpulse * 1.6);
+      T.eyeBallX = Math.sin(t * 0.45) * 0.28;
+      T.eyeBallY = Math.sin(t * 0.7) * 0.12;
+      T.bodyAngleZ = Math.sin(t * 1.8) * 0.9 + idleImpulse * 2 * Math.sin(t * 9);
+      T.mouthOpenY = 0.04;
+    } else if (state === "thinking") {
+      T.breath = Math.sin(t * 1.4);
+      T.tailSway = Math.sin(t * 1.1) * 0.5;
+      T.eyeBallX = Math.sin(t * 3.1) * 0.9;
+      T.eyeBallY = -0.42;
+      T.bodyAngleZ = Math.sin(t * 1.1) * 1.6;
+      T.headAngleZ = Math.sin(t * 1.6) * 2.2;
+      T.mouthOpenY = 0.02;
+      T.eyeScaleY = 0.94;
+    } else if (state === "talking") {
+      T.breath = Math.sin(t * 2.2);
+      T.tailSway = Math.sin(t * 3.4) * 1.1;
+      T.eyeBallX = Math.sin(t * 1.2) * 0.5;
+      T.eyeBallY = 0.05;
+      T.bodyAngleZ = Math.sin(t * 2.6) * 1.2;
+      T.headAngleZ = Math.sin(t * 2.6) * 2.6;
+      T.blush = 0.5;
+      T.mouthWide = 0.35 + Math.sin(t * 2.6) * 0.15;
+      if (speak) {
+        var prog = Math.floor((performance.now() - speak.t0) / 68);
+        if (prog > speak.i) speak.i = prog;
+        T.mouthOpenY = Math.abs(Math.sin(speak.i * 0.85)) * (0.55 + Math.sin(speak.i * 2.7) * 0.4);
+        if (speak.i >= speak.text.length + 4) { speak = null; setState("idle"); }
+      } else {
+        T.mouthOpenY = Math.abs(Math.sin(t * 11)) * 0.7;
+      }
+    } else if (state === "working") {
+      T.breath = Math.sin(t * 3.4) * 0.7;
+      T.tailSway = Math.sin(t * 6) * 1.3;
+      T.bodyAngleZ = Math.sin(t * 13) * 2.4;
+      T.headAngleZ = Math.sin(t * 13) * 1.6;
+      T.mouthOpenY = 0.06;
+      T.eyeScaleY = 0.5;
+      T.eyeBallX = Math.sin(t * 8) * 0.35;
+    } else if (state === "happy") {
+      var k = Math.min(1, (performance.now() - stateAt) / 320);
+      var arc = Math.sin(Math.min(Math.PI, k * Math.PI * 2.2));
+      T.hop = Math.max(0, arc) * 1.1;
+      T.squish = -arc * 0.5;
+      T.breath = Math.sin(t * 4) * 0.6;
+      T.tailSway = Math.sin(t * 8) * 1.5;
+      T.eyeScaleY = 0.34;
+      T.mouthOpenY = 0.85;
+      T.mouthWide = 1;
+      T.blush = 0.95;
+      T.headAngleZ = Math.sin(t * 8) * 3;
+    } else if (state === "asleep") {
+      T.breath = Math.sin(t * 0.85) * 1.7;
+      T.tailSway = Math.sin(t * 0.6) * 0.35;
+      T.eyeScaleY = 0.06;
+      T.bodyAngleZ = Math.sin(t * 0.85) * 1.6;
+      T.headDrop = 0.9;
+      T.mouthOpenY = 0.12;
+      T.blush = 0.35;
+    } else if (state === "sad") {
+      T.breath = Math.sin(t * 1.2) * 0.7;
+      T.tailSway = Math.sin(t * 0.9) * 0.3;
+      T.eyeScaleY = 0.72;
+      T.eyeBallY = 0.5;
+      T.headDrop = 0.8;
+      T.mouthOpenY = 0.05;
+      T.blush = 0.1;
+    }
+
+    tickIdleAndBlink();
+  }
+
+  /** idle 微动作 + 眨眼调度 + 气泡收起（自动 / 手动模式共用） */
+  function tickIdleAndBlink() {
+    var now = performance.now();
+    if (now > idleNext) {
+      idleNext = now + 4200 + Math.random() * 5200;
+      idleImpulse = 1;
+    }
+    if (idleImpulse > 0) idleImpulse = Math.max(0, idleImpulse - 0.012);
+
+    if (now > nextBlink && now > blinkUntil) {
+      blinkUntil = now + (state === "working" ? 90 : 130);
+      nextBlink = now + 2200 + Math.random() * 3400;
+    }
+    blink = now < blinkUntil ? 1 : 0;
+
+    if (bubbleHold && now > bubbleHold) hideBubble();
+  }
+
+  function frame() {
+    drive();
+    for (var i = 0; i < PARAM_KEYS.length; i++) {
+      var k = PARAM_KEYS[i];
+      P[k] += (T[k] - P[k]) * (FAST_KEYS.indexOf(k) >= 0 ? 0.45 : 0.15);
+    }
+    P.blink = blink;
+    if (mode === "vector") applyVector(); else applySprite();
+    requestAnimationFrame(frame);
+  }
+
+  /* ============================================================
+   * 6. Agent 事件映射（与 src/agent/types.ts 的 AgentEvent 对齐）
+   * ============================================================ */
+  var logBox = $("#log");
+  function log(evt, detail, cls) {
+    var line = document.createElement("div");
+    var ts = new Date().toTimeString().slice(0, 8);
+    line.innerHTML = '<span class="t">' + ts + '</span> ' +
+      '<span class="' + (cls || "") + '">' + evt + "</span>" +
+      (detail ? ' <span style="color:#6e6e73">' + detail + "</span>" : "");
+    logBox.appendChild(line);
+    logBox.scrollTop = logBox.scrollHeight;
+  }
+
+  function onAgentEvent(e) {
+    if (e.type === "text-delta") {
+      if (state !== "talking") setState("talking");
+      if (!speak) speak = { text: e.text, i: 0, t0: performance.now() };
+      else speak.text += e.text;
+      log("text-delta", JSON.stringify(e.text.length > 14 ? e.text.slice(0, 14) + "…" : e.text), "k-blue");
+    } else if (e.type === "tool-start") {
+      speak = null;
+      setState("working");
+      log("tool-start", e.name, "k-purple");
+    } else if (e.type === "tool-end") {
+      var ok = e.ok !== false;
+      setState(ok ? "happy" : "sad");
+      log("tool-end", e.name + " → " + (ok ? "ok" : "fail"), ok ? "k-green" : "k-pink");
+    }
+  }
+
+  /* ============================================================
+   * 7. 模拟一轮 Agent 对话
+   * ============================================================ */
+  var DEMO = {
+    tools: {
+      reply: "四年级一班最近三次测验我都看过了，有 3 位同学的成绩连续下滑，需要重点关注。",
+      calls: [
+        { name: "query_students", args: "class=四年级一班" },
+        { name: "analyze_scores", args: "exam=最近3次" }
+      ]
+    },
+    text: {
+      reply: "这个问题我可以直接回答：这节课排在周四上午第三节，教室在实验楼 201。",
+      calls: []
+    },
+    fail: {
+      reply: "抱歉，读取成绩表时出错了，请检查文件格式是不是 CSV。",
+      calls: [{ name: "analyze_scores", args: "exam=最近3次" }],
+      fail: true
+    }
+  };
+
+  var busy = false;
+  function simulate(kind) {
+    if (busy) return;
+    busy = true;
+    var d = DEMO[kind];
+    log("turn-start", "模拟回合：" + kind, "k-blue");
+    setState("thinking");
+    speak = null;
+
+    var seq = [];
+    d.calls.forEach(function (c) {
+      seq.push(function () { onAgentEvent({ type: "tool-start", name: c.name + " (" + c.args + ")" }); });
+      seq.push(function () { onAgentEvent({ type: "tool-end", name: c.name, ok: !d.fail }); });
+    });
+    var head = d.calls.length ? "我已经查过数据了，" : "好的，";
+    seq.push(function () { onAgentEvent({ type: "text-delta", text: head + d.reply }); });
+
+    var i = 0;
+    var step = function () {
+      if (i >= seq.length) {
+        window.setTimeout(function () {
+          busy = false;
+          window.setTimeout(function () {
+            if (state !== "talking" && state !== "working") setState("idle");
+          }, 1400);
+        }, 900);
+        return;
+      }
+      seq[i++]();
+      window.setTimeout(step, 620 + Math.random() * 420);
+    };
+    step();
+  }
+
+  /* ============================================================
+   * 8. UI 绑定
+   * ============================================================ */
+  function renderPetButtons() {
+    var box = $("#petBtns");
+    box.innerHTML = "";
+    BUILTIN.forEach(function (s) {
+      var b = document.createElement("button");
+      var on = mode === "vector" && spec.id === s.id;
+      b.className = "btn pet-btn" + (on ? " active" : "");
+      b.innerHTML = '<span class="swatch" style="background:' + s.palette.body + '"></span>' + s.name;
+      b.onclick = function () { mountVector(s); setState("happy"); };
+      box.appendChild(b);
+    });
+    if (mode === "sprite") {
+      var b2 = document.createElement("button");
+      b2.className = "btn pet-btn active";
+      b2.innerHTML = '<span class="swatch" style="background:linear-gradient(135deg,#0a84ff,#bf5af2)"></span>我的图片';
+      box.appendChild(b2);
+    }
+  }
+
+  function renderStateButtons() {
+    var box = $("#stateBtns");
+    box.innerHTML = "";
+    Object.keys(STATES).forEach(function (k) {
+      var b = document.createElement("button");
+      b.className = "btn" + (state === k ? " active" : "");
+      b.textContent = STATES[k].label;
+      b.dataset.state = k;
+      b.onclick = function () {
+        speak = null;
+        setState(k);
+        log("manual-state", k, "k-purple");
+      };
+      box.appendChild(b);
+    });
+  }
+
+  function currentManifest() {
+    if (mode === "sprite") {
+      return {
+        schema: "aprilio.pet/1", id: "my-image-pet", name: currentName, runtime: "sprite",
+        author: "me", version: "1.0.0",
+        sprite: { frames: sprite.frames.length, fps: { idle: 4, talking: 9, working: 14, happy: 11 } },
+        behavior: { idleMotion: "breathe", squashOnSpeak: 0.025 }
+      };
+    }
+    return toManifest(spec);
+  }
+
+  function renderManifest() {
+    $("#manifest").textContent = JSON.stringify(currentManifest(), null, 2);
+  }
+
+  function loadImages(files) {
+    var list = Array.prototype.slice.call(files || []).filter(function (f) {
+      return /^image\//.test(f.type);
+    });
+    if (!list.length) return;
+    list.sort(function (a, b) { return a.name.localeCompare(b.name, "zh-CN", { numeric: true }); });
+    var out = new Array(list.length);
+    var left = list.length;
+    list.forEach(function (f, i) {
+      var fr = new FileReader();
+      fr.onload = function () {
+        out[i] = String(fr.result);
+        if (--left === 0) {
+          mountSprite(out, "我的图片");
+          log("sprite-loaded", out.length + " 帧", "k-green");
+          setState("happy");
+        }
+      };
+      fr.readAsDataURL(f);
+    });
+  }
+
+  function loadManifestFile(file) {
+    var fr = new FileReader();
+    fr.onload = function () {
+      try {
+        var m = fromManifest(JSON.parse(String(fr.result)));
+        mountVector(m);
+        log("pet-loaded", m.id + " / " + m.name, "k-green");
+        setState("happy");
+      } catch (err) {
+        log("pet-error", String((err && err.message) || err), "k-pink");
+      }
+    };
+    fr.readAsText(file);
+  }
+
+  renderPetButtons();
+  renderStateButtons();
+
+  // 模拟回合
+  $("#btnSimTools").onclick = function () { simulate("tools"); };
+  $("#btnSimText").onclick = function () { simulate("text"); };
+  $("#btnSimFail").onclick = function () { simulate("fail"); };
+
+  // 上传
+  $("#btnUploadImg").onclick = function () { $("#fileImg").click(); };
+  $("#btnLoadJson").onclick = function () { $("#fileJson").click(); };
+  $("#fileImg").onchange = function (e) { loadImages(e.target.files); e.target.value = ""; };
+  $("#fileJson").onchange = function (e) {
+    if (e.target.files[0]) loadManifestFile(e.target.files[0]);
+    e.target.value = "";
+  };
+
+  // 拖放
+  var stage = $("#stage");
+  ["dragenter", "dragover"].forEach(function (ev) {
+    stage.addEventListener(ev, function (e) { e.preventDefault(); stage.classList.add("drag"); });
+  });
+  ["dragleave", "drop"].forEach(function (ev) {
+    stage.addEventListener(ev, function (e) { e.preventDefault(); stage.classList.remove("drag"); });
+  });
+  stage.addEventListener("drop", function (e) {
+    var files = e.dataTransfer && e.dataTransfer.files;
+    if (!files || !files.length) return;
+    if (/\.json$/i.test(files[0].name)) loadManifestFile(files[0]);
+    else loadImages(files);
+  });
+
+  // 点击宠物
+  stage.addEventListener("click", function () {
+    if (busy) return;
+    setState("happy");
+    var lines = ["喵～", "在的，有什么要帮忙？", "我在这儿呢。", "需要我查点什么吗？"];
+    if (currentSpecies === "柴犬") lines[0] = "汪！";
+    if (currentSpecies === "兔") lines[0] = "……（嚼草）";
+    if (currentSpecies === "图片宠物") lines[0] = "（盯着你）";
+    showBubble(lines[Math.floor(Math.random() * lines.length)], 1500);
+    log("interact", "点击宠物", "k-blue");
+  });
+
+  // 手动模式
+  var btnManual = $("#btnManual");
+  function setManual(on) {
+    manual = on;
+    btnManual.classList.toggle("active", on);
+    btnManual.textContent = on ? "手动模式：开（自动行为已暂停）" : "切换手动模式";
+    if (on) { speak = null; hideBubble(); }
+    log("mode", on ? "手动参数模式" : "自动状态机", "k-purple");
+  }
+  btnManual.onclick = function () { setManual(!manual); };
+
+  var sliders = [
+    ["pMouth", "oMouth", "mouthOpenY", 100],
+    ["pEyeX", "oEyeX", "eyeBallX", 100],
+    ["pEyeY", "oEyeY", "eyeBallY", 100],
+    ["pTilt", "oTilt", "bodyAngleZ", 10],
+    ["pTail", "oTail", "__tailAmp", 100]
+  ];
+  sliders.forEach(function (s) {
+    var input = $("#" + s[0]);
+    var out = $("#" + s[1]);
+    input.addEventListener("input", function () {
+      var v = Number(input.value);
+      out.textContent = String(v);
+      if (!manual) setManual(true);
+      if (s[2] === "__tailAmp") tailAmpManual = v / 100;
+      else T[s[2]] = v / s[3];
+    });
+  });
+
+  // 宠物包操作
+  $("#btnCopy").onclick = function () {
+    var txt = $("#manifest").textContent;
+    if (navigator.clipboard) navigator.clipboard.writeText(txt);
+    log("manifest", "已复制到剪贴板", "k-green");
+  };
+  $("#btnDownload").onclick = function () {
+    var m = currentManifest();
+    var blob = new Blob([JSON.stringify(m, null, 2)], { type: "application/json" });
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = m.id + ".pet.json";
+    a.click();
+    URL.revokeObjectURL(a.href);
+    log("manifest", "已下载 " + m.id + ".pet.json", "k-green");
+  };
+
+  /* ============================================================
+   * 9. 启动
+   * ============================================================ */
+  mountVector(BUILTIN[0]);
+  log("boot", "宠物运行时已挂载（vector adapter）", "k-green");
+  log("hint", "拖一张 PNG 进舞台试试自定义形象", "k-purple");
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

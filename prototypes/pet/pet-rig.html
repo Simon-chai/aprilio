@@ -1,0 +1,1129 @@
+<!doctype html>
+<html lang="zh-CN" data-page-node-id="vyu8cLh7HUKGlvYaq8lV5L">
+<head data-page-node-id="8mUqrDO61yfPHESDRMxAcP">
+<meta charset="utf-8" data-page-node-id="QbH4kRgvm0RuDXii2vRBWV" />
+<meta name="viewport" content="width=device-width, initial-scale=1" data-page-node-id="HJyHs1WwAwcgKK3s0maHao" />
+<title>aprilio · 宠物形象装配台</title>
+<style>
+  :root{
+    --bg:#0f0f11; --panel:#1a1a1d; --panel2:#212126; --line:rgba(255,255,255,.09);
+    --ink:#f5f5f7; --ink2:#a1a1a6; --ink3:#6e6e73;
+    --blue:#0a84ff; --blue-dim:rgba(10,132,255,.16);
+    --green:#30d158; --amber:#ffd60a; --pink:#ff6482; --purple:#bf5af2; --red:#ff453a;
+    --r:14px;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{
+    background:var(--bg);color:var(--ink);overflow:hidden;
+    font:14px/1.55 -apple-system,"SF Pro Text","Segoe UI",system-ui,"Microsoft YaHei",sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  header{display:flex;align-items:baseline;gap:10px;padding:14px 20px 8px}
+  header h1{font-size:15px;font-weight:600;margin:0;letter-spacing:-.01em}
+  header .sub{font-size:12px;color:var(--ink3)}
+  header .tag{margin-left:auto;font-size:11px;color:var(--ink2);border:1px solid var(--line);padding:3px 9px;border-radius:999px;background:var(--panel)}
+  main{display:grid;grid-template-columns:minmax(400px,1fr) 384px;gap:14px;padding:0 20px 18px;height:calc(100% - 52px)}
+
+  .stage-col{display:flex;flex-direction:column;gap:12px;min-width:0}
+  .stage{
+    position:relative;flex:1;min-height:380px;border-radius:18px;overflow:hidden;
+    border:1px solid var(--line);background:#16161a;
+  }
+  .stage.bg-light{background:#f5f5f7}
+  .stage.bg-check{
+    background:
+      linear-gradient(45deg,#2a2a30 25%,transparent 25%,transparent 75%,#2a2a30 75%),
+      linear-gradient(45deg,#2a2a30 25%,transparent 25%,transparent 75%,#2a2a30 75%),#1e1e22;
+    background-size:24px 24px;background-position:0 0,12px 12px;
+  }
+  .stage.drag{box-shadow:inset 0 0 0 2px var(--blue)}
+  .stage svg{display:block;width:100%;height:100%}
+  .wrap-pet{position:absolute;left:50%;bottom:26px;transform:translateX(-50%);width:330px;height:330px}
+  .bubble{
+    position:absolute;left:22px;top:22px;max-width:220px;padding:8px 12px;
+    background:rgba(255,255,255,.09);border:1px solid var(--line);border-radius:13px 13px 13px 4px;
+    font-size:12.5px;color:var(--ink);backdrop-filter:blur(12px);opacity:0;transition:opacity .2s;pointer-events:none;
+  }
+  .stage.bg-light .bubble{background:rgba(0,0,0,.06);border-color:rgba(0,0,0,.1);color:#1d1d1f}
+  .bubble.show{opacity:1}
+  .stage-bar{position:absolute;left:14px;bottom:12px;right:14px;display:flex;gap:8px;font-size:11px;color:var(--ink3);pointer-events:none}
+  .stage.bg-light .stage-bar{color:#6e6e73}
+  .chip{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;background:rgba(255,255,255,.06);border:1px solid var(--line);color:var(--ink2)}
+  .stage.bg-light .chip{background:rgba(0,0,0,.04);border-color:rgba(0,0,0,.08);color:#3c3c43}
+
+  .report{
+    max-height:168px;overflow-y:auto;border-radius:var(--r);border:1px solid var(--line);
+    background:var(--panel);padding:6px 0;
+  }
+  .report .item{display:flex;gap:8px;align-items:flex-start;padding:5px 13px;font-size:12.5px;line-height:1.5}
+  .report .bul{width:7px;height:7px;border-radius:50%;margin-top:6px;flex:0 0 7px}
+  .report .ok .bul{background:var(--green)}
+  .report .warn .bul{background:var(--amber)}
+  .report .error .bul{background:var(--red)}
+  .report .info .bul{background:var(--ink3)}
+  .report .error{color:#ff8f86}
+  .report .warn{color:#ffd60a}
+  .report code{background:rgba(255,255,255,.08);padding:1px 5px;border-radius:5px;font-size:11px}
+
+  aside{display:flex;flex-direction:column;gap:11px;overflow-y:auto;padding-right:2px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:13px 14px}
+  .card > h2{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink3);margin:0 0 10px}
+  .row{display:flex;flex-wrap:wrap;gap:6px}
+  .btn{
+    appearance:none;border:1px solid var(--line);background:var(--panel2);color:var(--ink);
+    padding:6px 11px;border-radius:999px;font:12.5px/1 inherit;cursor:pointer;
+    transition:background .15s,border-color .15s,color .15s;
+  }
+  .btn:hover{background:#2b2b31}
+  .btn.active{background:var(--blue-dim);border-color:rgba(10,132,255,.45);color:#7db8ff}
+  .btn.primary{background:var(--blue);border-color:var(--blue);color:#fff;font-weight:500}
+  .btn.primary:hover{background:#3a9bff}
+  .btn.wide{width:100%;text-align:center;padding:8px 11px}
+  .hint{font-size:11.5px;color:var(--ink3);margin:9px 0 0;line-height:1.6}
+  .split{display:flex;gap:6px;margin-top:8px}
+  .split .btn{flex:1;text-align:center}
+
+  .slider{display:grid;grid-template-columns:74px 1fr 34px;align-items:center;gap:9px;margin-bottom:6px}
+  .slider label{font-size:11.5px;color:var(--ink2)}
+  .slider output{font:11px ui-monospace,monospace;color:var(--ink3);text-align:right}
+  input[type=range]{width:100%;accent-color:var(--blue);height:3px}
+
+  .pivot-list{display:flex;flex-direction:column;gap:4px;max-height:150px;overflow-y:auto}
+  .pivot-row{display:flex;align-items:center;gap:8px;font-size:12px;padding:4px 6px;border-radius:8px;cursor:pointer}
+  .pivot-row:hover{background:rgba(255,255,255,.05)}
+  .pivot-row.active{background:var(--blue-dim)}
+  .pivot-row .nm{flex:1;font-family:ui-monospace,monospace;font-size:11.5px;color:var(--ink2)}
+  .pivot-row .vl{font-family:ui-monospace,monospace;font-size:11px;color:var(--ink3)}
+
+  pre.manifest{margin:0;max-height:190px;overflow:auto;background:#111114;border:1px solid var(--line);border-radius:10px;padding:10px;font:11px/1.6 ui-monospace,monospace;color:#9fd0a8;white-space:pre}
+  ::-webkit-scrollbar{width:9px;height:9px}
+  ::-webkit-scrollbar-thumb{background:rgba(255,255,255,.13);border-radius:9px}
+  @media (max-width:940px){body{overflow:auto}main{grid-template-columns:1fr;height:auto}.stage{min-height:360px}}
+</style>
+</head>
+<body data-page-node-id="AIUP2foWzqqzSkVUXuX8aL">
+<header data-page-node-id="dmWNYBrk0G52O44Gt434QO">
+  <h1 data-page-node-id="yrIzmepfTZjDvwVOD4fNbq">宠物形象装配台</h1>
+  <span class="sub" data-page-node-id="YRATgDWwyUsSwBQCp8drtp">aprilio · 素材调试</span>
+  <span class="tag" id="tagName" data-page-node-id="HUVBbJMqRa0Jmt350deIej">模板 · 橘猫</span>
+</header>
+
+<main data-page-node-id="mY9wWcdh4PK1RjoerU5WYT">
+  <div class="stage-col" data-page-node-id="luz9a37rcn4jCH0HX81PHv">
+    <div class="stage bg-check" id="stage" data-page-node-id="DgXJZyC1eATwpcZOe02mtD">
+      <div class="wrap-pet" id="wrapPet" data-page-node-id="GKus4ICahCH0bObtIIPAqr"></div>
+      <div class="bubble" id="bubble" data-page-node-id="TDAfoMsyOzvNv7aYarfsMb"></div>
+      <div class="stage-bar" data-page-node-id="cL7BI5eCyfQshaqEJxS4ij">
+        <span class="chip" data-state="idle" id="stateChip" data-page-node-id="f0VRnFi9ijHG2ZRnQhfhGG">待机</span>
+        <span class="chip" id="statChip" data-page-node-id="toLtl4Yw7u9gFT5QPHvS5d">—</span>
+        <span style="margin-left:auto" data-page-node-id="9oZv4xWlOS0yhDJuB74kZZ">拖 SVG 进来 · 拖蓝点调锚点</span>
+      </div>
+    </div>
+    <div class="report" id="report" data-page-node-id="uGHziawlQ1aRnkTykmJF2G"></div>
+  </div>
+
+  <aside data-page-node-id="d48KBJJDCGY33vYUPIMmHH">
+    <div class="card" data-page-node-id="2vK9GhPFjDGQ3GO4QYZUsH">
+      <h2 data-page-node-id="SdTVADB6dHjvPx5IQps8Tk">素材</h2>
+      <div class="split" style="margin-top:0" data-page-node-id="g8vGnGZLkpAALm2FDq72pc">
+        <button class="btn primary" id="btnPick" data-page-node-id="nyon57EG2IHCbGKbTxYnPM">打开 SVG</button>
+        <button class="btn" id="btnTemplate" data-page-node-id="6Yq4HnQpRwyIItZCnNF5Za">载入模板</button>
+      </div>
+      <div class="split" data-page-node-id="wt6h9HD3PKV9J0NLhuJSEL">
+        <button class="btn" id="btnDownloadTpl" data-page-node-id="wCjef3uHw2w0WRtWVPZLD1">下载模板 SVG</button>
+      </div>
+      <div class="split" data-page-node-id="4Fs0BNIECKfkKAfguOpsGr">
+        <button class="btn" id="btnBg" data-page-node-id="aKwHu40Zb9IGO8RtdEgtQ1">背景：棋盘</button>
+        <button class="btn" id="btnAnchors" data-page-node-id="fpDwVBqAidBEb8p5sVcVql">锚点：显示</button>
+        <button class="btn" id="btnGrid" data-page-node-id="WaHxCVUuR4ENjBYmckESUk">参考线：开</button>
+      </div>
+      <input type="file" id="fileSvg" accept=".svg,image/svg+xml" hidden data-page-node-id="ZJM6iZGH6is2Kvh7U3Uyqe" />
+      <p class="hint" data-page-node-id="v83MYoTWoePTSGcdBKAeD8">
+        在 Figma / Illustrator / Inkscape 里打开模板，把形象画进对应图层（id 别改名），导出 SVG 拖进来即可。
+        Figma 导出带的 <code data-page-node-id="xjWp0ctIA0DDuG3vgIGNtw">&lt;style&gt;</code> 会自动内联，不用担心变黑白。
+      </p>
+    </div>
+
+    <div class="card" data-page-node-id="yFIj36S9PU25YadIBvXrmL">
+      <h2 data-page-node-id="AGgw4VLgmDxJWZ4Cagc2kY">旋转锚点</h2>
+      <div class="pivot-list" id="pivotList" data-page-node-id="lxwEdZ93zZjT80evHXFfdI"></div>
+      <div class="split" data-page-node-id="bYu7bqH9SvvUoSkQVtmXxf">
+        <button class="btn" id="btnAutoPivot" data-page-node-id="oGAU0PUbJLIhiArp8vPJqY">按包围盒推断</button>
+      </div>
+      <p class="hint" data-page-node-id="YTt7bg47JDZyg3rarsEruY">点蓝点拖动，或点列表选中后用方向键微调（Shift 加速）。改动会写进导出的 pet.json。</p>
+    </div>
+
+    <div class="card" data-page-node-id="xGYyGGAQ81f86MsZWHaXI0">
+      <h2 data-page-node-id="D7UnhPjavrIzTsHIR8RoYr">动作预览</h2>
+      <div class="row" id="stateBtns" data-page-node-id="wXM6Mc0teGUU7y5VDWULw9"></div>
+      <div class="split" data-page-node-id="uwEEDGZsbgNaoH9OdpIntx">
+        <button class="btn" id="btnSim" data-page-node-id="aOXnvBjK317ADfuhGlG7Mm">模拟 Agent 回合</button>
+      </div>
+      <div class="split" data-page-node-id="tUVTFcFODV3AMjG4Pv9WPJ">
+        <button class="btn" id="btnManual" data-page-node-id="votFJAl7CgXjuF914wUcto">手动参数</button>
+      </div>
+    </div>
+
+    <div class="card" data-page-node-id="TSDf3MAZAvh2dVlQysZlLq">
+      <h2 data-page-node-id="fu7wvncy06eQZu7dEvXJop">参数调校</h2>
+      <div class="slider" data-page-node-id="gSnYPRnf0JIDLeMDDrjAHH"><label data-page-node-id="bOps3mOKAP1GbeEj67FHB0">嘴开合</label><input type="range" id="pMouth" min="0" max="100" value="0" data-page-node-id="UJPEOhHyKojiIYxT9aDtJm"><output id="oMouth" data-page-node-id="DT6h0fsGH9T6aQ9C6bnHew">0</output></div>
+      <div class="slider" data-page-node-id="rtYDH1MyUReAmqRPIRWWH2"><label data-page-node-id="liyuurCe8haluLh9eQy9Fw">眼球 X</label><input type="range" id="pEyeX" min="-100" max="100" value="0" data-page-node-id="q1UwsFOxXLnHhqJv7lVDCm"><output id="oEyeX" data-page-node-id="pHunc4tzk419p9jIMfaCZM">0</output></div>
+      <div class="slider" data-page-node-id="hjle9jVfkCVAqSHSG9Bc24"><label data-page-node-id="joby3U6es65QardyuhKZGV">眼球 Y</label><input type="range" id="pEyeY" min="-100" max="100" value="0" data-page-node-id="6RTkmvvhpmEATH4cFberAe"><output id="oEyeY" data-page-node-id="fVqtGYwaPr3Hxs07uCrb6u">0</output></div>
+      <div class="slider" data-page-node-id="JvAlwGAzjJpIf9485O3GvJ"><label data-page-node-id="PXn1uGtNH4a4PGmMn3TN9h">身体倾斜</label><input type="range" id="pTilt" min="-100" max="100" value="0" data-page-node-id="wAHHiydi5Cc3DniZ3IDrPq"><output id="oTilt" data-page-node-id="7AwcP8FiMEOZaxXBn3FvFI">0</output></div>
+      <div class="slider" data-page-node-id="P3V7ao8auyqPSlQKa1dssH"><label data-page-node-id="Zm6uy2FAJCmsFyFyD69cOW">尾巴摆幅</label><input type="range" id="pTail" min="0" max="100" value="60" data-page-node-id="XrLOwjhNPxlrMAd7dPR2Bj"><output id="oTail" data-page-node-id="qNFJRYZKiZX1uVAybwSLCg">60</output></div>
+      <div class="slider" data-page-node-id="MwzyOSQNWaGshpNb0mAfXy"><label data-page-node-id="HaWeLBEvDRslFtDnj7RSIW">垂头</label><input type="range" id="pDrop" min="0" max="100" value="0" data-page-node-id="wEAyrme5x8IFszgRoicffV"><output id="oDrop" data-page-node-id="SigcDj9MJtgnuc7cmYms68">0</output></div>
+    </div>
+
+    <div class="card" data-page-node-id="vrZCoNtZOG6mvM8uAk0KbU">
+      <h2 data-page-node-id="GvCCd05LiPT2inNyBqwX1c">导出的 pet.json</h2>
+      <pre class="manifest" id="manifest" data-page-node-id="FpHw8h2BUE4MkE9jdaXQy5"></pre>
+      <div class="split" data-page-node-id="SbqJAzBnOGg38XAELNBC10">
+        <button class="btn" id="btnCopy" data-page-node-id="JFxPBFtgqpN2Vr6ghmwmFN">复制</button>
+        <button class="btn" id="btnDownload" data-page-node-id="WCW6gNQgCwxroIWETzRE40">下载</button>
+      </div>
+    </div>
+  </aside>
+</main>
+
+<script>
+(function () {
+  "use strict";
+  var NS = "http://www.w3.org/2000/svg";
+  var $ = function (s, r) { return (r || document).querySelector(s); };
+  var $$ = function (s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); };
+
+  var TEMPLATE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!--
+    ============================================================
+    aprilio 分层矢量宠物 · 模板 v1
+    ============================================================
+    用法：在 Figma / Illustrator / Inkscape 里打开本文件，把自己的形象画进这些图层，
+    图层名（id）保持不动，导出 SVG 后拖进 prototypes/pet/pet-rig.html 即可预览。
+
+    命名规范（id 必须精确匹配，大小写敏感）：
+      pet-shadow              地面阴影（不随宠物跳动，可删）
+      pet-root        必需    本体容器，所有动作挂在它上面
+        pet-tail              尾巴，绕 data-pivot 摆动
+        pet-body              身体
+          pet-belly           肚皮/腹部浅色区
+          pet-paw-l / -r      前爪
+        pet-head      必需    头部容器，做点头/垂头
+          pet-ear-l / -r      耳朵，绕 data-pivot 抖动
+          pet-face            脸部主体
+          pet-muzzle          口鼻浅色区
+          pet-nose            鼻子
+          pet-blush-l / -r    腮红（改 opacity）
+          pet-whiskers        胡须
+          pet-eye-l / -r  必需 眼睛容器，眨眼靠缩放它
+            pet-eye-open-*    睁眼
+            pet-pupil-*       瞳孔（平移表现视线）
+            pet-eye-happy-*   笑眼 ∪，与 open 互斥显示
+            pet-eye-sleep-*   睡眼 ∩，与 open 互斥显示
+          pet-mouth       必需 嘴容器
+            pet-mouth-closed  闭嘴 ω
+            pet-mouth-open    张嘴（与 closed 互斥显示）
+            pet-tongue        舌头，随 open 出现
+
+    data-pivot="x,y" 声明旋转锚点（SVG 用户坐标，不是相对坐标）。
+    没写的部件由装配台按包围盒推断，也可以在装配台里拖锚点调整后导出到 pet.json。
+
+    画布约定：脚底线 y=478，水平中心 x=256，四周留 34px 余量防动作裁切。
+    ============================================================
+  -->
+
+  <!-- 地面阴影：独立于 pet-root，宠物跳起时它不动 -->
+  <ellipse id="pet-shadow" cx="256" cy="482" rx="150" ry="16" fill="#000000" opacity="0.16"/>
+
+  <g id="pet-root">
+    <!-- 尾巴（在身体之后，先画） -->
+    <g id="pet-tail" data-pivot="378,396">
+      <path d="M378 396 C 452 392 490 344 462 292" fill="none" stroke="#E28F4A" stroke-width="38" stroke-linecap="round"/>
+      <path d="M378 396 C 452 392 490 344 462 292" fill="none" stroke="#F0A35E" stroke-width="30" stroke-linecap="round"/>
+      <path d="M378 396 C 452 392 490 344 462 292" fill="none" stroke="#F8BE85" stroke-width="12" stroke-linecap="round" opacity="0.55"/>
+      <circle cx="462" cy="292" r="19" fill="#FFF4E4"/>
+    </g>
+
+    <!-- 身体 -->
+    <g id="pet-body">
+      <ellipse cx="256" cy="368" rx="134" ry="106" fill="#E28F4A"/>
+      <ellipse cx="256" cy="364" rx="130" ry="102" fill="#F0A35E"/>
+      <path d="M162 330 C 190 292 232 278 262 280 C 232 292 200 320 186 356 Z" fill="#F8BE85" opacity="0.4"/>
+      <ellipse id="pet-belly" cx="256" cy="392" rx="88" ry="76" fill="#FFF4E4"/>
+
+      <g id="pet-paw-l">
+        <ellipse cx="194" cy="452" rx="43" ry="27" fill="#FFF4E4"/>
+        <path d="M182 442 v20 M194 440 v22 M206 442 v20" stroke="#E6D3BC" stroke-width="3" stroke-linecap="round" fill="none"/>
+      </g>
+      <g id="pet-paw-r">
+        <ellipse cx="318" cy="452" rx="43" ry="27" fill="#FFF4E4"/>
+        <path d="M306 442 v20 M318 440 v22 M330 442 v20" stroke="#E6D3BC" stroke-width="3" stroke-linecap="round" fill="none"/>
+      </g>
+    </g>
+
+    <!-- 头部 -->
+    <g id="pet-head" data-pivot="256,300">
+      <g id="pet-ear-l" data-pivot="176,136">
+        <path d="M166 140 L184 44 L252 104 Z" fill="#E28F4A"/>
+        <path d="M174 136 L188 58 L244 104 Z" fill="#F0A35E"/>
+        <path d="M190 128 L199 76 L236 108 Z" fill="#F5A9A0"/>
+      </g>
+      <g id="pet-ear-r" data-pivot="336,136">
+        <path d="M346 140 L328 44 L260 104 Z" fill="#E28F4A"/>
+        <path d="M338 136 L324 58 L268 104 Z" fill="#F0A35E"/>
+        <path d="M322 128 L313 76 L276 108 Z" fill="#F5A9A0"/>
+      </g>
+
+      <g id="pet-face">
+        <ellipse cx="256" cy="200" rx="118" ry="108" fill="#E28F4A"/>
+        <ellipse cx="256" cy="196" rx="114" ry="104" fill="#F0A35E"/>
+        <ellipse cx="204" cy="142" rx="48" ry="30" fill="#F8BE85" opacity="0.4" transform="rotate(-20 204 142)"/>
+      </g>
+
+      <ellipse id="pet-muzzle" cx="256" cy="262" rx="56" ry="34" fill="#FFF4E4"/>
+      <g id="pet-blush-l"><ellipse cx="156" cy="250" rx="27" ry="16" fill="#FF9B93" opacity="0.55"/></g>
+      <g id="pet-blush-r"><ellipse cx="356" cy="250" rx="27" ry="16" fill="#FF9B93" opacity="0.55"/></g>
+
+      <g id="pet-whiskers" fill="none" stroke="#3A2A21" stroke-width="3.2" stroke-linecap="round" opacity="0.35">
+        <path d="M198 250 L136 234"/>
+        <path d="M198 262 L128 262"/>
+        <path d="M200 274 L138 290"/>
+        <path d="M314 250 L376 234"/>
+        <path d="M314 262 L384 262"/>
+        <path d="M312 274 L374 290"/>
+      </g>
+
+      <g id="pet-eye-l">
+        <ellipse id="pet-eye-open-l" cx="206" cy="196" rx="25" ry="29" fill="#FFFFFF"/>
+        <g id="pet-pupil-l">
+          <circle cx="206" cy="198" r="16" fill="#3A2A21"/>
+          <circle cx="199" cy="189" r="6" fill="#FFFFFF" opacity="0.92"/>
+          <circle cx="212" cy="208" r="3" fill="#FFFFFF" opacity="0.7"/>
+        </g>
+        <path id="pet-eye-happy-l" d="M182 204 q24 -26 48 0" fill="none" stroke="#3A2A21" stroke-width="8" stroke-linecap="round" opacity="0"/>
+        <path id="pet-eye-sleep-l" d="M182 190 q24 24 48 0" fill="none" stroke="#3A2A21" stroke-width="8" stroke-linecap="round" opacity="0"/>
+      </g>
+      <g id="pet-eye-r">
+        <ellipse id="pet-eye-open-r" cx="306" cy="196" rx="25" ry="29" fill="#FFFFFF"/>
+        <g id="pet-pupil-r">
+          <circle cx="306" cy="198" r="16" fill="#3A2A21"/>
+          <circle cx="299" cy="189" r="6" fill="#FFFFFF" opacity="0.92"/>
+          <circle cx="312" cy="208" r="3" fill="#FFFFFF" opacity="0.7"/>
+        </g>
+        <path id="pet-eye-happy-r" d="M282 204 q24 -26 48 0" fill="none" stroke="#3A2A21" stroke-width="8" stroke-linecap="round" opacity="0"/>
+        <path id="pet-eye-sleep-r" d="M282 190 q24 24 48 0" fill="none" stroke="#3A2A21" stroke-width="8" stroke-linecap="round" opacity="0"/>
+      </g>
+
+      <g id="pet-nose">
+        <path d="M242 244 L270 244 L256 258 Z" fill="#E8776B"/>
+        <circle cx="250" cy="247" r="3" fill="#FFFFFF" opacity="0.5"/>
+      </g>
+
+      <g id="pet-mouth">
+        <path id="pet-mouth-closed" d="M232 262 q12 14 24 0 q12 14 24 0" fill="none" stroke="#3A2A21" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+        <ellipse id="pet-mouth-open" cx="256" cy="270" rx="21" ry="19" fill="#B8524E" opacity="0"/>
+        <ellipse id="pet-tongue" cx="256" cy="278" rx="12" ry="8" fill="#FF8B8B" opacity="0"/>
+      </g>
+    </g>
+  </g>
+</svg>
+`;
+
+  /* ============================================================
+   * 1. 槽位定义
+   * ============================================================ */
+  var SLOTS = [
+    { id: "pet-root",    need: "required", pivot: "ground", label: "本体" },
+    { id: "pet-head",    need: "required", pivot: "bottom", label: "头" },
+    { id: "pet-eye-l",   need: "required", pivot: "center", basis: "pet-eye-open-l", label: "左眼" },
+    { id: "pet-eye-r",   need: "required", pivot: "center", basis: "pet-eye-open-r", label: "右眼" },
+    { id: "pet-mouth",   need: "required", pivot: "center", basis: "pet-mouth-open", label: "嘴" },
+    { id: "pet-body",    need: "optional", pivot: "none",   label: "身体" },
+    { id: "pet-tail",    need: "optional", pivot: "left",   label: "尾巴" },
+    { id: "pet-ear-l",   need: "optional", pivot: "bottom", label: "左耳" },
+    { id: "pet-ear-r",   need: "optional", pivot: "bottom", label: "右耳" },
+    { id: "pet-blush-l", need: "optional", pivot: "none",   label: "左腮红" },
+    { id: "pet-blush-r", need: "optional", pivot: "none",   label: "右腮红" },
+    { id: "pet-shadow",  need: "optional", pivot: "none",   label: "地面阴影" }
+  ];
+  var VARIANT_IDS = {
+    eyeOpen:  ["pet-eye-open-l", "pet-eye-open-r"],
+    pupil:    ["pet-pupil-l", "pet-pupil-r"],
+    eyeHappy: ["pet-eye-happy-l", "pet-eye-happy-r"],
+    eyeSleep: ["pet-eye-sleep-l", "pet-eye-sleep-r"],
+    mouthClosed: ["pet-mouth-closed"],
+    mouthOpen:   ["pet-mouth-open"],
+    tongue:      ["pet-tongue"]
+  };
+
+  /* ============================================================
+   * 2. 参数与弹簧插值
+   * ============================================================ */
+  var PK = ["mouthOpenY", "eyeBallX", "eyeBallY", "eyeOpen", "blush", "breath",
+            "tailSway", "bodyAngleZ", "headAngleZ", "headDrop", "hop", "squish", "earTwitch"];
+  var SPRING_KEYS = ["eyeBallX", "eyeBallY", "blush", "breath", "tailSway",
+                     "bodyAngleZ", "headAngleZ", "headDrop", "hop", "squish", "earTwitch"];
+  var P = {}, T = {}, V = {};
+  PK.forEach(function (k) { P[k] = 0; T[k] = 0; V[k] = { v: 0 }; });
+  P.eyeOpen = 1; T.eyeOpen = 1;
+
+  function integrate() {
+    for (var i = 0; i < PK.length; i++) {
+      var k = PK[i];
+      if (SPRING_KEYS.indexOf(k) >= 0) {
+        var s = V[k];
+        s.v += (T[k] - P[k]) * 0.22;
+        s.v *= 0.74;
+        P[k] += s.v;
+      } else {
+        P[k] += (T[k] - P[k]) * 0.45;
+      }
+    }
+  }
+
+  /* ============================================================
+   * 3. 装配
+   * ============================================================ */
+  var box = $("#wrapPet");
+  var rig = null;
+  var report = [];
+  var showAnchors = true, showGrid = true, manual = false;
+  var state = "idle", stateAt = 0;
+  var blinkUntil = 0, nextBlink = 0, idleNext = 0, idleImpulse = 0;
+  var mouthOpenState = false;
+  var faceMode = "normal";
+  var activePivotSlot = null;
+  var tailAmp = 0.6;
+  var busy = false;
+
+  function inlineStyles(svg) {
+    var map = {};
+    $$("style", svg).forEach(function (st) {
+      var css = st.textContent || "";
+      var re = /([.#]?[\w-]+)\s*\{([^}]*)\}/g, m;
+      while ((m = re.exec(css))) {
+        var key = m[1].replace(/^[.#]/, "");
+        map[key] = (map[key] ? map[key] + ";" : "") + m[2].replace(/^[;\s]+|[;\s]+$/g, "");
+      }
+      st.parentNode.removeChild(st);
+    });
+    $$("[class]", svg).forEach(function (el) {
+      var cls = (el.getAttribute("class") || "").split(/\s+/);
+      var add = [];
+      cls.forEach(function (c) {
+        if (map[c]) add.push(map[c].replace(/^[;\s]+|[;\s]+$/g, ""));
+      });
+      if (add.length) {
+        var cur = (el.getAttribute("style") || "").replace(/^[;\s]+|[;\s]+$/g, "");
+        el.setAttribute("style", (cur ? cur + ";" : "") + add.join(";"));
+      }
+      el.removeAttribute("class");
+    });
+  }
+
+  function parseViewBox(svg) {
+    var vb = (svg.getAttribute("viewBox") || "").trim().split(/[\s,]+/).map(Number);
+    if (vb.length !== 4 || vb.some(function (n) { return !isFinite(n); })) {
+      var w = parseFloat(svg.getAttribute("width")) || 512;
+      var h = parseFloat(svg.getAttribute("height")) || 512;
+      vb = [0, 0, w, h];
+    }
+    return { x: vb[0], y: vb[1], w: vb[2], h: vb[3] };
+  }
+
+  function wrapSlot(el) {
+    var g = document.createElementNS(NS, "g");
+    g.setAttribute("data-slot", el.id);
+    el.parentNode.insertBefore(g, el);
+    g.appendChild(el);
+    return g;
+  }
+
+  function assemble(srcSvg) {
+    var svg = document.importNode(srcSvg, true);
+    inlineStyles(svg);
+    var vb = parseViewBox(svg);
+    svg.setAttribute("width", "100%");
+    svg.setAttribute("height", "100%");
+    svg.setAttribute("preserveAspectRatio", "xMidYMax meet");
+
+    box.innerHTML = "";
+    box.appendChild(svg);
+
+    // 重复 id 检测
+    var ids = {}, dup = [];
+    $$("[id]", svg).forEach(function (el) {
+      var id = el.id;
+      if (ids[id]) dup.push(id); else ids[id] = 1;
+    });
+
+    // 逐个包裹（父级在前，子级在后）
+    var found = {}, els = {}, wraps = {};
+    SLOTS.forEach(function (s) {
+      var el = svg.querySelector("#" + s.id);
+      if (!el) return;
+      found[s.id] = s;
+      els[s.id] = el;
+      wraps[s.id] = wrapSlot(el);
+    });
+
+    // 锚点
+    var pivots = {};
+    var groundY = vb.y + vb.h * 0.933;
+    var centerX = vb.x + vb.w / 2;
+    SLOTS.forEach(function (s) {
+      var el = els[s.id];
+      if (!el || s.pivot === "none") return;
+      var decl = (el.getAttribute("data-pivot") || "").split(/[\s,]+/).map(Number);
+      if (decl.length === 2 && decl.every(isFinite)) {
+        pivots[s.id] = decl;
+      } else {
+        // 用基准元素（如眼睛用睁开的那只）算包围盒，避免隐藏变体把中心拉偏
+        var basisEl = s.basis ? svg.querySelector("#" + s.basis) : null;
+        pivots[s.id] = inferPivot(basisEl || el, s.pivot, vb, groundY, centerX);
+      }
+    });
+
+    // 变体元素
+    var variants = {};
+    Object.keys(VARIANT_IDS).forEach(function (k) {
+      variants[k] = VARIANT_IDS[k].map(function (id) { return svg.querySelector("#" + id); });
+    });
+
+    // 腮红基准透明度
+    var blushBase = [];
+    ["pet-blush-l", "pet-blush-r"].forEach(function (id) {
+      var el = els[id];
+      if (el) blushBase.push([el, parseFloat(el.getAttribute("opacity") || "1")]);
+    });
+
+    rig = {
+      svg: svg, vb: vb, els: els, wraps: wraps, found: found, pivots: pivots,
+      groundY: groundY, centerX: centerX, variants: variants, blushBase: blushBase,
+      hasVariants: !!(variants.mouthOpen[0] && variants.mouthClosed[0]),
+      hasFaceVariants: !!(variants.eyeHappy[0] || variants.eyeSleep[0])
+    };
+
+    buildOverlay();
+    validate(dup);
+    renderPivotList();
+    apply();
+    renderManifest();
+  }
+
+  /** getBBox 在部分环境（如 jsdom）未实现，取不到就让调用方走兜底分支 */
+  function safeBBox(el) {
+    try {
+      var b = el.getBBox();
+      if (b && isFinite(b.x) && isFinite(b.y) && b.width >= 0 && b.height >= 0) return b;
+    } catch (e) {}
+    return null;
+  }
+
+  function inferPivot(el, kind, vb, groundY, centerX) {
+    if (kind === "ground") return [centerX, groundY];
+    var b = safeBBox(el);
+    if (!b) return [centerX, groundY];
+    if (kind === "bottom") return [b.x + b.width / 2, b.y + b.height];
+    if (kind === "left") return [b.x, b.y + b.height];
+    return [b.x + b.width / 2, b.y + b.height / 2];
+  }
+
+  /* ============================================================
+   * 4. 校验
+   * ============================================================ */
+  function validate(dup) {
+    report = [];
+    var missingReq = SLOTS.filter(function (s) { return s.need === "required" && !rig.found[s.id]; });
+    missingReq.forEach(function (s) {
+      report.push({ level: "error", text: "缺少必需图层 <code>" + s.id + "</code>（" + s.label + "），相关动作会失效" });
+    });
+    if (dup.length) report.push({ level: "error", text: "重复 id：" + dup.map(function (d) { return "<code>" + d + "</code>"; }).join("、") });
+
+    if (rig.found["pet-eye-l"] && !rig.found["pet-eye-r"]) report.push({ level: "warn", text: "只有左眼没有右眼，眨眼会不对称" });
+    if (rig.found["pet-eye-r"] && !rig.found["pet-eye-l"]) report.push({ level: "warn", text: "只有右眼没有左眼，眨眼会不对称" });
+    if (rig.found["pet-ear-l"] && !rig.found["pet-ear-r"]) report.push({ level: "warn", text: "耳朵不成对" });
+
+    var optionalAbsent = SLOTS.filter(function (s) { return s.need === "optional" && !rig.found[s.id]; });
+    if (optionalAbsent.length) {
+      report.push({ level: "info", text: "未使用可选图层：" + optionalAbsent.map(function (s) { return "<code>" + s.id + "</code>"; }).join("、") });
+    }
+
+    if (!rig.hasVariants) report.push({ level: "info", text: "嘴只有单一形态，说话时退化为缩放；加 <code>pet-mouth-open</code> 会更精细" });
+    if (!rig.variants.eyeHappy[0]) report.push({ level: "info", text: "没有笑眼变体 <code>pet-eye-happy-l/r</code>，开心时退化为眯眼缩放" });
+    if (!rig.variants.pupil[0]) report.push({ level: "warn", text: "缺少 <code>pet-pupil-l/r</code>，视线跟随无效" });
+
+    var vb = rig.vb;
+    if (Math.abs(vb.w - 512) > 1 || Math.abs(vb.h - 512) > 1) {
+      report.push({ level: "info", text: "画布 " + vb.w + "×" + vb.h + "，模板约定 512×512（不影响使用，只影响与其他素材对齐）" });
+    }
+    // 越界检查：贴住画布边缘说明动作会被裁掉
+    var rootEl = rig.els["pet-root"];
+    var rb = rootEl ? safeBBox(rootEl) : null;
+    if (rb) {
+      if (rb.y < vb.y + 8) report.push({ level: "warn", text: "本体上边缘贴住画布（y=" + Math.round(rb.y) + "），建议上方留 30px 以上余量" });
+      if (rb.y + rb.height > vb.y + vb.h - 8) report.push({ level: "info", text: "本体下边缘贴住画布底线，跳跃动作可能被裁切" });
+    }
+    if (!report.length) report.push({ level: "ok", text: "结构完整，未发现问题" });
+
+    var rp = $("#report");
+    rp.innerHTML = report.map(function (r) {
+      return '<div class="item ' + r.level + '"><div class="bul"></div><div>' + r.text + "</div></div>";
+    }).join("");
+  }
+
+  /* ============================================================
+   * 5. 锚点 overlay
+   * ============================================================ */
+  var overlay = null;
+  function buildOverlay() {
+    if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
+    overlay = document.createElementNS(NS, "g");
+    overlay.setAttribute("id", "rigOverlay");
+    rig.svg.appendChild(overlay);
+    renderPivots();
+  }
+
+  function renderPivots() {
+    if (!overlay) return;
+    while (overlay.firstChild) overlay.removeChild(overlay.firstChild);
+    if (!showAnchors) return;
+    var vb = rig.vb;
+
+    if (showGrid) {
+      var g = document.createElementNS(NS, "g");
+      g.setAttribute("opacity", "0.16");
+      g.setAttribute("pointer-events", "none");
+      for (var x = vb.x; x <= vb.x + vb.w; x += vb.w / 16) {
+        var l = document.createElementNS(NS, "line");
+        l.setAttribute("x1", x); l.setAttribute("y1", vb.y);
+        l.setAttribute("x2", x); l.setAttribute("y2", vb.y + vb.h);
+        l.setAttribute("stroke", "#0a84ff"); l.setAttribute("stroke-width", "0.5");
+        g.appendChild(l);
+      }
+      for (var y = vb.y; y <= vb.y + vb.h; y += vb.h / 16) {
+        var l2 = document.createElementNS(NS, "line");
+        l2.setAttribute("x1", vb.x); l2.setAttribute("y1", y);
+        l2.setAttribute("x2", vb.x + vb.w); l2.setAttribute("y2", y);
+        l2.setAttribute("stroke", "#0a84ff"); l2.setAttribute("stroke-width", "0.5");
+        g.appendChild(l2);
+      }
+      var gl = document.createElementNS(NS, "line");
+      gl.setAttribute("x1", vb.x); gl.setAttribute("y1", rig.groundY);
+      gl.setAttribute("x2", vb.x + vb.w); gl.setAttribute("y2", rig.groundY);
+      gl.setAttribute("stroke", "#ff453a"); gl.setAttribute("stroke-width", "0.8");
+      g.appendChild(gl);
+      overlay.appendChild(g);
+    }
+
+    var unit = Math.max(vb.w, vb.h) / 100;
+    Object.keys(rig.pivots).forEach(function (slot) {
+      var p = rig.pivots[slot];
+      var g = document.createElementNS(NS, "g");
+      g.setAttribute("data-anchor", slot);
+      g.setAttribute("style", "cursor:grab");
+      var cx = document.createElementNS(NS, "circle");
+      cx.setAttribute("cx", p[0]); cx.setAttribute("cy", p[1]); cx.setAttribute("r", String(unit * 2.6));
+      cx.setAttribute("fill", activePivotSlot === slot ? "rgba(10,132,255,.35)" : "rgba(10,132,255,.14)");
+      cx.setAttribute("stroke", "#0a84ff"); cx.setAttribute("stroke-width", "2");
+      cx.setAttribute("vector-effect", "non-scaling-stroke");
+      g.appendChild(cx);
+      var h1 = document.createElementNS(NS, "line");
+      h1.setAttribute("x1", p[0]); h1.setAttribute("y1", p[1] - unit * 4);
+      h1.setAttribute("x2", p[0]); h1.setAttribute("y2", p[1] + unit * 4);
+      h1.setAttribute("stroke", "#0a84ff"); h1.setAttribute("stroke-width", "2");
+      h1.setAttribute("vector-effect", "non-scaling-stroke");
+      h1.setAttribute("pointer-events", "none");
+      g.appendChild(h1);
+      var h2 = document.createElementNS(NS, "line");
+      h2.setAttribute("x1", p[0] - unit * 4); h2.setAttribute("y1", p[1]);
+      h2.setAttribute("x2", p[0] + unit * 4); h2.setAttribute("y2", p[1]);
+      h2.setAttribute("stroke", "#0a84ff"); h2.setAttribute("stroke-width", "2");
+      h2.setAttribute("vector-effect", "non-scaling-stroke");
+      h2.setAttribute("pointer-events", "none");
+      g.appendChild(h2);
+      overlay.appendChild(g);
+    });
+  }
+
+  function toSvgPoint(e) {
+    var pt = rig.svg.createSVGPoint();
+    pt.x = e.clientX; pt.y = e.clientY;
+    var m = rig.svg.getScreenCTM();
+    if (!m) return { x: 0, y: 0 };
+    var p = pt.matrixTransform(m.inverse());
+    return { x: p.x, y: p.y };
+  }
+
+  var dragging = null;
+  box.addEventListener("pointerdown", function (e) {
+    var g = e.target.closest ? e.target.closest("[data-anchor]") : null;
+    if (!g) return;
+    dragging = g.getAttribute("data-anchor");
+    activePivotSlot = dragging;
+    box.setPointerCapture(e.pointerId);
+    e.preventDefault();
+    renderPivots(); renderPivotList();
+  });
+  box.addEventListener("pointermove", function (e) {
+    if (!dragging) return;
+    var p = toSvgPoint(e);
+    rig.pivots[dragging] = [Math.round(p.x), Math.round(p.y)];
+    renderPivots();
+    var row = $('[data-row="' + dragging + '"] .vl');
+    if (row) row.textContent = Math.round(p.x) + ", " + Math.round(p.y);
+  });
+  function endDrag(e) {
+    if (!dragging) return;
+    dragging = null;
+    try { box.releasePointerCapture(e.pointerId); } catch (err) {}
+    renderManifest(); renderPivotList();
+  }
+  box.addEventListener("pointerup", endDrag);
+  box.addEventListener("pointercancel", endDrag);
+
+  document.addEventListener("keydown", function (e) {
+    if (!activePivotSlot || !rig || !rig.pivots[activePivotSlot]) return;
+    var step = e.shiftKey ? 10 : 1, dx = 0, dy = 0;
+    if (e.key === "ArrowLeft") dx = -step;
+    else if (e.key === "ArrowRight") dx = step;
+    else if (e.key === "ArrowUp") dy = -step;
+    else if (e.key === "ArrowDown") dy = step;
+    else return;
+    e.preventDefault();
+    var p = rig.pivots[activePivotSlot];
+    rig.pivots[activePivotSlot] = [p[0] + dx, p[1] + dy];
+    renderPivots(); renderPivotList(); renderManifest();
+  });
+
+  function renderPivotList() {
+    var box2 = $("#pivotList");
+    if (!rig) { box2.innerHTML = ""; return; }
+    var keys = Object.keys(rig.pivots);
+    if (!keys.length) { box2.innerHTML = '<div class="hint" style="margin:0">这个素材没有需要旋转的部件</div>'; return; }
+    box2.innerHTML = keys.map(function (k) {
+      var p = rig.pivots[k];
+      return '<div class="pivot-row' + (activePivotSlot === k ? " active" : "") + '" data-row="' + k + '">' +
+        '<span class="nm">' + k + '</span><span class="vl">' + p[0] + ", " + p[1] + "</span></div>";
+    }).join("");
+    $$(".pivot-row", box2).forEach(function (row) {
+      row.onclick = function () { activePivotSlot = row.getAttribute("data-row"); renderPivotList(); renderPivots(); };
+    });
+  }
+
+  /* ============================================================
+   * 6. 渲染
+   * ============================================================ */
+  function setOpacity(list, v) {
+    list.forEach(function (el) { if (el) el.style.opacity = String(v); });
+  }
+
+  function apply() {
+    if (!rig) return;
+    var w = rig.wraps, vb = rig.vb;
+    var unit = Math.max(vb.w, vb.h) / 100;
+
+    // 表情变体
+    var useFace = rig.hasFaceVariants;
+    if (useFace) {
+      var openV = faceMode === "normal" ? (P.eyeOpen > 0.5 ? 1 : 0) : 0;
+      setOpacity(rig.variants.eyeOpen, openV);
+      setOpacity(rig.variants.pupil, faceMode === "normal" ? 1 : 0);
+      setOpacity(rig.variants.eyeHappy, faceMode === "happy" ? 1 : 0);
+      setOpacity(rig.variants.eyeSleep, faceMode === "sleep" ? 1 : 0);
+    }
+
+    // 嘴
+    if (rig.hasVariants) {
+      if (!mouthOpenState && P.mouthOpenY > 0.45) mouthOpenState = true;
+      else if (mouthOpenState && P.mouthOpenY < 0.3) mouthOpenState = false;
+      setOpacity(rig.variants.mouthClosed, mouthOpenState ? 0 : 1);
+      setOpacity(rig.variants.mouthOpen, mouthOpenState ? 1 : 0);
+      setOpacity(rig.variants.tongue, P.mouthOpenY > 0.6 ? 1 : 0);
+    }
+
+    // 腮红
+    rig.blushBase.forEach(function (pair) {
+      pair[0].style.opacity = String(Math.max(0, Math.min(1, P.blush)) * pair[1]);
+    });
+
+    // 本体：绕脚底线的呼吸 / 跳跃 / 倾斜
+    if (w["pet-root"]) {
+      var sx = 1 - P.squish * 0.05;
+      var sy = 1 + P.squish * 0.07;
+      var ty = -P.hop * unit * 9 + P.breath * unit * 0.5;
+      var rp = rig.pivots["pet-root"] || [rig.centerX, rig.groundY];
+      var cx = rp[0], gy = rp[1];
+      w["pet-root"].setAttribute("transform",
+        "translate(" + cx + " " + (gy + ty) + ") rotate(" + P.bodyAngleZ + ") scale(" + sx + " " + sy + ") translate(" + -cx + " " + -gy + ")");
+    }
+    // 头
+    if (w["pet-head"]) {
+      var hp = rig.pivots["pet-head"] || [rig.centerX, rig.groundY];
+      w["pet-head"].setAttribute("transform",
+        "translate(0 " + (P.headDrop * unit * 5) + ") rotate(" + P.headAngleZ + " " + hp[0] + " " + hp[1] + ")");
+    }
+    // 尾巴
+    if (w["pet-tail"]) {
+      var tp = rig.pivots["pet-tail"];
+      w["pet-tail"].setAttribute("transform", "rotate(" + (P.tailSway * 16) + " " + tp[0] + " " + tp[1] + ")");
+    }
+    // 耳朵
+    [["pet-ear-l", -1], ["pet-ear-r", 1]].forEach(function (pair) {
+      var wp = w[pair[0]];
+      if (!wp) return;
+      var ep = rig.pivots[pair[0]];
+      var a = ep ? P.earTwitch * 7 * pair[1] : 0;
+      wp.setAttribute("transform", ep ? "rotate(" + a + " " + ep[0] + " " + ep[1] + ")" : "");
+    });
+    // 眼睛：眨眼（无变体时）+ 开合
+    if (!useFace) {
+      ["pet-eye-l", "pet-eye-r"].forEach(function (id) {
+        var wp = w[id], ep = rig.pivots[id];
+        if (!wp || !ep) return;
+        var k = Math.max(0.06, P.eyeOpen);
+        wp.setAttribute("transform", "translate(" + ep[0] + " " + ep[1] + ") scale(1 " + k + ") translate(" + -ep[0] + " " + -ep[1] + ")");
+      });
+    }
+    // 瞳孔视线
+    rig.variants.pupil.forEach(function (el) {
+      if (!el) return;
+      el.setAttribute("transform", "translate(" + (P.eyeBallX * unit * 1.6) + " " + (P.eyeBallY * unit * 1.6) + ")");
+    });
+    // 嘴：无变体时缩放
+    if (!rig.hasVariants && w["pet-mouth"]) {
+      var mp = rig.pivots["pet-mouth"] || [rig.centerX, rig.groundY];
+      var k2 = 0.5 + P.mouthOpenY * 1.8;
+      w["pet-mouth"].setAttribute("transform",
+        "translate(" + mp[0] + " " + mp[1] + ") scale(" + (0.8 + P.mouthOpenY * 0.4) + " " + k2 + ") translate(" + -mp[0] + " " + -mp[1] + ")");
+    }
+    $("#statChip").textContent =
+      Object.keys(rig.found).length + " 图层 · " + Object.keys(rig.pivots).length + " 锚点" +
+      (rig.hasVariants ? " · 双嘴型" : "") + (useFace ? " · 表情变体" : "");
+  }
+
+  /* ============================================================
+   * 7. 状态机
+   * ============================================================ */
+  var STATES = {
+    idle: "待机", thinking: "思考中", talking: "说话中", working: "执行中",
+    happy: "开心", asleep: "睡觉", sad: "受挫"
+  };
+  var speak = null;
+
+  function setFace(m) { if (faceMode !== m) faceMode = m; }
+
+  function setState(next) {
+    if (!STATES[next]) return;
+    state = next;
+    stateAt = performance.now();
+    $("#stateChip").textContent = STATES[next];
+    $$("#stateBtns .btn").forEach(function (b) { b.classList.toggle("active", b.dataset.state === next); });
+    if (next === "happy") { setFace("happy"); bubble("好耶！", 1200); }
+    else if (next === "asleep") { setFace("sleep"); bubble("💤", 0); }
+    else if (next === "sad") { setFace("normal"); bubble("唔……", 1400); }
+    else if (next === "working") { setFace("normal"); bubble("正在调用工具…", 0); }
+    else if (next === "thinking") { setFace("normal"); bubble("让我想想…", 0); }
+    else { setFace("normal"); hideBubble(); }
+    if (next === "happy" || next === "sad") {
+      window.setTimeout(function () { if (state === next) setState("idle"); }, 1500);
+    }
+  }
+  function bubble(t, ms) {
+    $("#bubble").textContent = t;
+    $("#bubble").classList.add("show");
+    if (ms > 0) window.setTimeout(hideBubble, ms);
+  }
+  function hideBubble() { $("#bubble").classList.remove("show"); }
+
+  function drive() {
+    var t = performance.now() / 1000;
+    if (manual) { T.breath = Math.sin(t * 1.8); T.tailSway = Math.sin(t * 2.2) * tailAmp * 2; blinkTick(); return; }
+
+    T.blush = 0.35; T.squish = 0; T.headDrop = 0; T.hop = 0; T.earTwitch = 0; T.eyeOpen = 1;
+
+    if (state === "idle") {
+      T.breath = Math.sin(t * 1.8);
+      T.tailSway = Math.sin(t * 2.1) * tailAmp * (1 + idleImpulse * 1.5);
+      T.eyeBallX = Math.sin(t * 0.45) * 0.3;
+      T.eyeBallY = Math.sin(t * 0.7) * 0.12;
+      T.bodyAngleZ = Math.sin(t * 1.8) * 0.8 + idleImpulse * 1.6 * Math.sin(t * 9);
+      T.mouthOpenY = 0.02;
+      T.earTwitch = idleImpulse * Math.sin(t * 14) * 0.5;
+    } else if (state === "thinking") {
+      T.breath = Math.sin(t * 1.4); T.tailSway = Math.sin(t * 1.1) * tailAmp * 0.5;
+      T.eyeBallX = Math.sin(t * 3.1) * 0.9; T.eyeBallY = -0.45;
+      T.bodyAngleZ = Math.sin(t * 1.1) * 1.5; T.headAngleZ = Math.sin(t * 1.6) * 2.2;
+      T.mouthOpenY = 0;
+    } else if (state === "talking") {
+      T.breath = Math.sin(t * 2.2); T.tailSway = Math.sin(t * 3.4) * tailAmp * 1.1;
+      T.eyeBallX = Math.sin(t * 1.2) * 0.5; T.bodyAngleZ = Math.sin(t * 2.6) * 1.1;
+      T.headAngleZ = Math.sin(t * 2.6) * 2.4; T.blush = 0.55;
+      if (speak) {
+        var prog = Math.floor((performance.now() - speak.t0) / 70);
+        if (prog > speak.i) speak.i = prog;
+        T.mouthOpenY = Math.abs(Math.sin(speak.i * 0.85)) * (0.6 + Math.sin(speak.i * 2.7) * 0.4);
+        if (speak.i >= speak.text.length + 4) { speak = null; setState("idle"); }
+      } else {
+        T.mouthOpenY = Math.abs(Math.sin(t * 11)) * 0.7;
+      }
+    } else if (state === "working") {
+      T.breath = Math.sin(t * 3.4) * 0.7; T.tailSway = Math.sin(t * 6) * tailAmp * 1.2;
+      T.bodyAngleZ = Math.sin(t * 13) * 2.2; T.headAngleZ = Math.sin(t * 13) * 1.5;
+      T.mouthOpenY = 0.04; T.eyeBallX = Math.sin(t * 8) * 0.35; T.earTwitch = Math.sin(t * 9) * 0.6;
+    } else if (state === "happy") {
+      var k = Math.min(1, (performance.now() - stateAt) / 320);
+      var arc = Math.sin(Math.min(Math.PI, k * Math.PI * 2.2));
+      T.hop = Math.max(0, arc) * 1.2; T.squish = -arc * 0.5;
+      T.breath = Math.sin(t * 4) * 0.6; T.tailSway = Math.sin(t * 8) * tailAmp * 1.5;
+      T.mouthOpenY = 0.8; T.blush = 0.95; T.headAngleZ = Math.sin(t * 8) * 3;
+    } else if (state === "asleep") {
+      T.breath = Math.sin(t * 0.85) * 1.8; T.tailSway = Math.sin(t * 0.6) * tailAmp * 0.3;
+      T.bodyAngleZ = Math.sin(t * 0.85) * 1.5; T.headDrop = 0.85; T.mouthOpenY = 0.1; T.blush = 0.4;
+    } else if (state === "sad") {
+      T.breath = Math.sin(t * 1.2) * 0.7; T.tailSway = Math.sin(t * 0.9) * tailAmp * 0.3;
+      T.eyeBallY = 0.5; T.headDrop = 0.8; T.mouthOpenY = 0.03; T.blush = 0.15;
+    }
+    blinkTick();
+  }
+
+  function blinkTick() {
+    var now = performance.now();
+    if (now > idleNext) { idleNext = now + 4200 + Math.random() * 5200; idleImpulse = 1; }
+    if (idleImpulse > 0) idleImpulse = Math.max(0, idleImpulse - 0.012);
+    if (faceMode === "normal") {
+      if (now > nextBlink && now > blinkUntil) {
+        blinkUntil = now + (state === "working" ? 90 : 130);
+        nextBlink = now + 2200 + Math.random() * 3400;
+      }
+      T.eyeOpen = now < blinkUntil ? 0 : 1;
+    }
+  }
+
+  function frame() {
+    drive();
+    integrate();
+    apply();
+    requestAnimationFrame(frame);
+  }
+
+  /* ============================================================
+   * 8. Agent 回合模拟
+   * ============================================================ */
+  function onAgentEvent(e) {
+    if (e.type === "text-delta") {
+      if (state !== "talking") setState("talking");
+      if (!speak) speak = { text: e.text, i: 0, t0: performance.now() };
+      else speak.text += e.text;
+    } else if (e.type === "tool-start") {
+      speak = null; setState("working");
+    } else if (e.type === "tool-end") {
+      setState(e.ok === false ? "sad" : "happy");
+    }
+  }
+
+  function simulate() {
+    if (busy) return;
+    busy = true;
+    setState("thinking"); speak = null;
+    var seq = [
+      function () { onAgentEvent({ type: "tool-start", name: "query_students" }); },
+      function () { onAgentEvent({ type: "tool-end", name: "query_students" }); },
+      function () { onAgentEvent({ type: "text-delta", text: "四年级一班最近三次测验我都看过了，" }); },
+      function () { onAgentEvent({ type: "text-delta", text: "有 3 位同学的成绩连续下滑，需要重点关注。" }); }
+    ];
+    var i = 0;
+    var step = function () {
+      if (i >= seq.length) {
+        window.setTimeout(function () {
+          busy = false;
+          window.setTimeout(function () { if (state !== "talking") setState("idle"); }, 1200);
+        }, 900);
+        return;
+      }
+      seq[i++]();
+      window.setTimeout(step, 620 + Math.random() * 400);
+    };
+    step();
+  }
+
+  /* ============================================================
+   * 9. 导出
+   * ============================================================ */
+  function currentManifest() {
+    var slots = {}, piv = {};
+    Object.keys(rig.found).forEach(function (k) { slots[k] = rig.found[k].label; });
+    Object.keys(rig.pivots).forEach(function (k) { piv[k] = rig.pivots[k]; });
+    return {
+      schema: "aprilio.pet/1",
+      id: "custom-layered",
+      name: "自定义分层形象",
+      runtime: "vector-layered",
+      author: "me",
+      version: "1.0.0",
+      canvas: {
+        viewBox: [rig.vb.x, rig.vb.y, rig.vb.w, rig.vb.h].join(" "),
+        centerX: Math.round(rig.centerX),
+        groundLineY: Math.round(rig.groundY)
+      },
+      vector: { source: "assets/model.svg", slots: slots, pivots: piv },
+      behavior: { blinkIntervalMs: [2200, 5600], tailAmp: 0.6 }
+    };
+  }
+  function renderManifest() {
+    if (!rig) return;
+    $("#manifest").textContent = JSON.stringify(currentManifest(), null, 2);
+  }
+
+  /* ============================================================
+   * 10. UI
+   * ============================================================ */
+  function loadSvgText(text, label) {
+    try {
+      var doc = new DOMParser().parseFromString(text, "image/svg+xml");
+      if (doc.querySelector("parsererror")) throw new Error("XML 解析失败，文件可能不是合法 SVG");
+      var svg = doc.documentElement;
+      if (!svg || svg.nodeName === "parsererror") throw new Error("没有找到 <svg> 根节点");
+      assemble(svg);
+      $("#tagName").textContent = label;
+    } catch (err) {
+      $("#report").innerHTML = '<div class="item error"><div class="bul"></div><div>加载失败：' +
+        String((err && err.message) || err) + "</div></div>";
+    }
+  }
+
+  function readFile(f) {
+    var fr = new FileReader();
+    fr.onload = function () { loadSvgText(String(fr.result), "文件 · " + f.name); };
+    fr.readAsText(f);
+  }
+
+  $("#btnPick").onclick = function () { $("#fileSvg").click(); };
+  $("#fileSvg").onchange = function (e) { if (e.target.files[0]) readFile(e.target.files[0]); e.target.value = ""; };
+  $("#btnTemplate").onclick = function () { loadSvgText(TEMPLATE_SVG, "模板 · 橘猫"); };
+
+  var stage = $("#stage");
+  ["dragenter", "dragover"].forEach(function (ev) {
+    stage.addEventListener(ev, function (e) { e.preventDefault(); stage.classList.add("drag"); });
+  });
+  ["dragleave", "drop"].forEach(function (ev) {
+    stage.addEventListener(ev, function (e) { e.preventDefault(); stage.classList.remove("drag"); });
+  });
+  stage.addEventListener("drop", function (e) {
+    var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f) readFile(f);
+  });
+
+  // 下载模板
+  $("#btnDownloadTpl").onclick = function () {
+    var blob = new Blob([TEMPLATE_SVG], { type: "image/svg+xml" });
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "layered-cat.pet.svg";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
+  // 背景 / 锚点 / 参考线
+  var bgModes = ["bg-check", "bg-light", ""];
+  var bgLabels = ["背景：棋盘", "背景：浅色", "背景：深色"];
+  var bgIdx = 0;
+  $("#btnBg").onclick = function () {
+    stage.classList.remove("bg-check", "bg-light");
+    bgIdx = (bgIdx + 1) % 3;
+    if (bgModes[bgIdx]) stage.classList.add(bgModes[bgIdx]);
+    this.textContent = bgLabels[bgIdx];
+  };
+  $("#btnAnchors").onclick = function () {
+    showAnchors = !showAnchors;
+    this.classList.toggle("active", showAnchors);
+    this.textContent = "锚点：" + (showAnchors ? "显示" : "隐藏");
+    renderPivots();
+  };
+  $("#btnGrid").onclick = function () {
+    showGrid = !showGrid;
+    this.classList.toggle("active", showGrid);
+    this.textContent = "参考线：" + (showGrid ? "开" : "关");
+    renderPivots();
+  };
+  $("#btnAnchors").classList.add("active");
+  $("#btnGrid").classList.add("active");
+
+  $("#btnAutoPivot").onclick = function () {
+    if (!rig) return;
+    SLOTS.forEach(function (s) {
+      var el = rig.els[s.id];
+      if (!el || s.pivot === "none") return;
+      var basisEl = s.basis ? rig.svg.querySelector("#" + s.basis) : null;
+      rig.pivots[s.id] = inferPivot(basisEl || el, s.pivot, rig.vb, rig.groundY, rig.centerX);
+    });
+    renderPivots(); renderPivotList(); renderManifest();
+  };
+
+  // 状态按钮
+  (function () {
+    var box2 = $("#stateBtns");
+    Object.keys(STATES).forEach(function (k) {
+      var b = document.createElement("button");
+      b.className = "btn" + (state === k ? " active" : "");
+      b.textContent = STATES[k];
+      b.dataset.state = k;
+      b.onclick = function () { speak = null; setState(k); };
+      box2.appendChild(b);
+    });
+  })();
+
+  $("#btnSim").onclick = simulate;
+
+  var btnManual = $("#btnManual");
+  function setManual(on) {
+    manual = on;
+    btnManual.classList.toggle("active", on);
+    btnManual.textContent = on ? "手动参数：开" : "手动参数";
+    if (on) { speak = null; hideBubble(); }
+  }
+  btnManual.onclick = function () { setManual(!manual); };
+
+  var sliders = [
+    ["pMouth", "oMouth", "mouthOpenY", 100],
+    ["pEyeX", "oEyeX", "eyeBallX", 100],
+    ["pEyeY", "oEyeY", "eyeBallY", 100],
+    ["pTilt", "oTilt", "bodyAngleZ", 10],
+    ["pTail", "oTail", "__tailAmp", 100],
+    ["pDrop", "oDrop", "headDrop", 100]
+  ];
+  sliders.forEach(function (s) {
+    var input = $("#" + s[0]), out = $("#" + s[1]);
+    input.addEventListener("input", function () {
+      var v = Number(input.value);
+      out.textContent = String(v);
+      if (!manual) setManual(true);
+      if (s[2] === "__tailAmp") tailAmp = v / 100 * 2;
+      else T[s[2]] = v / s[3];
+    });
+  });
+
+  $("#btnCopy").onclick = function () {
+    var t = $("#manifest").textContent;
+    if (navigator.clipboard) navigator.clipboard.writeText(t);
+  };
+  $("#btnDownload").onclick = function () {
+    if (!rig) return;
+    var m = currentManifest();
+    var blob = new Blob([JSON.stringify(m, null, 2)], { type: "application/json" });
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "pet.json";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
+  /* ============================================================
+   * 11. 启动
+   * ============================================================ */
+  loadSvgText(TEMPLATE_SVG, "模板 · 橘猫");
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

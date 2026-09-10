@@ -1,0 +1,134 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!--
+    ============================================================
+    aprilio 分层矢量宠物 · 模板 v1
+    ============================================================
+    用法：在 Figma / Illustrator / Inkscape 里打开本文件，把自己的形象画进这些图层，
+    图层名（id）保持不动，导出 SVG 后拖进 prototypes/pet/pet-rig.html 即可预览。
+
+    命名规范（id 必须精确匹配，大小写敏感）：
+      pet-shadow              地面阴影（不随宠物跳动，可删）
+      pet-root        必需    本体容器，所有动作挂在它上面
+        pet-tail              尾巴，绕 data-pivot 摆动
+        pet-body              身体
+          pet-belly           肚皮/腹部浅色区
+          pet-paw-l / -r      前爪
+        pet-head      必需    头部容器，做点头/垂头
+          pet-ear-l / -r      耳朵，绕 data-pivot 抖动
+          pet-face            脸部主体
+          pet-muzzle          口鼻浅色区
+          pet-nose            鼻子
+          pet-blush-l / -r    腮红（改 opacity）
+          pet-whiskers        胡须
+          pet-eye-l / -r  必需 眼睛容器，眨眼靠缩放它
+            pet-eye-open-*    睁眼
+            pet-pupil-*       瞳孔（平移表现视线）
+            pet-eye-happy-*   笑眼 ∪，与 open 互斥显示
+            pet-eye-sleep-*   睡眼 ∩，与 open 互斥显示
+          pet-mouth       必需 嘴容器
+            pet-mouth-closed  闭嘴 ω
+            pet-mouth-open    张嘴（与 closed 互斥显示）
+            pet-tongue        舌头，随 open 出现
+
+    data-pivot="x,y" 声明旋转锚点（SVG 用户坐标，不是相对坐标）。
+    没写的部件由装配台按包围盒推断，也可以在装配台里拖锚点调整后导出到 pet.json。
+
+    画布约定：脚底线 y=478，水平中心 x=256，四周留 34px 余量防动作裁切。
+    ============================================================
+  -->
+
+  <!-- 地面阴影：独立于 pet-root，宠物跳起时它不动 -->
+  <ellipse id="pet-shadow" cx="256" cy="482" rx="150" ry="16" fill="#000000" opacity="0.16"/>
+
+  <g id="pet-root">
+    <!-- 尾巴（在身体之后，先画） -->
+    <g id="pet-tail" data-pivot="378,396">
+      <path d="M378 396 C 452 392 490 344 462 292" fill="none" stroke="#E28F4A" stroke-width="38" stroke-linecap="round"/>
+      <path d="M378 396 C 452 392 490 344 462 292" fill="none" stroke="#F0A35E" stroke-width="30" stroke-linecap="round"/>
+      <path d="M378 396 C 452 392 490 344 462 292" fill="none" stroke="#F8BE85" stroke-width="12" stroke-linecap="round" opacity="0.55"/>
+      <circle cx="462" cy="292" r="19" fill="#FFF4E4"/>
+    </g>
+
+    <!-- 身体 -->
+    <g id="pet-body">
+      <ellipse cx="256" cy="368" rx="134" ry="106" fill="#E28F4A"/>
+      <ellipse cx="256" cy="364" rx="130" ry="102" fill="#F0A35E"/>
+      <path d="M162 330 C 190 292 232 278 262 280 C 232 292 200 320 186 356 Z" fill="#F8BE85" opacity="0.4"/>
+      <ellipse id="pet-belly" cx="256" cy="392" rx="88" ry="76" fill="#FFF4E4"/>
+
+      <g id="pet-paw-l">
+        <ellipse cx="194" cy="452" rx="43" ry="27" fill="#FFF4E4"/>
+        <path d="M182 442 v20 M194 440 v22 M206 442 v20" stroke="#E6D3BC" stroke-width="3" stroke-linecap="round" fill="none"/>
+      </g>
+      <g id="pet-paw-r">
+        <ellipse cx="318" cy="452" rx="43" ry="27" fill="#FFF4E4"/>
+        <path d="M306 442 v20 M318 440 v22 M330 442 v20" stroke="#E6D3BC" stroke-width="3" stroke-linecap="round" fill="none"/>
+      </g>
+    </g>
+
+    <!-- 头部 -->
+    <g id="pet-head" data-pivot="256,300">
+      <g id="pet-ear-l" data-pivot="176,136">
+        <path d="M166 140 L184 44 L252 104 Z" fill="#E28F4A"/>
+        <path d="M174 136 L188 58 L244 104 Z" fill="#F0A35E"/>
+        <path d="M190 128 L199 76 L236 108 Z" fill="#F5A9A0"/>
+      </g>
+      <g id="pet-ear-r" data-pivot="336,136">
+        <path d="M346 140 L328 44 L260 104 Z" fill="#E28F4A"/>
+        <path d="M338 136 L324 58 L268 104 Z" fill="#F0A35E"/>
+        <path d="M322 128 L313 76 L276 108 Z" fill="#F5A9A0"/>
+      </g>
+
+      <g id="pet-face">
+        <ellipse cx="256" cy="200" rx="118" ry="108" fill="#E28F4A"/>
+        <ellipse cx="256" cy="196" rx="114" ry="104" fill="#F0A35E"/>
+        <ellipse cx="204" cy="142" rx="48" ry="30" fill="#F8BE85" opacity="0.4" transform="rotate(-20 204 142)"/>
+      </g>
+
+      <ellipse id="pet-muzzle" cx="256" cy="262" rx="56" ry="34" fill="#FFF4E4"/>
+      <g id="pet-blush-l"><ellipse cx="156" cy="250" rx="27" ry="16" fill="#FF9B93" opacity="0.55"/></g>
+      <g id="pet-blush-r"><ellipse cx="356" cy="250" rx="27" ry="16" fill="#FF9B93" opacity="0.55"/></g>
+
+      <g id="pet-whiskers" fill="none" stroke="#3A2A21" stroke-width="3.2" stroke-linecap="round" opacity="0.35">
+        <path d="M198 250 L136 234"/>
+        <path d="M198 262 L128 262"/>
+        <path d="M200 274 L138 290"/>
+        <path d="M314 250 L376 234"/>
+        <path d="M314 262 L384 262"/>
+        <path d="M312 274 L374 290"/>
+      </g>
+
+      <g id="pet-eye-l">
+        <ellipse id="pet-eye-open-l" cx="206" cy="196" rx="25" ry="29" fill="#FFFFFF"/>
+        <g id="pet-pupil-l">
+          <circle cx="206" cy="198" r="16" fill="#3A2A21"/>
+          <circle cx="199" cy="189" r="6" fill="#FFFFFF" opacity="0.92"/>
+          <circle cx="212" cy="208" r="3" fill="#FFFFFF" opacity="0.7"/>
+        </g>
+        <path id="pet-eye-happy-l" d="M182 204 q24 -26 48 0" fill="none" stroke="#3A2A21" stroke-width="8" stroke-linecap="round" opacity="0"/>
+        <path id="pet-eye-sleep-l" d="M182 190 q24 24 48 0" fill="none" stroke="#3A2A21" stroke-width="8" stroke-linecap="round" opacity="0"/>
+      </g>
+      <g id="pet-eye-r">
+        <ellipse id="pet-eye-open-r" cx="306" cy="196" rx="25" ry="29" fill="#FFFFFF"/>
+        <g id="pet-pupil-r">
+          <circle cx="306" cy="198" r="16" fill="#3A2A21"/>
+          <circle cx="299" cy="189" r="6" fill="#FFFFFF" opacity="0.92"/>
+          <circle cx="312" cy="208" r="3" fill="#FFFFFF" opacity="0.7"/>
+        </g>
+        <path id="pet-eye-happy-r" d="M282 204 q24 -26 48 0" fill="none" stroke="#3A2A21" stroke-width="8" stroke-linecap="round" opacity="0"/>
+        <path id="pet-eye-sleep-r" d="M282 190 q24 24 48 0" fill="none" stroke="#3A2A21" stroke-width="8" stroke-linecap="round" opacity="0"/>
+      </g>
+
+      <g id="pet-nose">
+        <path d="M242 244 L270 244 L256 258 Z" fill="#E8776B"/>
+        <circle cx="250" cy="247" r="3" fill="#FFFFFF" opacity="0.5"/>
+      </g>
+
+      <g id="pet-mouth">
+        <path id="pet-mouth-closed" d="M232 262 q12 14 24 0 q12 14 24 0" fill="none" stroke="#3A2A21" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+        <ellipse id="pet-mouth-open" cx="256" cy="270" rx="21" ry="19" fill="#B8524E" opacity="0"/>
+        <ellipse id="pet-tongue" cx="256" cy="278" rx="12" ry="8" fill="#FF8B8B" opacity="0"/>
+      </g>
+    </g>
+  </g>
+</svg>

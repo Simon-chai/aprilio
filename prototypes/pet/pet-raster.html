@@ -1,0 +1,1780 @@
+<!doctype html>
+<html lang="zh-CN" data-page-node-id="HzeRUqdNGkBKYA1rCMS8BF">
+<head data-page-node-id="PBx5k9rK6cM4z6SpBCFaVB">
+<meta charset="utf-8" data-page-node-id="Ic8Q5T0LyhFYBVNOm1e3Ez" />
+<meta name="viewport" content="width=device-width, initial-scale=1" data-page-node-id="YuPrHjwbiGbd4NHbwbPY7y" />
+<title>aprilio · 贴图形象装配台</title>
+<style>
+  :root{
+    --bg:#0f0f11; --panel:#1a1a1d; --panel2:#212126; --line:rgba(255,255,255,.09);
+    --ink:#f5f5f7; --ink2:#a1a1a6; --ink3:#6e6e73;
+    --blue:#0a84ff; --blue-dim:rgba(10,132,255,.16);
+    --green:#30d158; --amber:#ffd60a; --pink:#ff6482; --purple:#bf5af2; --red:#ff453a;
+    --r:14px;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{
+    background:var(--bg);color:var(--ink);overflow:hidden;
+    font:14px/1.55 -apple-system,"SF Pro Text","Segoe UI",system-ui,"Microsoft YaHei",sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  header{display:flex;align-items:baseline;gap:10px;padding:14px 20px 8px}
+  header h1{font-size:15px;font-weight:600;margin:0;letter-spacing:-.01em}
+  header .sub{font-size:12px;color:var(--ink3)}
+  header .tag{margin-left:auto;font-size:11px;color:var(--ink2);border:1px solid var(--line);padding:3px 9px;border-radius:999px;background:var(--panel)}
+  main{display:grid;grid-template-columns:minmax(400px,1fr) 390px;gap:14px;padding:0 20px 18px;height:calc(100% - 52px)}
+
+  .stage-col{display:flex;flex-direction:column;gap:12px;min-width:0}
+  .stage{
+    position:relative;flex:1;min-height:400px;border-radius:18px;overflow:hidden;
+    border:1px solid var(--line);
+    background:
+      linear-gradient(45deg,#2a2a30 25%,transparent 25%,transparent 75%,#2a2a30 75%),
+      linear-gradient(45deg,#2a2a30 25%,transparent 25%,transparent 75%,#2a2a30 75%),#1e1e22;
+    background-size:24px 24px;background-position:0 0,12px 12px;
+    cursor:default;touch-action:none;
+  }
+  .stage.bg-light{
+    background:
+      linear-gradient(45deg,#e2e2e6 25%,transparent 25%,transparent 75%,#e2e2e6 75%),
+      linear-gradient(45deg,#e2e2e6 25%,transparent 25%,transparent 75%,#e2e2e6 75%),#f5f5f7;
+    background-size:24px 24px;background-position:0 0,12px 12px;
+  }
+  .stage.bg-dark{background:#16161a}
+  .stage.drag{box-shadow:inset 0 0 0 2px var(--blue)}
+
+  .scene{position:absolute;left:50%;top:50%;transform-origin:0 0}
+  .root,.part{position:absolute;left:0;top:0;width:0;height:0}
+  .part > img,.root > img{position:absolute;display:block;user-select:none;-webkit-user-drag:none}
+  .layer-hit{cursor:move}
+  .overlay{position:absolute;left:0;top:0;overflow:visible;pointer-events:none}
+  .overlay .pivot{pointer-events:all;cursor:grab}
+
+  .sel-outline{
+    position:absolute;border:1px dashed rgba(10,132,255,.85);
+    box-shadow:0 0 0 1px rgba(0,0,0,.35) inset;pointer-events:none;z-index:9999
+  }
+  .stage-bar{position:absolute;left:14px;bottom:12px;right:14px;display:flex;gap:8px;font-size:11px;color:var(--ink3);pointer-events:none}
+  .chip{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;background:rgba(20,20,24,.55);border:1px solid var(--line);color:var(--ink2)}
+  .empty-tip{
+    position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:8px;color:var(--ink3);font-size:13px;text-align:center;pointer-events:none
+  }
+  .empty-tip b{color:var(--ink2);font-weight:500}
+
+  aside{display:flex;flex-direction:column;gap:11px;overflow-y:auto;padding-right:2px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:13px 14px}
+  .card > h2{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink3);margin:0 0 10px}
+  .row{display:flex;flex-wrap:wrap;gap:6px}
+  .btn{
+    appearance:none;border:1px solid var(--line);background:var(--panel2);color:var(--ink);
+    padding:6px 11px;border-radius:999px;font:12.5px/1 inherit;cursor:pointer;
+    transition:background .15s,border-color .15s,color .15s;
+  }
+  .btn:hover{background:#2b2b31}
+  .btn.active{background:var(--blue-dim);border-color:rgba(10,132,255,.45);color:#7db8ff}
+  .btn.primary{background:var(--blue);border-color:var(--blue);color:#fff;font-weight:500}
+  .btn.primary:hover{background:#3a9bff}
+  .btn.wide{width:100%;text-align:center;padding:8px 11px}
+  .btn:disabled{opacity:.45;cursor:default}
+  .hint{font-size:11.5px;color:var(--ink3);margin:9px 0 0;line-height:1.6}
+  .split{display:flex;gap:6px;margin-top:8px}
+  .split .btn{flex:1;text-align:center}
+  code{background:rgba(255,255,255,.08);padding:1px 5px;border-radius:5px;font-size:11px}
+
+  .layers{display:flex;flex-direction:column;gap:3px;max-height:210px;overflow-y:auto}
+  .lrow{display:flex;align-items:center;gap:7px;padding:4px 7px;border-radius:8px;font-size:12px;cursor:pointer}
+  .lrow:hover{background:rgba(255,255,255,.05)}
+  .lrow.active{background:var(--blue-dim)}
+  .lrow .eye{width:16px;text-align:center;color:var(--ink3);font-size:11px}
+  .lrow .nm{flex:1;font-family:ui-monospace,monospace;font-size:11.5px;color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .lrow .fl{font-size:10.5px;color:var(--ink3);max-width:76px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .lrow .mini{border:none;background:transparent;color:var(--ink3);cursor:pointer;padding:0 2px;font-size:12px;line-height:1}
+  .lrow .mini:hover{color:var(--ink)}
+  .lrow.miss .nm{color:var(--amber)}
+
+  .fld{display:grid;grid-template-columns:64px 1fr;align-items:center;gap:9px;margin-bottom:7px}
+  .fld label{font-size:11.5px;color:var(--ink2)}
+  .fld input[type=range]{width:100%;accent-color:var(--blue);height:3px}
+  select,input[type=number]{
+    width:100%;background:var(--panel2);color:var(--ink);border:1px solid var(--line);
+    border-radius:8px;padding:5px 8px;font:12px/1.4 inherit;
+  }
+  .pair{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+  .sheet-drop{
+    border:1px dashed var(--line);border-radius:10px;padding:14px;text-align:center;
+    font-size:12px;color:var(--ink3);cursor:pointer;transition:border-color .15s,background .15s
+  }
+  .sheet-drop:hover{border-color:var(--ink3)}
+  .sheet-drop.over{border-color:var(--blue);color:#7db8ff;background:var(--blue-dim)}
+  .sheet-preview{position:relative;margin-bottom:9px;border-radius:8px;overflow:hidden;background:#000;line-height:0}
+  .sheet-preview img{display:block;width:100%}
+  .sheet-grid{position:absolute;inset:0;pointer-events:none}
+  .sheet-grid i{position:absolute;background:rgba(10,132,255,.8)}
+  .swatch-in{width:100%;height:28px;padding:2px;border:1px solid var(--line);border-radius:8px;background:var(--panel2);cursor:pointer}
+  .chk{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--ink2);margin:7px 0;cursor:pointer}
+  .chk input{accent-color:var(--blue);margin:0;cursor:pointer}
+  .h2n{color:var(--ink3);font-weight:400;text-transform:none;letter-spacing:0}
+  .sheet-map{display:grid;grid-template-columns:1fr 1fr;gap:4px 8px;margin-top:8px}
+  .sheet-map div{font-size:10.5px;color:var(--ink3);display:flex;gap:5px;align-items:center;min-width:0}
+  .sheet-map b{font:10px/1 ui-monospace,monospace;color:var(--ink2);background:rgba(255,255,255,.06);
+    border-radius:4px;padding:2px 4px;flex:none}
+  .sheet-map span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .sheet-map .off{opacity:.35;text-decoration:line-through}
+  pre.manifest{margin:0;max-height:170px;overflow:auto;background:#111114;border:1px solid var(--line);border-radius:10px;padding:10px;font:11px/1.6 ui-monospace,monospace;color:#9fd0a8;white-space:pre}
+  ::-webkit-scrollbar{width:9px;height:9px}
+  ::-webkit-scrollbar-thumb{background:rgba(255,255,255,.13);border-radius:9px}
+  @media (max-width:960px){body{overflow:auto}main{grid-template-columns:1fr;height:auto}.stage{min-height:380px}}
+</style>
+</head>
+<body data-page-node-id="QBzs1bmNkzDGwHGcmx9qmu">
+<header data-page-node-id="zkF6kRDrGDpcPHsoM9Thgd">
+  <h1 data-page-node-id="BW6CGktgoFb6mvKR6gDUos">贴图形象装配台</h1>
+  <span class="sub" data-page-node-id="mx1Bj42UeNNfCkMBEDF0AC">aprilio · 分层位图素材调试</span>
+  <span class="tag" id="tagInfo" data-page-node-id="CcU2qgpt7pyvXR9kkd1vEE">等待素材</span>
+</header>
+
+<main data-page-node-id="JU5EWcFvyzZyBaKjp6L63d">
+  <div class="stage-col" data-page-node-id="rKt2GN0EZRWeXKAjzMLvxt">
+    <div class="stage" id="stage" data-page-node-id="g32VC7YBVRQfD41cqKwx1R">
+      <div class="scene" id="scene" data-page-node-id="wkznljhMPTOB4PaNZ24PGX">
+        <div class="root" id="petRoot" data-page-node-id="t4Bf7dy3ZPHV9CW7EaJHPY"></div>
+        <svg class="overlay" id="overlay" data-page-node-id="TSH0HVm4eWFLasNvuHuB6J"></svg>
+      </div>
+      <div class="sel-outline" id="selBox" style="display:none" data-page-node-id="qHWdq1IG5IlkcXtqvR84wq"></div>
+      <div class="empty-tip" id="emptyTip" data-page-node-id="fTydswGJ5tHeduwMqIEYqo">
+        <div data-page-node-id="Vosge5X1KxkSPVLIFRlM6a"><b data-page-node-id="GciA05XDyUUx68XyzAYGnE">把分层 PNG 拖进来</b></div>
+        <div style="font-size:12px" data-page-node-id="HZaexqYi4NDySx1RZ7zHEo">文件名对应部位，例如 <code data-page-node-id="osHue3uAL9hfNz4wMUSTD2">body.png</code> / <code data-page-node-id="dHSysuPQQb1oin8tYp79sv">head.png</code> / <code data-page-node-id="qSzBqf5HF0q3WYNrUs8gm7">eye-open-l.png</code></div>
+        <div style="font-size:12px;margin-top:4px" data-page-node-id="EcAHd16L1lesL4h10qnFsQ">没有素材？点右侧「生成演示图层」</div>
+      </div>
+      <div class="stage-bar" data-page-node-id="wgEtGFFLshNOKoLZO94ZjZ">
+        <span class="chip" id="stateChip" data-page-node-id="z0zAVpjwU33H8tP5Dqk5Jn">待机</span>
+        <span class="chip" id="canvasChip" data-page-node-id="Dt0YfghUwsADbAhrTdcl2y">—</span>
+        <span style="margin-left:auto" id="modeChip" data-page-node-id="OYSKsYPp9bood6JNu9lCIx"></span>
+      </div>
+    </div>
+  </div>
+
+  <aside data-page-node-id="S8KGEZZWTtf35CBaX9CYji">
+    <div class="card" data-page-node-id="xkSDARJPbSW2NgazT7ZRag">
+      <h2 data-page-node-id="CTQfFMv4kF1IyKLlbKiFCG">素材</h2>
+      <button class="btn primary wide" id="btnDemo" data-page-node-id="MKnnuazkBHXch4EU7hok1a">生成演示图层（矢量转贴图）</button>
+      <div class="split" data-page-node-id="73Cfh7JB5CDnLJeoc4gCdW">
+        <button class="btn" id="btnPick" data-page-node-id="q5ZH4ZJYinxwldV3pfEUDQ">选图片</button>
+        <button class="btn" id="btnClear" data-page-node-id="Nm7t9hVoPLqswTQ5fBAjLU">清空</button>
+      </div>
+      <input type="file" id="fileImgs" accept="image/png,image/jpeg,image/webp,image/avif" multiple hidden data-page-node-id="fodxuzQ7r70OVgeyxwttGq" />
+      <p class="hint" data-page-node-id="FuKsrXtEB8HR6IsDAHKx81">
+        <b data-page-node-id="Clqp5ASzkHZEfk9P5f9qMq">推荐做法</b>：在 PS / Procreate 里分层画好，所有图层导出为<b data-page-node-id="Ld8yRLGtxelJNJfliYAdRN">同尺寸、同位置</b>的透明 PNG——
+        拖进来会自动原位叠加，零对齐成本。散图（尺寸不一）也能用，手动摆位即可。
+      </p>
+    </div>
+
+    <div class="card" id="sheetCard">
+      <h2>素材板切片 <span class="h2n" id="sheetSize">3×3</span></h2>
+      <div class="sheet-drop" id="sheetDrop">
+        <div><b>拖入 AI 生成的素材板</b></div>
+        <div style="font-size:11px;margin-top:3px">纯色背景 + 网格排布的独立部件</div>
+      </div>
+      <div class="sheet-preview" id="sheetPreview" style="display:none">
+        <img id="sheetImg" alt="素材板预览" />
+        <div class="sheet-grid" id="sheetGrid"></div>
+      </div>
+      <div class="split" style="margin-top:9px">
+        <div class="fld" style="margin:0"><label>行</label><input type="number" id="sheetRows" min="1" max="6" step="1" value="3"></div>
+        <div class="fld" style="margin:0"><label>列</label><input type="number" id="sheetCols" min="1" max="6" step="1" value="3"></div>
+      </div>
+      <div class="fld" style="margin-top:8px"><label>背景色</label><input type="color" id="sheetBg" value="#ff00ff" class="swatch-in"></div>
+      <div class="fld"><label>抠图容差</label><input type="range" id="sheetTol" min="1" max="60" value="18"></div>
+      <div class="fld"><label>边缘羽化</label><input type="range" id="sheetFeather" min="0" max="40" value="8"></div>
+      <label class="chk"><input type="checkbox" id="sheetMirror" checked> 自动镜像补出另一侧（眼 / 耳）</label>
+      <label class="chk"><input type="checkbox" id="sheetDespill" checked> 边缘去除背景色溢</label>
+      <div class="sheet-map" id="sheetMap"></div>
+      <div class="split">
+        <button class="btn" id="btnSheetPick">选素材板</button>
+        <button class="btn" id="btnSheetSample">四角取色</button>
+      </div>
+      <button class="btn primary wide" id="btnSheetSlice" style="margin-top:6px">切片导入</button>
+      <input type="file" id="fileSheet" accept="image/png,image/jpeg,image/webp,image/avif" hidden />
+      <p class="hint" id="sheetHint">
+        部件按顺序映射：① 身体 ② 头 ③ 尾 ④ 睁眼 ⑤ 笑眼 ⑥ 睡眼 ⑦ 闭嘴 ⑧ 张嘴 ⑨ 单耳。
+        格子不够时后面的部件跳过；眼睛、耳朵只画一侧即可。
+      </p>
+    </div>
+
+    <div class="card" data-page-node-id="VSYmyAXgJjyVpGB4TDilQG">
+      <h2 data-page-node-id="lVqz1bdxixiG7Yut1ePrzI">图层栈 <span style="color:var(--ink3);font-weight:400;text-transform:none;letter-spacing:0" id="layerCount" data-page-node-id="5bxXJrK0kCbSRrewxYIQoX"></span></h2>
+      <div class="layers" id="layerList" data-page-node-id="PE5O3Y4HTTttyB04mxG50l"></div>
+      <div class="split" data-page-node-id="zgoHSRWtQ3bffCVfMJkLu9">
+        <button class="btn" id="btnAutoMap" data-page-node-id="9pZ3jawDU39FA0BRHmojNg">重新自动识别</button>
+        <button class="btn" id="btnAlign" data-page-node-id="9kyAlDYycki6JT0hC8Unc1">全部居中对齐</button>
+      </div>
+      <p class="hint" data-page-node-id="vDnPKqhMLYMuGsIdynhbln">点行选中，眼睛图标切显隐，<b data-page-node-id="vDniGUQz2ybXGK60Sj5rBQ">↑↓</b> 调层级。</p>
+    </div>
+
+    <div class="card" data-page-node-id="wduPrfhd8d6W66iAxCZ8Mi">
+      <h2 data-page-node-id="lcV2SJO2M7qusVXMldeunD">选中的图层</h2>
+      <div id="inspector" data-page-node-id="5itrZKOoRxkjSWZBRsEFeq">
+        <p class="hint" style="margin-top:0" data-page-node-id="bZdGFfCHKNEFVICJrHHuN7">先在图层栈里选一层。</p>
+      </div>
+    </div>
+
+    <div class="card" data-page-node-id="6QwnGWGUaPZ5FGAUuJxIBO">
+      <h2 data-page-node-id="FnjQuS8NU5mirSXvoTZC6k">动作预览</h2>
+      <div class="row" id="stateBtns" data-page-node-id="PEZPHosRz3LrJZD8PsQ9Gj"></div>
+      <div class="split" data-page-node-id="2rewPHoxAN4mCYPvMr8P6B">
+        <button class="btn" id="btnSim" data-page-node-id="6cnqx6T2tje7dEFpSHfumb">模拟 Agent 回合</button>
+      </div>
+    </div>
+
+    <div class="card" data-page-node-id="iWHJDAET16uZaKPMvdJISs">
+      <h2 data-page-node-id="Wu0TX9CwHTA5PtbelHd0lM">参数调校</h2>
+      <div class="fld" data-page-node-id="0XIlOYEhyG0hduzIPd0zsr"><label data-page-node-id="cjaxg3IGBbWDH3Ll3CYPfL">嘴开合</label><input type="range" id="pMouth" min="0" max="100" value="0" data-page-node-id="pugEZiBMCfwpyLteNVDyLt"></div>
+      <div class="fld" data-page-node-id="bpiKsfVq85C41pB2EBWgz5"><label data-page-node-id="WBgh63Qmw0vJyNDfU9lnac">眼球 X</label><input type="range" id="pEyeX" min="-100" max="100" value="0" data-page-node-id="iOvqz6dBWU87a7qaCoBiuR"></div>
+      <div class="fld" data-page-node-id="OdGXZwDMEUpUZSeTc7JZwN"><label data-page-node-id="yT31Wh0QfjrtPWOIjpEKWA">眼球 Y</label><input type="range" id="pEyeY" min="-100" max="100" value="0" data-page-node-id="8mD7RFy5YFY5IIHnHR1kQd"></div>
+      <div class="fld" data-page-node-id="pB1qTdHG2tN9D91i7HRV8G"><label data-page-node-id="bAggi0aLJPMNNay6w9F9Vv">身体倾斜</label><input type="range" id="pTilt" min="-100" max="100" value="0" data-page-node-id="tECZxkNMncuETySs0yZlA0"></div>
+      <div class="fld" data-page-node-id="edoWFeqH8waLApxDkrCAEP"><label data-page-node-id="o5raMmyRHKFFhtoHAj04NG">尾巴摆幅</label><input type="range" id="pTail" min="0" max="100" value="60" data-page-node-id="4Qh3euFIicUhqAeAyCkFAF"></div>
+    </div>
+
+    <div class="card" data-page-node-id="MHusanAjDNkxXf7H2hA09F">
+      <h2 data-page-node-id="WEiKb6LUa9Nd3fIkn1NTZW">导出的 pet.json</h2>
+      <pre class="manifest" id="manifest" data-page-node-id="OXMwmPWBn7bse1kqZ7KvYa"></pre>
+      <div class="split" data-page-node-id="MHmDi325hgW9QFDESoukEf">
+        <button class="btn" id="btnCopy" data-page-node-id="MFwbcEMNAqBz2vFW9a1lFt">复制</button>
+        <button class="btn" id="btnDownload" data-page-node-id="vks7i82yXPSLD3ASUwPdXc">下载</button>
+      </div>
+    </div>
+  </aside>
+</main>
+
+<script>
+(function () {
+  "use strict";
+  var NS = "http://www.w3.org/2000/svg";
+  var $ = function (s, r) { return (r || document).querySelector(s); };
+  var $$ = function (s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); };
+
+  var TEMPLATE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!--
+    ============================================================
+    aprilio 分层矢量宠物 · 模板 v1
+    ============================================================
+    用法：在 Figma / Illustrator / Inkscape 里打开本文件，把自己的形象画进这些图层，
+    图层名（id）保持不动，导出 SVG 后拖进 prototypes/pet/pet-rig.html 即可预览。
+
+    命名规范（id 必须精确匹配，大小写敏感）：
+      pet-shadow              地面阴影（不随宠物跳动，可删）
+      pet-root        必需    本体容器，所有动作挂在它上面
+        pet-tail              尾巴，绕 data-pivot 摆动
+        pet-body              身体
+          pet-belly           肚皮/腹部浅色区
+          pet-paw-l / -r      前爪
+        pet-head      必需    头部容器，做点头/垂头
+          pet-ear-l / -r      耳朵，绕 data-pivot 抖动
+          pet-face            脸部主体
+          pet-muzzle          口鼻浅色区
+          pet-nose            鼻子
+          pet-blush-l / -r    腮红（改 opacity）
+          pet-whiskers        胡须
+          pet-eye-l / -r  必需 眼睛容器，眨眼靠缩放它
+            pet-eye-open-*    睁眼
+            pet-pupil-*       瞳孔（平移表现视线）
+            pet-eye-happy-*   笑眼 ∪，与 open 互斥显示
+            pet-eye-sleep-*   睡眼 ∩，与 open 互斥显示
+          pet-mouth       必需 嘴容器
+            pet-mouth-closed  闭嘴 ω
+            pet-mouth-open    张嘴（与 closed 互斥显示）
+            pet-tongue        舌头，随 open 出现
+
+    data-pivot="x,y" 声明旋转锚点（SVG 用户坐标，不是相对坐标）。
+    没写的部件由装配台按包围盒推断，也可以在装配台里拖锚点调整后导出到 pet.json。
+
+    画布约定：脚底线 y=478，水平中心 x=256，四周留 34px 余量防动作裁切。
+    ============================================================
+  -->
+
+  <!-- 地面阴影：独立于 pet-root，宠物跳起时它不动 -->
+  <ellipse id="pet-shadow" cx="256" cy="482" rx="150" ry="16" fill="#000000" opacity="0.16"/>
+
+  <g id="pet-root">
+    <!-- 尾巴（在身体之后，先画） -->
+    <g id="pet-tail" data-pivot="378,396">
+      <path d="M378 396 C 452 392 490 344 462 292" fill="none" stroke="#E28F4A" stroke-width="38" stroke-linecap="round"/>
+      <path d="M378 396 C 452 392 490 344 462 292" fill="none" stroke="#F0A35E" stroke-width="30" stroke-linecap="round"/>
+      <path d="M378 396 C 452 392 490 344 462 292" fill="none" stroke="#F8BE85" stroke-width="12" stroke-linecap="round" opacity="0.55"/>
+      <circle cx="462" cy="292" r="19" fill="#FFF4E4"/>
+    </g>
+
+    <!-- 身体 -->
+    <g id="pet-body">
+      <ellipse cx="256" cy="368" rx="134" ry="106" fill="#E28F4A"/>
+      <ellipse cx="256" cy="364" rx="130" ry="102" fill="#F0A35E"/>
+      <path d="M162 330 C 190 292 232 278 262 280 C 232 292 200 320 186 356 Z" fill="#F8BE85" opacity="0.4"/>
+      <ellipse id="pet-belly" cx="256" cy="392" rx="88" ry="76" fill="#FFF4E4"/>
+
+      <g id="pet-paw-l">
+        <ellipse cx="194" cy="452" rx="43" ry="27" fill="#FFF4E4"/>
+        <path d="M182 442 v20 M194 440 v22 M206 442 v20" stroke="#E6D3BC" stroke-width="3" stroke-linecap="round" fill="none"/>
+      </g>
+      <g id="pet-paw-r">
+        <ellipse cx="318" cy="452" rx="43" ry="27" fill="#FFF4E4"/>
+        <path d="M306 442 v20 M318 440 v22 M330 442 v20" stroke="#E6D3BC" stroke-width="3" stroke-linecap="round" fill="none"/>
+      </g>
+    </g>
+
+    <!-- 头部 -->
+    <g id="pet-head" data-pivot="256,300">
+      <g id="pet-ear-l" data-pivot="176,136">
+        <path d="M166 140 L184 44 L252 104 Z" fill="#E28F4A"/>
+        <path d="M174 136 L188 58 L244 104 Z" fill="#F0A35E"/>
+        <path d="M190 128 L199 76 L236 108 Z" fill="#F5A9A0"/>
+      </g>
+      <g id="pet-ear-r" data-pivot="336,136">
+        <path d="M346 140 L328 44 L260 104 Z" fill="#E28F4A"/>
+        <path d="M338 136 L324 58 L268 104 Z" fill="#F0A35E"/>
+        <path d="M322 128 L313 76 L276 108 Z" fill="#F5A9A0"/>
+      </g>
+
+      <g id="pet-face">
+        <ellipse cx="256" cy="200" rx="118" ry="108" fill="#E28F4A"/>
+        <ellipse cx="256" cy="196" rx="114" ry="104" fill="#F0A35E"/>
+        <ellipse cx="204" cy="142" rx="48" ry="30" fill="#F8BE85" opacity="0.4" transform="rotate(-20 204 142)"/>
+      </g>
+
+      <ellipse id="pet-muzzle" cx="256" cy="262" rx="56" ry="34" fill="#FFF4E4"/>
+      <g id="pet-blush-l"><ellipse cx="156" cy="250" rx="27" ry="16" fill="#FF9B93" opacity="0.55"/></g>
+      <g id="pet-blush-r"><ellipse cx="356" cy="250" rx="27" ry="16" fill="#FF9B93" opacity="0.55"/></g>
+
+      <g id="pet-whiskers" fill="none" stroke="#3A2A21" stroke-width="3.2" stroke-linecap="round" opacity="0.35">
+        <path d="M198 250 L136 234"/>
+        <path d="M198 262 L128 262"/>
+        <path d="M200 274 L138 290"/>
+        <path d="M314 250 L376 234"/>
+        <path d="M314 262 L384 262"/>
+        <path d="M312 274 L374 290"/>
+      </g>
+
+      <g id="pet-eye-l">
+        <ellipse id="pet-eye-open-l" cx="206" cy="196" rx="25" ry="29" fill="#FFFFFF"/>
+        <g id="pet-pupil-l">
+          <circle cx="206" cy="198" r="16" fill="#3A2A21"/>
+          <circle cx="199" cy="189" r="6" fill="#FFFFFF" opacity="0.92"/>
+          <circle cx="212" cy="208" r="3" fill="#FFFFFF" opacity="0.7"/>
+        </g>
+        <path id="pet-eye-happy-l" d="M182 204 q24 -26 48 0" fill="none" stroke="#3A2A21" stroke-width="8" stroke-linecap="round" opacity="0"/>
+        <path id="pet-eye-sleep-l" d="M182 190 q24 24 48 0" fill="none" stroke="#3A2A21" stroke-width="8" stroke-linecap="round" opacity="0"/>
+      </g>
+      <g id="pet-eye-r">
+        <ellipse id="pet-eye-open-r" cx="306" cy="196" rx="25" ry="29" fill="#FFFFFF"/>
+        <g id="pet-pupil-r">
+          <circle cx="306" cy="198" r="16" fill="#3A2A21"/>
+          <circle cx="299" cy="189" r="6" fill="#FFFFFF" opacity="0.92"/>
+          <circle cx="312" cy="208" r="3" fill="#FFFFFF" opacity="0.7"/>
+        </g>
+        <path id="pet-eye-happy-r" d="M282 204 q24 -26 48 0" fill="none" stroke="#3A2A21" stroke-width="8" stroke-linecap="round" opacity="0"/>
+        <path id="pet-eye-sleep-r" d="M282 190 q24 24 48 0" fill="none" stroke="#3A2A21" stroke-width="8" stroke-linecap="round" opacity="0"/>
+      </g>
+
+      <g id="pet-nose">
+        <path d="M242 244 L270 244 L256 258 Z" fill="#E8776B"/>
+        <circle cx="250" cy="247" r="3" fill="#FFFFFF" opacity="0.5"/>
+      </g>
+
+      <g id="pet-mouth">
+        <path id="pet-mouth-closed" d="M232 262 q12 14 24 0 q12 14 24 0" fill="none" stroke="#3A2A21" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+        <ellipse id="pet-mouth-open" cx="256" cy="270" rx="21" ry="19" fill="#B8524E" opacity="0"/>
+        <ellipse id="pet-tongue" cx="256" cy="278" rx="12" ry="8" fill="#FF8B8B" opacity="0"/>
+      </g>
+    </g>
+  </g>
+</svg>
+`;
+
+  /* ============================================================
+   * 1. 语义树与槽位职责
+   * ============================================================ */
+  var TREE = {
+    "pet-root": ["pet-tail", "pet-body", "pet-head"],
+    "pet-body": ["pet-belly", "pet-paw-l", "pet-paw-r"],
+    "pet-head": ["pet-ear-l", "pet-ear-r", "pet-face", "pet-muzzle", "pet-nose", "pet-whiskers",
+                 "pet-blush-l", "pet-blush-r", "pet-eye-l", "pet-eye-r", "pet-mouth"],
+    "pet-eye-l": ["pet-eye-open-l", "pet-pupil-l", "pet-eye-happy-l", "pet-eye-sleep-l"],
+    "pet-eye-r": ["pet-eye-open-r", "pet-pupil-r", "pet-eye-happy-r", "pet-eye-sleep-r"],
+    "pet-mouth": ["pet-mouth-closed", "pet-mouth-open", "pet-tongue"]
+  };
+  // act：这层接受哪种动作
+  var ACT = {
+    "pet-root": "root", "pet-head": "head", "pet-tail": "tail",
+    "pet-ear-l": "earL", "pet-ear-r": "earR",
+    "pet-eye-l": "eyeL", "pet-eye-r": "eyeR",
+    "pet-mouth": "mouth", "pet-pupil-l": "pupilL", "pet-pupil-r": "pupilR",
+    "pet-blush-l": "blush", "pet-blush-r": "blush"
+  };
+  // 变体层：按状态显隐
+  var VARIANT_OF = {
+    "pet-eye-open-l": "eyeOpenL", "pet-eye-happy-l": "eyeHappyL", "pet-eye-sleep-l": "eyeSleepL",
+    "pet-eye-open-r": "eyeOpenR", "pet-eye-happy-r": "eyeHappyR", "pet-eye-sleep-r": "eyeSleepR",
+    "pet-mouth-closed": "mouthClosed", "pet-mouth-open": "mouthOpen", "pet-tongue": "tongue"
+  };
+  var LABEL = {
+    "pet-root": "本体", "pet-head": "头", "pet-tail": "尾巴", "pet-body": "身体",
+    "pet-belly": "肚皮", "pet-paw-l": "左爪", "pet-paw-r": "右爪",
+    "pet-ear-l": "左耳", "pet-ear-r": "右耳", "pet-face": "脸", "pet-muzzle": "口鼻",
+    "pet-nose": "鼻子", "pet-whiskers": "胡须", "pet-blush-l": "左腮红", "pet-blush-r": "右腮红",
+    "pet-eye-l": "左眼", "pet-eye-r": "右眼", "pet-mouth": "嘴", "pet-shadow": "地面阴影",
+    "pet-eye-open-l": "左眼白", "pet-eye-open-r": "右眼白",
+    "pet-pupil-l": "左瞳孔", "pet-pupil-r": "右瞳孔",
+    "pet-eye-happy-l": "左笑眼", "pet-eye-happy-r": "右笑眼",
+    "pet-eye-sleep-l": "左睡眼", "pet-eye-sleep-r": "右睡眼",
+    "pet-mouth-closed": "闭嘴", "pet-mouth-open": "张嘴", "pet-tongue": "舌头"
+  };
+  // 文件名 → slot 的归一化别名（去掉 pet- 前缀、统一分隔符后查表）
+  var ALIAS = {
+    "root": "pet-root", "body": "pet-body", "belly": "pet-belly", "head": "pet-head",
+    "face": "pet-face", "muzzle": "pet-muzzle", "nose": "pet-nose", "whisker": "pet-whiskers",
+    "whiskers": "pet-whiskers", "tail": "pet-tail", "shadow": "pet-shadow",
+    "ear-l": "pet-ear-l", "ear-r": "pet-ear-r", "earl": "pet-ear-l", "earr": "pet-ear-r",
+    "paw-l": "pet-paw-l", "paw-r": "pet-paw-r",
+    "blush-l": "pet-blush-l", "blush-r": "pet-blush-r",
+    "eye-l": "pet-eye-l", "eye-r": "pet-eye-r",
+    "eye-open-l": "pet-eye-open-l", "eye-open-r": "pet-eye-open-r",
+    "eye-happy-l": "pet-eye-happy-l", "eye-happy-r": "pet-eye-happy-r",
+    "eye-sleep-l": "pet-eye-sleep-l", "eye-sleep-r": "pet-eye-sleep-r",
+    "eye-white-l": "pet-eye-open-l", "eye-white-r": "pet-eye-open-r",
+    "pupil-l": "pet-pupil-l", "pupil-r": "pet-pupil-r",
+    "mouth": "pet-mouth", "mouth-closed": "pet-mouth-closed", "mouth-open": "pet-mouth-open",
+    "tongue": "pet-tongue"
+  };
+  // 演示用：从矢量模板逐层导出贴图
+  var DEMO_SLOTS = [
+    "pet-shadow", "pet-tail", "pet-body",
+    "pet-ear-l", "pet-ear-r", "pet-face", "pet-muzzle", "pet-nose", "pet-whiskers",
+    "pet-blush-l", "pet-blush-r",
+    "pet-eye-open-l", "pet-pupil-l", "pet-eye-happy-l",
+    "pet-eye-open-r", "pet-pupil-r", "pet-eye-happy-r",
+    "pet-mouth-closed", "pet-mouth-open", "pet-tongue"
+  ];
+  var PIVOT_RULE = {
+    "pet-root": "ground", "pet-head": "bottom", "pet-tail": "left",
+    "pet-ear-l": "bottom", "pet-ear-r": "bottom",
+    "pet-eye-l": "center", "pet-eye-r": "center", "pet-mouth": "center"
+  };
+
+  /* ============================================================
+   * 2. 状态
+   * ============================================================ */
+  // locked：画布尺寸写死，不让 resetCanvas 按最大图层重算（素材板切片路线用）
+  var canvasMeta = { width: 512, height: 512, groundLineY: 478, locked: false };
+  var layers = [];
+  var selId = null;
+  var uidSeq = 0;
+  var scaleFactor = 1;
+  var faceMode = "normal", mouthOpenState = false;
+  var manual = false, tailAmp = 0.6, busy = false;
+  var state = "idle", stateAt = 0;
+  var blinkUntil = 0, nextBlink = 0, idleNext = 0, idleImpulse = 0;
+  var speak = null;
+
+  var PK = ["mouthOpenY", "eyeBallX", "eyeBallY", "eyeOpen", "blush", "breath",
+            "tailSway", "bodyAngleZ", "headAngleZ", "headDrop", "hop", "squish", "earTwitch"];
+  var SPRING_KEYS = ["eyeBallX", "eyeBallY", "blush", "breath", "tailSway",
+                     "bodyAngleZ", "headAngleZ", "headDrop", "hop", "squish", "earTwitch"];
+  var P = {}, T = {}, V = {};
+  PK.forEach(function (k) { P[k] = 0; T[k] = 0; V[k] = { v: 0 }; });
+  P.eyeOpen = 1; T.eyeOpen = 1;
+
+  function integrate() {
+    for (var i = 0; i < PK.length; i++) {
+      var k = PK[i];
+      if (SPRING_KEYS.indexOf(k) >= 0) {
+        var s = V[k];
+        s.v += (T[k] - P[k]) * 0.22;
+        s.v *= 0.74;
+        P[k] += s.v;
+      } else {
+        P[k] += (T[k] - P[k]) * 0.45;
+      }
+    }
+  }
+
+  function norm(s) {
+    return String(s || "").toLowerCase().replace(/\.[a-z0-9]+$/, "")
+      .replace(/^pet[_\-\s]+/, "").replace(/[\s_]+/g, "-").replace(/-+/g, "-").trim();
+  }
+  function guessSlot(fileName) {
+    var n = norm(fileName);
+    if (ALIAS[n]) return ALIAS[n];
+    if (ALIAS["pet-" + n]) return ALIAS["pet-" + n];
+    // left-eye-open → eye-open-l ；right-ear → ear-r
+    var m = n.match(/^(left|right)-(.+)$/);
+    if (m) {
+      var swapped = m[2] + (m[1] === "left" ? "-l" : "-r");
+      if (ALIAS[swapped]) return ALIAS[swapped];
+      if (ALIAS["pet-" + swapped]) return ALIAS["pet-" + swapped];
+    }
+    var guess = "pet-" + n;
+    return /^pet-[a-z0-9-]+$/.test(guess) ? guess : null;
+  }
+
+  /* ============================================================
+   * 3. 载入素材
+   * ============================================================ */
+  var stage = $("#stage"), scene = $("#scene"), rootEl = $("#petRoot"), overlay = $("#overlay");
+
+  function resetCanvas() {
+    // 切片路线下画布固定 512×512（部件各自紧裁，尺寸不一，不能被最大部件带偏）
+    if (!canvasMeta.locked) {
+      var W = 0, H = 0;
+      layers.forEach(function (L) { W = Math.max(W, L.nw); H = Math.max(H, L.nh); });
+      if (!layers.length) { W = 512; H = 512; }
+      canvasMeta.width = W;
+      canvasMeta.height = H;
+      canvasMeta.groundLineY = Math.round(H * 0.933);
+    }
+    layoutScene();
+  }
+
+  function layoutScene() {
+    var pad = 26;
+    var availW = Math.max(120, stage.clientWidth - pad * 2);
+    var availH = Math.max(120, stage.clientHeight - pad * 2);
+    scaleFactor = Math.min(availW / canvasMeta.width, availH / canvasMeta.height);
+    scene.style.width = canvasMeta.width + "px";
+    scene.style.height = canvasMeta.height + "px";
+    scene.style.transform = "translate(" + (-canvasMeta.width / 2) + "px," + (-canvasMeta.height / 2) + "px) scale(" + scaleFactor + ")";
+    overlay.setAttribute("width", canvasMeta.width);
+    overlay.setAttribute("height", canvasMeta.height);
+    overlay.setAttribute("viewBox", "0 0 " + canvasMeta.width + " " + canvasMeta.height);
+    $("#canvasChip").textContent = canvasMeta.width + "×" + canvasMeta.height + " · " + Math.round(scaleFactor * 100) + "%";
+  }
+
+  function addImageLayer(file, name, dataUrl, nw, nh) {
+    var slot = guessSlot(name);
+    var align = layers.length === 0 || (nw === canvasMeta.width && nh === canvasMeta.height);
+    var L = {
+      id: "L" + (++uidSeq),
+      file: name, slot: slot, url: dataUrl, nw: nw, nh: nh,
+      x: canvasMeta.width / 2, y: canvasMeta.height / 2,
+      scale: 1, rot: 0, z: 10 + layers.length * 10, opacity: 1, pivot: null, visible: true
+    };
+    if (!align) {
+      // 散图：给个合理初始尺寸（占画布高 40%）
+      L.scale = (canvasMeta.height * 0.4) / nh;
+      L.x = canvasMeta.width / 2;
+      L.y = canvasMeta.height * 0.5;
+    }
+    if (!slot) L.unmapped = true;
+    layers.push(L);
+    return L;
+  }
+
+  function rebuild() {
+    if (!layers.length) {
+      rootEl.innerHTML = "";
+      $("#emptyTip").style.display = "flex";
+      renderList(); renderInspector(); renderManifest();
+      return;
+    }
+    $("#emptyTip").style.display = "none";
+    resetCanvas();
+    buildDom();
+    apply();
+    renderList(); renderInspector(); renderManifest();
+  }
+
+  function buildDom() {
+    rootEl.innerHTML = "";
+    var wraps = {};
+    rootEl.style.width = canvasMeta.width + "px";
+    rootEl.style.height = canvasMeta.height + "px";
+
+    function node(slot, parentEl) {
+      var w = document.createElement("div");
+      w.className = "part";
+      w.setAttribute("data-part", slot);
+      parentEl.appendChild(w);
+      wraps[slot] = w;
+      (TREE[slot] || []).forEach(function (c) { node(c, w); });
+    }
+    node("pet-root", rootEl);
+
+    // 层级顺序：按 z 升序插入，保证 DOM 顺序 = 绘制顺序
+    var sorted = layers.slice().sort(function (a, b) { return a.z - b.z; });
+    sorted.forEach(function (L) {
+      var host = wraps[L.slot] || (L.slot === "pet-root" ? rootEl : wraps["pet-root"]);
+      if (!host) host = rootEl;
+      var img = document.createElement("img");
+      img.setAttribute("data-layer", L.id);
+      img.className = "layer-hit";
+      img.src = L.url;
+      img.draggable = false;
+      host.appendChild(img);
+      L.el = img;
+      if (L.unmapped) img.style.outline = "1px dashed rgba(255,214,10,.5)";
+    });
+    // 阴影层挂到 scene（不随本体跳动）
+    layers.forEach(function (L) {
+      if (L.slot === "pet-shadow" && L.el && L.el.parentNode !== rootEl) {
+        rootEl.appendChild(L.el);
+        L.el.style.zIndex = "-1";
+      }
+    });
+    rootEl.style.transformOrigin = (canvasMeta.width / 2) + "px " + canvasMeta.groundLineY + "px";
+  }
+
+  function effectivePivot(L) {
+    if (L.pivot) return L.pivot;
+    var rule = PIVOT_RULE[L.slot];
+    var w = L.nw * L.scale, h = L.nh * L.scale;
+    if (rule === "ground") return [canvasMeta.width / 2, canvasMeta.groundLineY];
+    if (rule === "bottom") return [L.x, L.y + h / 2];
+    if (rule === "left") return [L.x - w / 2, L.y + h / 2];
+    if (rule === "center") return [L.x, L.y];
+    return [L.x, L.y];
+  }
+
+  /* ============================================================
+   * 4. 每帧渲染
+   * ============================================================ */
+  function byRole(act) {
+    return layers.filter(function (L) { return ACT[L.slot] === act; });
+  }
+  function byVariant(key) {
+    return layers.filter(function (L) { return VARIANT_OF[L.slot] === key; });
+  }
+  function setOpacity(list, v) {
+    list.forEach(function (L) { if (L.el) L.el.style.opacity = L.visible ? String(v) : "0"; });
+  }
+
+  function apply() {
+    if (!layers.length) return;
+    var unit = Math.max(canvasMeta.width, canvasMeta.height) / 100;
+
+    // 1) 位置 / 缩放 / 静态旋转 / 层级
+    layers.forEach(function (L) {
+      if (!L.el) return;
+      var w = L.nw * L.scale, h = L.nh * L.scale;
+      var left = L.x - w / 2, top = L.y - h / 2;
+      var piv = effectivePivot(L);
+      var ox = piv[0] - left, oy = piv[1] - top;
+      L.el.style.left = left + "px";
+      L.el.style.top = top + "px";
+      L.el.style.width = w + "px";
+      L.el.style.height = h + "px";
+      L.el.style.zIndex = String(L.z);
+      L.el.style.transformOrigin = ox + "px " + oy + "px";
+      L.el.style.transform = "rotate(" + L.rot + "deg)";
+      // 变体层与腮红的透明度由状态逻辑接管，这里不碰
+      if (!VARIANT_OF[L.slot] && ACT[L.slot] !== "blush") {
+        L.el.style.opacity = L.visible ? String(L.opacity) : "0";
+      }
+    });
+
+    // 2) 眼睛 / 嘴：有变体层就用显隐切换；缺哪个变体就那一项退回常态，避免整只眼睛消失
+    var eyeVariant = { L: byVariant("eyeOpenL").length > 0, R: byVariant("eyeOpenR").length > 0 };
+    ["L", "R"].forEach(function (side) {
+      if (!eyeVariant[side]) return;
+      var openVar = byVariant("eyeOpen" + side);
+      var happyVar = byVariant("eyeHappy" + side);
+      var sleepVar = byVariant("eyeSleep" + side);
+      var eff = faceMode;
+      if (eff === "happy" && !happyVar.length) eff = "normal";
+      if (eff === "sleep" && !sleepVar.length) eff = "normal";
+      setOpacity(openVar, (eff === "normal" && P.eyeOpen > 0.5) ? 1 : 0);
+      setOpacity(happyVar, eff === "happy" ? 1 : 0);
+      setOpacity(sleepVar, eff === "sleep" ? 1 : 0);
+      setOpacity(byVariant("pupil" + side), eff === "normal" ? 1 : 0);
+    });
+    var hasMouthVar = byVariant("mouthOpen").length > 0 || byVariant("mouthClosed").length > 0;
+    if (hasMouthVar) {
+      if (!mouthOpenState && P.mouthOpenY > 0.45) mouthOpenState = true;
+      else if (mouthOpenState && P.mouthOpenY < 0.3) mouthOpenState = false;
+      setOpacity(byVariant("mouthClosed"), mouthOpenState ? 0 : 1);
+      setOpacity(byVariant("mouthOpen"), mouthOpenState ? 1 : 0);
+      setOpacity(byVariant("tongue"), P.mouthOpenY > 0.6 ? 1 : 0);
+    }
+    byRole("blush").forEach(function (L) {
+      if (L.el) L.el.style.opacity = L.visible ? String(Math.max(0, Math.min(1, P.blush))) : "0";
+    });
+
+    // 3) 关节变换
+    var rootWrap = $('[data-part="pet-root"]', rootEl);
+    if (rootWrap) {
+      var sx = 1 - P.squish * 0.05, sy = 1 + P.squish * 0.07;
+      var ty = -P.hop * unit * 9 + P.breath * unit * 0.5;
+      rootWrap.style.transformOrigin = (canvasMeta.width / 2) + "px " + canvasMeta.groundLineY + "px";
+      rootWrap.style.transform = "translateY(" + ty + "px) rotate(" + P.bodyAngleZ + "deg) scale(" + sx + "," + sy + ")";
+    }
+    applyJoint("pet-head", function (L, piv) {
+      return "translateY(" + (P.headDrop * unit * 5) + "px) rotate(" + P.headAngleZ + "deg)";
+    }, true);
+    applyJoint("pet-tail", function () { return "rotate(" + (P.tailSway * 16) + "deg)"; });
+    applyJoint("pet-ear-l", function () { return "rotate(" + (-P.earTwitch * 7) + "deg)"; });
+    applyJoint("pet-ear-r", function () { return "rotate(" + (P.earTwitch * 7) + "deg)"; });
+    ["L", "R"].forEach(function (side) {
+      if (eyeVariant[side]) return; // 有眼白变体层，走显隐切换
+      applyJoint("pet-eye-" + side.toLowerCase(), function () {
+        return "scale(1," + Math.max(0.06, P.eyeOpen) + ")";
+      });
+    });
+    ["pet-pupil-l", "pet-pupil-r"].forEach(function (s) {
+      applyJoint(s, function () {
+        return "translate(" + (P.eyeBallX * unit * 1.6) + "px," + (P.eyeBallY * unit * 1.6) + "px)";
+      });
+    });
+    if (!hasMouthVar) {
+      applyJoint("pet-mouth", function () {
+        return "scale(" + (0.8 + P.mouthOpenY * 0.4) + "," + (0.5 + P.mouthOpenY * 1.8) + ")";
+      });
+    }
+
+    drawOverlay();
+  }
+
+  function applyJoint(slot, transformOf, wantPivot) {
+    var wrap = $('[data-part="' + slot + '"]', rootEl);
+    if (!wrap) return;
+    var owner = layers.filter(function (L) { return L.slot === slot; })[0];
+    if (!owner) { wrap.style.transform = ""; return; }
+    var piv = effectivePivot(owner);
+    wrap.style.transformOrigin = piv[0] + "px " + piv[1] + "px";
+    wrap.style.transform = transformOf(owner, piv);
+  }
+
+  /* ============================================================
+   * 5. 选中框 + 锚点
+   * ============================================================ */
+  function selLayer() {
+    return layers.filter(function (L) { return L.id === selId; })[0] || null;
+  }
+
+  function drawOverlay() {
+    while (overlay.firstChild) overlay.removeChild(overlay.firstChild);
+    var box = $("#selBox");
+    var L = selLayer();
+    if (!L || !L.el) { box.style.display = "none"; return; }
+
+    var r = scene.getBoundingClientRect();
+    var s = stage.getBoundingClientRect();
+    var w = L.nw * L.scale, h = L.nh * L.scale;
+    box.style.display = "block";
+    box.style.left = (r.left - s.left + (L.x - w / 2) * scaleFactor) + "px";
+    box.style.top = (r.top - s.top + (L.y - h / 2) * scaleFactor) + "px";
+    box.style.width = (w * scaleFactor) + "px";
+    box.style.height = (h * scaleFactor) + "px";
+
+    var piv = effectivePivot(L);
+    var unit = Math.max(canvasMeta.width, canvasMeta.height) / 100;
+    var g = document.createElementNS(NS, "g");
+    g.setAttribute("class", "pivot");
+    g.setAttribute("data-pivot-layer", L.id);
+    var c = document.createElementNS(NS, "circle");
+    c.setAttribute("cx", piv[0]); c.setAttribute("cy", piv[1]); c.setAttribute("r", unit * 2.6);
+    c.setAttribute("fill", "rgba(10,132,255,.3)"); c.setAttribute("stroke", "#0a84ff");
+    c.setAttribute("stroke-width", "2"); c.setAttribute("vector-effect", "non-scaling-stroke");
+    g.appendChild(c);
+    [[-1, 0], [1, 0], [0, -1], [0, 1]].forEach(function (d) {
+      var l = document.createElementNS(NS, "line");
+      l.setAttribute("x1", piv[0] + d[0] * unit * 4); l.setAttribute("y1", piv[1] + d[1] * unit * 4);
+      l.setAttribute("x2", piv[0] - d[0] * unit * 1.2); l.setAttribute("y2", piv[1] - d[1] * unit * 1.2);
+      l.setAttribute("stroke", "#0a84ff"); l.setAttribute("stroke-width", "2");
+      l.setAttribute("vector-effect", "non-scaling-stroke");
+      g.appendChild(l);
+    });
+    overlay.appendChild(g);
+  }
+
+  /* ============================================================
+   * 6. 交互：拖层 / 拖锚点 / 微调
+   * ============================================================ */
+  function toCanvasPoint(e) {
+    var r = scene.getBoundingClientRect();
+    return { x: (e.clientX - r.left) / scaleFactor, y: (e.clientY - r.top) / scaleFactor };
+  }
+
+  var drag = null;
+  stage.addEventListener("pointerdown", function (e) {
+    var pivotEl = e.target.closest ? e.target.closest("[data-pivot-layer]") : null;
+    if (pivotEl) {
+      drag = { kind: "pivot", id: pivotEl.getAttribute("data-pivot-layer") };
+      stage.setPointerCapture(e.pointerId);
+      e.preventDefault();
+      return;
+    }
+    var imgEl = e.target.closest ? e.target.closest("[data-layer]") : null;
+    if (!imgEl) return;
+    var L = layers.filter(function (x) { return x.id === imgEl.getAttribute("data-layer"); })[0];
+    if (!L) return;
+    selId = L.id;
+    var p = toCanvasPoint(e);
+    drag = { kind: "move", id: L.id, ox: L.x, oy: L.y, sx: p.x, sy: p.y };
+    renderList(); renderInspector(); drawOverlay();
+    stage.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+
+  stage.addEventListener("pointermove", function (e) {
+    if (!drag) return;
+    var L = layers.filter(function (x) { return x.id === drag.id; })[0];
+    if (!L) return;
+    var p = toCanvasPoint(e);
+    if (drag.kind === "move") {
+      L.x = Math.round(drag.ox + (p.x - drag.sx));
+      L.y = Math.round(drag.oy + (p.y - drag.sy));
+    } else {
+      L.pivot = [Math.round(p.x), Math.round(p.y)];
+    }
+    apply(); renderInspector(); renderManifest();
+  });
+
+  function endDrag(e) {
+    if (!drag) return;
+    drag = null;
+    try { stage.releasePointerCapture(e.pointerId); } catch (err) {}
+    renderList(); renderManifest();
+  }
+  stage.addEventListener("pointerup", endDrag);
+  stage.addEventListener("pointercancel", endDrag);
+
+  document.addEventListener("keydown", function (e) {
+    var L = selLayer();
+    if (!L || !/^Arrow/.test(e.key)) return;
+    if (document.activeElement && /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) return;
+    var step = e.shiftKey ? 10 : 1;
+    if (e.key === "ArrowLeft") L.x -= step;
+    else if (e.key === "ArrowRight") L.x += step;
+    else if (e.key === "ArrowUp") L.y -= step;
+    else if (e.key === "ArrowDown") L.y += step;
+    e.preventDefault();
+    apply(); renderInspector(); renderManifest();
+  });
+
+  /* ============================================================
+   * 7. 图层栈 / 检查器
+   * ============================================================ */
+  function renderList() {
+    var box2 = $("#layerList");
+    $("#layerCount").textContent = layers.length ? layers.length + " 层" : "";
+    if (!layers.length) { box2.innerHTML = '<div class="hint" style="margin:0">还没有图层</div>'; return; }
+    var sorted = layers.slice().sort(function (a, b) { return b.z - a.z; });
+    box2.innerHTML = sorted.map(function (L) {
+      return '<div class="lrow' + (L.id === selId ? " active" : "") + (L.unmapped ? " miss" : "") + '" data-row="' + L.id + '">' +
+        '<span class="eye" data-act="vis" data-id="' + L.id + '">' + (L.visible ? "◉" : "○") + "</span>" +
+        '<span class="nm">' + (L.slot || "未映射") + "</span>" +
+        '<span class="fl">' + L.file + "</span>" +
+        '<button class="mini" data-act="up" data-id="' + L.id + '" title="上移">↑</button>' +
+        '<button class="mini" data-act="down" data-id="' + L.id + '" title="下移">↓</button>' +
+        '<button class="mini" data-act="del" data-id="' + L.id + '" title="删除">✕</button>' +
+        "</div>";
+    }).join("");
+
+    $$(".lrow", box2).forEach(function (row) {
+      row.onclick = function (e) {
+        var b = e.target.closest("[data-act]");
+        var id = row.getAttribute("data-row");
+        if (b) {
+          var act = b.getAttribute("data-act");
+          var L = layers.filter(function (x) { return x.id === id; })[0];
+          if (act === "vis") L.visible = !L.visible;
+          else if (act === "del") { layers = layers.filter(function (x) { return x.id !== id; }); if (selId === id) selId = null; buildDom(); }
+          else if (act === "up") L.z += 15;
+          else if (act === "down") L.z -= 15;
+          e.stopPropagation();
+          rebuild();
+          return;
+        }
+        selId = id;
+        renderList(); renderInspector(); drawOverlay();
+      };
+    });
+  }
+
+  function renderInspector() {
+    var box2 = $("#inspector");
+    var L = selLayer();
+    if (!L) { box2.innerHTML = '<p class="hint" style="margin-top:0">先在图层栈里选一层。</p>'; return; }
+    var opts = Object.keys(LABEL).map(function (k) {
+      return '<option value="' + k + '"' + (k === L.slot ? " selected" : "") + ">" + k + " · " + LABEL[k] + "</option>";
+    }).join("");
+    box2.innerHTML =
+      '<div class="fld"><label>部位</label><select id="selSlot">' +
+        '<option value=""' + (!L.slot ? " selected" : "") + ">（未映射）</option>" + opts + "</select></div>" +
+      '<div class="fld"><label>缩放</label><input type="range" id="rScale" min="5" max="300" value="' + Math.round(L.scale * 100) + '"></div>' +
+      '<div class="fld"><label>旋转</label><input type="range" id="rRot" min="-180" max="180" value="' + Math.round(L.rot) + '"></div>' +
+      '<div class="fld"><label>透明度</label><input type="range" id="rOpa" min="0" max="100" value="' + Math.round(L.opacity * 100) + '"></div>' +
+      '<div class="fld"><label>位置</label><div class="pair">' +
+        '<input type="number" id="nX" value="' + Math.round(L.x) + '">' +
+        '<input type="number" id="nY" value="' + Math.round(L.y) + '"></div></div>' +
+      '<div class="fld"><label>锚点</label><div class="pair">' +
+        '<input type="number" id="pX" value="' + Math.round(effectivePivot(L)[0]) + '">' +
+        '<input type="number" id="pY" value="' + Math.round(effectivePivot(L)[1]) + '"></div></div>' +
+      '<div class="split" style="margin-top:2px">' +
+        '<button class="btn" id="btnCenterPivot">锚点居中</button>' +
+        '<button class="btn" id="btnResetPivot">清除锚点</button></div>' +
+      '<p class="hint">直接在画面上拖这层可改位置，拖蓝色十字改旋转锚点；选中后用方向键微调（Shift ×10）。</p>';
+
+    $("#selSlot").onchange = function () { L.slot = this.value || null; L.unmapped = !L.slot; buildDom(); rebuild(); };
+    $("#rScale").oninput = function () { L.scale = Number(this.value) / 100; apply(); renderManifest(); };
+    $("#rRot").oninput = function () { L.rot = Number(this.value); apply(); renderManifest(); };
+    $("#rOpa").oninput = function () { L.opacity = Number(this.value) / 100; apply(); renderManifest(); };
+    $("#nX").onchange = function () { L.x = Number(this.value); apply(); drawOverlay(); renderManifest(); };
+    $("#nY").onchange = function () { L.y = Number(this.value); apply(); drawOverlay(); renderManifest(); };
+    $("#pX").onchange = function () { L.pivot = [Number(this.value), effectivePivot(L)[1]]; apply(); renderManifest(); };
+    $("#pY").onchange = function () { L.pivot = [effectivePivot(L)[0], Number(this.value)]; apply(); renderManifest(); };
+    $("#btnCenterPivot").onclick = function () { L.pivot = [L.x, L.y]; apply(); renderInspector(); renderManifest(); };
+    $("#btnResetPivot").onclick = function () { L.pivot = null; apply(); renderInspector(); renderManifest(); };
+  }
+
+  /* ============================================================
+   * 8. 载入图片 / 生成演示图层
+   * ============================================================ */
+  function addFiles(files) {
+    canvasMeta.locked = false;
+    var list = Array.prototype.slice.call(files || []).filter(function (f) { return /^image\//.test(f.type); });
+    if (!list.length) return;
+    list.sort(function (a, b) { return a.name.localeCompare(b.name, "zh-CN", { numeric: true }); });
+    var pending = list.length;
+    list.forEach(function (f) {
+      var fr = new FileReader();
+      fr.onload = function () {
+        var img = new Image();
+        img.onload = function () {
+          addImageLayer(f, f.name, String(fr.result), img.naturalWidth, img.naturalHeight);
+          if (--pending === 0) { selId = layers[layers.length - 1].id; rebuild(); }
+        };
+        img.onerror = function () { if (--pending === 0) rebuild(); };
+        img.src = String(fr.result);
+      };
+      fr.readAsDataURL(f);
+    });
+  }
+
+  function isolate(svg, targetId) {
+    $$("*", svg).forEach(function (el) { el.setAttribute("visibility", "hidden"); });
+    var el = svg.querySelector("#" + targetId);
+    if (!el) return false;
+    var p = el;
+    while (p && p !== svg) { p.setAttribute("visibility", "visible"); p = p.parentNode; }
+    $$("*", el).forEach(function (n) { n.setAttribute("visibility", "visible"); });
+    return true;
+  }
+
+  function svgToPng(svg, size, cb) {
+    var xml = new XMLSerializer().serializeToString(svg);
+    var img = new Image();
+    img.onload = function () {
+      try {
+        var c = document.createElement("canvas");
+        c.width = size; c.height = size;
+        var ctx = c.getContext("2d");
+        if (!ctx) return cb(null);
+        ctx.drawImage(img, 0, 0, size, size);
+        cb(c.toDataURL("image/png"));
+      } catch (e) { cb(null); }
+    };
+    img.onerror = function () { cb(null); };
+    img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(xml);
+  }
+
+  function generateDemo() {
+    canvasMeta.locked = false;
+    var btn = $("#btnDemo");
+    btn.disabled = true;
+    btn.textContent = "生成中… 0/" + DEMO_SLOTS.length;
+    var doc = new DOMParser().parseFromString(TEMPLATE_SVG, "image/svg+xml");
+    var src = doc.documentElement;
+    var size = 512;
+    // 先挂到离屏容器，才能算 getBBox
+    var holder = document.createElement("div");
+    holder.style.cssText = "position:absolute;left:-99999px;top:0;width:0;height:0;overflow:hidden";
+    holder.appendChild(src);
+    document.body.appendChild(holder);
+    src.setAttribute("width", size); src.setAttribute("height", size);
+
+    var boxes = {};
+    DEMO_SLOTS.forEach(function (slot) {
+      var el = src.querySelector("#" + slot);
+      if (!el) return;
+      try {
+        var b = el.getBBox();
+        if (isFinite(b.x) && b.width >= 0) boxes[slot] = [b.x, b.y, b.width, b.height];
+      } catch (e) { /* 拿不到就按默认推断 */ }
+    });
+
+    layers = [];
+    selId = null;
+    canvasMeta.width = size; canvasMeta.height = size; canvasMeta.groundLineY = 478;
+
+    var out = [], i = 0;
+    function next() {
+      if (i >= DEMO_SLOTS.length) {
+        holder.remove();
+        layers = out;
+        out.forEach(function (L, idx) { L.z = 10 + idx * 10; });
+        selId = out.filter(function (L) { return L.slot === "pet-body"; }).map(function (L) { return L.id; })[0] || (out[0] && out[0].id) || null;
+        btn.disabled = false;
+        btn.textContent = "生成演示图层（矢量转贴图）";
+        rebuild();
+        $("#tagInfo").textContent = "演示 · " + out.length + " 层贴图";
+        $("#modeChip").textContent = "同尺寸原位对齐";
+        return;
+      }
+      var slot = DEMO_SLOTS[++i - 1];
+      var clone = src.cloneNode(true);
+      if (!isolate(clone, slot)) { next(); return; }
+      btn.textContent = "生成中… " + i + "/" + DEMO_SLOTS.length;
+      svgToPng(clone, size, function (url) {
+        if (url) {
+          var b = boxes[slot];
+          var L = {
+            id: "L" + (++uidSeq), file: slot + ".png", slot: slot, url: url, nw: size, nh: size,
+            x: size / 2, y: size / 2, scale: 1, rot: 0, z: 10, opacity: 1,
+            pivot: null, visible: true, _bbox: b
+          };
+          if (b && (slot === "pet-tail" || slot === "pet-head" || slot.indexOf("pet-eye-") === 0 || slot === "pet-mouth")) {
+            L.pivot = PIVOT_RULE[slot] === "left" ? [b[0], b[1] + b[3]]
+              : PIVOT_RULE[slot] === "bottom" ? [b[0] + b[2] / 2, b[1] + b[3]]
+              : [b[0] + b[2] / 2, b[1] + b[3] / 2];
+          }
+          out.push(L);
+        }
+        setTimeout(next, 0);
+      });
+    }
+    next();
+  }
+
+  /* ============================================================
+   * 9. 素材板切片器：一张 AI 图 → 多个部件
+   * ------------------------------------------------------------
+   * 思路见 AI_PROMPTS.md：AI 只能出不透明位图，所以让它在纯色背景上
+   * 按网格画 9 个孤立部件；这里按格子切出来、抠背景、自动镜像，再按
+   * 默认骨架粗摆位。以下分两段：纯计算（可单测）+ 画布/DOM 部分。
+   * ============================================================ */
+
+  // 网格顺序：第 n 格 → 第 n 个槽位（与提示词里的 ①~⑨ 一致）
+  var SHEET_ORDER = [
+    "pet-body", "pet-head", "pet-tail",
+    "pet-eye-open-l", "pet-eye-happy-l", "pet-eye-sleep-l",
+    "pet-mouth-closed", "pet-mouth-open", "pet-ear-l",
+    // 网格更大时追加的可选部件
+    "pet-belly", "pet-blush-l", "pet-muzzle", "pet-paw-l", "pet-whiskers"
+  ];
+  // 只画一侧、需要水平镜像补另一侧的槽位
+  var MIRROR_SLOTS = {
+    "pet-eye-open-l": "pet-eye-open-r", "pet-eye-happy-l": "pet-eye-happy-r",
+    "pet-eye-sleep-l": "pet-eye-sleep-r", "pet-ear-l": "pet-ear-r",
+    "pet-blush-l": "pet-blush-r", "pet-paw-l": "pet-paw-r"
+  };
+  // 粗装配骨架（比例取自 templates/layered-cat.pet.svg，512 画布归一化）
+  // [目标宽度占画布比, 锚点 X, 锚点 Y, 锚点语义]  语义：c=中心 bc=底边中心 lc=左边中心
+  var SHEET_LAYOUT = {
+    "pet-body":        [0.508, 0.500, 0.912, "bc"],
+    "pet-belly":       [0.344, 0.500, 0.766, "c"],
+    "pet-head":        [0.445, 0.500, 0.383, "c"],
+    "pet-muzzle":      [0.219, 0.500, 0.512, "c"],
+    "pet-whiskers":    [0.500, 0.500, 0.500, "c"],
+    "pet-tail":        [0.238, 0.720, 0.700, "lc"],
+    "pet-ear-l":       [0.168, 0.408, 0.273, "bc"],
+    "pet-ear-r":       [0.168, 0.592, 0.273, "bc"],
+    "pet-eye-open-l":  [0.098, 0.402, 0.383, "c"],
+    "pet-eye-open-r":  [0.098, 0.598, 0.383, "c"],
+    "pet-eye-happy-l": [0.098, 0.402, 0.383, "c"],
+    "pet-eye-happy-r": [0.098, 0.598, 0.383, "c"],
+    "pet-eye-sleep-l": [0.098, 0.402, 0.383, "c"],
+    "pet-eye-sleep-r": [0.098, 0.598, 0.383, "c"],
+    "pet-mouth-closed":[0.098, 0.500, 0.523, "c"],
+    "pet-mouth-open":  [0.098, 0.500, 0.527, "c"],
+    "pet-blush-l":     [0.105, 0.305, 0.488, "c"],
+    "pet-blush-r":     [0.105, 0.695, 0.488, "c"],
+    "pet-paw-l":       [0.168, 0.379, 0.883, "c"],
+    "pet-paw-r":       [0.168, 0.621, 0.883, "c"]
+  };
+  // 默认层级（与矢量模板的绘制顺序一致）
+  var SHEET_ZORDER = [
+    "pet-shadow", "pet-tail", "pet-body", "pet-belly", "pet-paw-l", "pet-paw-r",
+    "pet-ear-l", "pet-ear-r", "pet-head", "pet-face", "pet-muzzle", "pet-nose",
+    "pet-whiskers", "pet-blush-l", "pet-blush-r", "pet-eye-l", "pet-eye-r",
+    "pet-eye-open-l", "pet-eye-open-r", "pet-pupil-l", "pet-pupil-r",
+    "pet-eye-happy-l", "pet-eye-happy-r", "pet-eye-sleep-l", "pet-eye-sleep-r",
+    "pet-mouth", "pet-mouth-closed", "pet-mouth-open", "pet-tongue"
+  ];
+  function defaultZ(slot) {
+    var i = SHEET_ZORDER.indexOf(slot);
+    return 10 + (i < 0 ? SHEET_ZORDER.length : i) * 10;
+  }
+
+  /* --- 9.1 抠图：YCbCr 色度距离 → 覆盖率 → alpha ---
+   * 直接用 RGB 距离抠不干净：纯品红和白色的 RGB 距离只有 0.58，抗锯齿边缘
+   * 会残留一圈紫边。改在色度平面做——「像素色度到背景色度的距离 ÷ 背景色度
+   * 模长」在混合场景下近似等于「该像素里非背景成分的占比」，
+   * 50% 白 + 50% 品红刚好算出 0.5，所以这个值可以直接当 alpha 用，
+   * 再用 alpha 反解出前景色（unmultiply）去掉边缘色溢。 */
+  function chromaOf(r, g, b) {
+    return [-0.169 * r - 0.331 * g + 0.500 * b, 0.500 * r - 0.419 * g - 0.081 * b];
+  }
+  function makeKeyer(bg, tol, feather) {
+    var bc = chromaOf(bg[0], bg[1], bg[2]);
+    var mag = Math.sqrt(bc[0] * bc[0] + bc[1] * bc[1]);
+    var useChroma = mag > 24; // 背景接近灰阶（黑/白/灰）时色度退化，退回 RGB 距离
+    return {
+      bg: bg, tol: tol, feather: feather, chroma: bc, mag: mag, useChroma: useChroma,
+      // q：0 = 纯背景，1 = 完全不含背景色 ≈ 该像素的前景覆盖率
+      q: function (r, g, b) {
+        if (useChroma) {
+          var c = chromaOf(r, g, b);
+          var dx = c[0] - bc[0], dy = c[1] - bc[1];
+          return Math.min(1, Math.sqrt(dx * dx + dy * dy) / mag);
+        }
+        var dr = (r - bg[0]) / 255, dg = (g - bg[1]) / 255, db = (b - bg[2]) / 255;
+        return Math.min(1, Math.sqrt((dr * dr + dg * dg + db * db) / 3) / 0.55);
+      },
+      alpha: function (q) {
+        if (q <= tol) return 0;
+        if (feather > 0 && q < tol + feather) return Math.round(q * 255 * (q - tol) / feather);
+        return Math.round(q * 255);
+      }
+    };
+  }
+  // 原地抠图：data 为 Uint8ClampedArray（RGBA）
+  // qs / gain：预先算好的 q 数组与本格增益（见 sliceCellData），不传就现算
+  function keyRGBA(data, w, h, keyer, despill, qs, gain) {
+    var k = gain == null ? 1 : gain;
+    for (var i = 0, n = w * h; i < n; i++) {
+      var o = i * 4, r = data[o], g = data[o + 1], b = data[o + 2];
+      var a = keyer.alpha((qs ? qs[i] : keyer.q(r, g, b)) * k);
+      if (a <= 0) { data[o] = data[o + 1] = data[o + 2] = 0; data[o + 3] = 0; continue; }
+      if (despill && a < 255) {
+        // 反混合：px = bg*(1-a) + fg*a  →  fg = (px - bg*(1-a)) / a
+        // 注意别把变量名取成 k —— k 是本格增益，var 提升会把它冲掉，
+        // 导致「出现第一个半透明像素之后，后面的像素全被当成增益≈0 抠掉」
+        var af = a / 255, back = 1 - af;
+        r = (r - keyer.bg[0] * back) / af;
+        g = (g - keyer.bg[1] * back) / af;
+        b = (b - keyer.bg[2] * back) / af;
+        data[o] = Math.max(0, Math.min(255, Math.round(r)));
+        data[o + 1] = Math.max(0, Math.min(255, Math.round(g)));
+        data[o + 2] = Math.max(0, Math.min(255, Math.round(b)));
+      }
+      data[o + 3] = a;
+    }
+  }
+  // 有效像素（alpha > 阈值）的紧包围盒
+  function contentBox(data, w, h, minAlpha) {
+    var thr = minAlpha == null ? 12 : minAlpha;
+    var x0 = w, y0 = h, x1 = -1, y1 = -1;
+    for (var y = 0; y < h; y++) {
+      for (var x = 0; x < w; x++) {
+        if (data[(y * w + x) * 4 + 3] <= thr) continue;
+        if (x < x0) x0 = x;
+        if (x > x1) x1 = x;
+        if (y < y0) y0 = y;
+        if (y > y1) y1 = y;
+      }
+    }
+    if (x1 < 0) return null;
+    return { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
+  }
+  // 四角采样背景色 → { color, minSpread, maxSpread }
+  // 取四角均值的「截尾均值」当背景色：万一某个角被角色压住，也不至于被带偏
+  function sampleCorners(data, w, h, inset) {
+    var m = Math.max(2, Math.min(14, Math.round((inset == null ? 0.02 : inset) * Math.min(w, h))));
+    var blocks = [[0, 0], [w - m, 0], [0, h - m], [w - m, h - m]];
+    var means = blocks.map(function (b) {
+      var sr = 0, sg = 0, sb = 0, n = 0;
+      for (var y = 0; y < m; y++) {
+        for (var x = 0; x < m; x++) {
+          var o = ((b[1] + y) * w + (b[0] + x)) * 4;
+          sr += data[o]; sg += data[o + 1]; sb += data[o + 2]; n++;
+        }
+      }
+      return [sr / n, sg / n, sb / n];
+    });
+    var color = [0, 1, 2].map(function (i) {
+      var arr = means.map(function (v) { return v[i]; }).sort(function (a, b) { return a - b; });
+      return Math.round((arr[1] + arr[2]) / 2);
+    });
+    var minSpread = Infinity, maxSpread = 0;
+    for (var i = 0; i < means.length; i++) {
+      for (var j = i + 1; j < means.length; j++) {
+        var d = Math.abs(means[i][0] - means[j][0]) + Math.abs(means[i][1] - means[j][1]) +
+                Math.abs(means[i][2] - means[j][2]);
+        if (d < minSpread) minSpread = d;
+        if (d > maxSpread) maxSpread = d;
+      }
+    }
+    return { color: color, minSpread: minSpread === Infinity ? 0 : minSpread, maxSpread: maxSpread };
+  }
+  // 单格抠图 → 裁剪后的 RGBA（纯数据，不依赖 canvas）
+  //
+  // 为什么要先扫一遍再抠：色度距离能到的最大值取决于前景色自身的色度，
+  // 只有「前景近中性、与背景色度反向」时才能到 1。紫色部件配品红背景就
+  // 永远到不了 1（本格最大约 0.7），结果整块部件半透明。所以先取本格
+  // 最大 q，把它归一化到 1 作为增益——实心部分拉满，背景仍在容差之下被抠掉。
+  // 增益上限 1.6（对应 qMax≥0.625），避免把「整体都像背景」的格子误抬。
+  function sliceCellData(data, cw, ch, keyer, despill) {
+    var n = cw * ch, qs = new Float32Array(n), qMax = 0;
+    for (var i = 0; i < n; i++) {
+      var o = i * 4;
+      var q = keyer.q(data[o], data[o + 1], data[o + 2]);
+      qs[i] = q;
+      if (q > qMax) qMax = q;
+    }
+    var gain = (qMax > 0 && qMax < 1) ? Math.min(1.6, 1 / Math.max(qMax, 0.625)) : 1;
+    keyRGBA(data, cw, ch, keyer, despill, qs, gain);
+    var box = contentBox(data, cw, ch);
+    if (!box) return { box: null };
+    var out = new Uint8ClampedArray(box.w * box.h * 4);
+    for (var y = 0; y < box.h; y++) {
+      var so = ((box.y + y) * cw + box.x) * 4, dof = y * box.w * 4;
+      for (var x = 0; x < box.w * 4; x++) out[dof + x] = data[so + x];
+    }
+    return { box: box, data: out };
+  }
+  // 按骨架给部件算摆放位置（纯数据）
+  function placePart(slot, nw, nh, canvasW, canvasH) {
+    var lay = SHEET_LAYOUT[slot] || [0.30, 0.50, 0.50, "c"];
+    var scale = (lay[0] * canvasW) / nw;
+    var w = nw * scale, h = nh * scale;
+    var x = lay[1] * canvasW, y = lay[2] * canvasH;
+    if (lay[3] === "bc") y -= h / 2;
+    else if (lay[3] === "tc") y += h / 2;
+    else if (lay[3] === "lc") x += w / 2;
+    else if (lay[3] === "rc") x -= w / 2;
+    return { x: x, y: y, scale: scale };
+  }
+  // 由「已切好的部件」生成层清单（含镜像补位），纯数据，便于单测
+  function planSheetLayers(parts, opts) {
+    var W = opts.canvasW, H = opts.canvasH;
+    var planned = [], seen = {};
+    parts.forEach(function (p) {
+      function emit(slot, mirrored) {
+        if (!slot || seen[slot] || !SHEET_LAYOUT[slot]) return;
+        seen[slot] = true;
+        var pos = placePart(slot, p.nw, p.nh, W, H);
+        planned.push({
+          slot: slot, srcSlot: p.slot, mirrored: !!mirrored, ref: p,
+          x: pos.x, y: pos.y, scale: pos.scale, z: defaultZ(slot)
+        });
+      }
+      emit(p.slot, false);
+      if (opts.mirror && MIRROR_SLOTS[p.slot]) emit(MIRROR_SLOTS[p.slot], true);
+    });
+    return planned;
+  }
+
+  /* --- 9.2 画布与 UI 部分 --- */
+  var sheetFile = null, sheetUrl = null, sheetMeta = null;
+
+  function hexToRgb(hex) {
+    var m = /^#?([a-f0-9]{2})([a-f0-9]{2})([a-f0-9]{2})$/i.exec(String(hex || ""));
+    if (!m) return [255, 0, 255];
+    return [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)];
+  }
+  function rgbToHex(c) {
+    return "#" + c.map(function (v) {
+      var s = Math.max(0, Math.min(255, Math.round(v))).toString(16);
+      return s.length < 2 ? "0" + s : s;
+    }).join("");
+  }
+  function sheetOpts() {
+    return {
+      rows: Math.max(1, Math.min(6, Number($("#sheetRows").value) || 3)),
+      cols: Math.max(1, Math.min(6, Number($("#sheetCols").value) || 3)),
+      bg: hexToRgb($("#sheetBg").value),
+      tol: Number($("#sheetTol").value) / 100,
+      feather: Number($("#sheetFeather").value) / 100,
+      despill: $("#sheetDespill").checked,
+      mirror: $("#sheetMirror").checked
+    };
+  }
+
+  function drawSheetGrid() {
+    var grid = $("#sheetGrid"), o = sheetOpts();
+    grid.innerHTML = "";
+    for (var i = 1; i < o.cols; i++) {
+      var v = document.createElement("i");
+      v.style.left = (i / o.cols * 100) + "%";
+      v.style.top = "0"; v.style.width = "1px"; v.style.height = "100%";
+      grid.appendChild(v);
+    }
+    for (var j = 1; j < o.rows; j++) {
+      var hz = document.createElement("i");
+      hz.style.top = (j / o.rows * 100) + "%";
+      hz.style.left = "0"; hz.style.height = "1px"; hz.style.width = "100%";
+      grid.appendChild(hz);
+    }
+    $("#sheetSize").textContent = o.rows + "×" + o.cols;
+    renderSheetMap();
+  }
+
+  function renderSheetMap() {
+    var o = sheetOpts(), box = $("#sheetMap"), n = o.rows * o.cols;
+    box.innerHTML = "";
+    for (var i = 0; i < n; i++) {
+      var slot = SHEET_ORDER[i];
+      var d = document.createElement("div");
+      var b = document.createElement("b");
+      b.textContent = String(i + 1);
+      var s = document.createElement("span");
+      if (!slot) { s.textContent = "（空）"; d.className = "off"; }
+      else {
+        s.textContent = LABEL[slot] || slot.replace(/^pet-/, "");
+        if (o.mirror && MIRROR_SLOTS[slot]) s.textContent += " →" + (LABEL[MIRROR_SLOTS[slot]] || "镜像");
+      }
+      d.appendChild(b); d.appendChild(s);
+      box.appendChild(d);
+    }
+  }
+
+  function loadSheet(file) {
+    if (!file || !/^image\//.test(file.type)) return;
+    var fr = new FileReader();
+    fr.onload = function () {
+      sheetUrl = String(fr.result);
+      $("#sheetImg").src = sheetUrl;
+      $("#sheetPreview").style.display = "block";
+      $("#sheetDrop").style.display = "none";
+      // 取四角背景色
+      var probe = new Image();
+      probe.onload = function () {
+        sheetMeta = { w: probe.naturalWidth, h: probe.naturalHeight };
+        var c = document.createElement("canvas");
+        c.width = sheetMeta.w; c.height = sheetMeta.h;
+        var ctx = c.getContext("2d");
+        if (ctx) {
+          ctx.drawImage(probe, 0, 0);
+          var d = ctx.getImageData(0, 0, sheetMeta.w, sheetMeta.h);
+          var s = sampleCorners(d.data, sheetMeta.w, sheetMeta.h, 0.02);
+          $("#sheetBg").value = rgbToHex(s.color);
+          var suggest = Math.max(8, Math.min(30, Math.round(8 + s.minSpread * 0.15)));
+          $("#sheetTol").value = String(suggest);
+          $("#sheetHint").textContent = "四角背景色 " + rgbToHex(s.color) +
+            "（角间色差 " + Math.round(s.minSpread) + "~" + Math.round(s.maxSpread) + "，建议容差 " + suggest + "）。" +
+            (s.maxSpread > 90 ? "色差偏大，背景可能不均匀或有部件压到角上，建议手动改背景色。" : "") +
+            "边缘残留杂色调大容差，部件被抠出洞调小。";
+        } else {
+          $("#sheetHint").textContent = "预览已加载，但当前环境读不出像素，无法自动取色（手动填背景色即可）。";
+        }
+        $("#tagInfo").textContent = "素材板 " + sheetMeta.w + "×" + sheetMeta.h;
+      };
+      probe.onerror = function () { $("#sheetHint").textContent = "这张图读不出来，换一张试试。"; };
+      probe.src = sheetUrl;
+    };
+    fr.readAsDataURL(file);
+  }
+
+  // 从素材板切出部件 → 生成图层
+  function sliceSheet() {
+    var btn = $("#btnSheetSlice");
+    if (!sheetUrl) { $("#sheetHint").textContent = "先拖入一张素材板图。"; return; }
+    var o = sheetOpts();
+    if (typeof document.createElement("canvas").getContext !== "function") {
+      $("#sheetHint").textContent = "当前环境没有 canvas，无法切片。"; return;
+    }
+    btn.disabled = true;
+    btn.textContent = "切片中…";
+    var img = new Image();
+    img.onload = function () {
+      var W = img.naturalWidth, H = img.naturalHeight;
+      var full = document.createElement("canvas");
+      full.width = W; full.height = H;
+      var fctx = full.getContext("2d");
+      if (!fctx) { btn.disabled = false; btn.textContent = "切片导入"; $("#sheetHint").textContent = "拿不到 canvas 上下文。"; return; }
+      fctx.drawImage(img, 0, 0);
+      var keyer = makeKeyer(o.bg, o.tol, o.feather);
+      var cw = Math.floor(W / o.cols), chh = Math.floor(H / o.rows);
+      var layersMeta = [], skipped = [];
+
+      // 保持裁切后的原始分辨率：素材板建议 ≥1024 出图，单格够用；
+      // 位图放大不会增加信息量，只会让最终缩小显示时更糊。
+      function makeLayerCanvas(res) {
+        var cv = document.createElement("canvas");
+        cv.width = res.box.w; cv.height = res.box.h;
+        var ctx = cv.getContext("2d");
+        if (!ctx) return null;
+        ctx.putImageData(new ImageData(res.data, res.box.w, res.box.h), 0, 0);
+        return { canvas: cv, nw: cv.width, nh: cv.height };
+      }
+
+      for (var r = 0; r < o.rows; r++) {
+        for (var c = 0; c < o.cols; c++) {
+          var idx = r * o.cols + c;
+          var slot = SHEET_ORDER[idx];
+          if (!slot) { continue; }
+          var d = fctx.getImageData(c * cw, r * chh, cw, chh);
+          var res = sliceCellData(d.data, cw, chh, keyer, o.despill);
+          if (!res.box) { skipped.push((idx + 1) + " " + (LABEL[slot] || slot)); continue; }
+          var made = makeLayerCanvas(res);
+          if (!made) { skipped.push((idx + 1) + " " + (LABEL[slot] || slot)); continue; }
+          layersMeta.push({ slot: slot, canvas: made.canvas, nw: made.nw, nh: made.nh });
+        }
+      }
+
+      buildSheetLayers(layersMeta, o);
+
+      btn.disabled = false;
+      btn.textContent = "切片导入";
+      var msg = "已导入 " + layers.length + " 层（" + layersMeta.length + " 个部件" +
+        (o.mirror ? " + 镜像" : "") + "）。";
+      if (skipped.length) msg += " 空/失败：" + skipped.join("、") + "。";
+      $("#sheetHint").textContent = msg + " 现在拖拽摆位、调缩放与锚点。";
+      $("#tagInfo").textContent = "素材板 · " + layers.length + " 层";
+      $("#modeChip").textContent = o.rows + "×" + o.cols + " 切片";
+    };
+    img.onerror = function () {
+      btn.disabled = false; btn.textContent = "切片导入";
+      $("#sheetHint").textContent = "素材板加载失败。";
+    };
+    img.src = sheetUrl;
+  }
+
+  function buildSheetLayers(metas, o) {
+    var canvasW = 512, canvasH = 512;
+    canvasMeta.width = canvasW; canvasMeta.height = canvasH;
+    canvasMeta.groundLineY = Math.round(canvasH * 0.933);
+    canvasMeta.locked = true; // 部件尺寸不一致，画布不能再由 resetCanvas 重算
+
+    var bySlot = {};
+    var parts = metas.map(function (m) {
+      bySlot[m.slot] = m;
+      return { slot: m.slot, nw: m.nw, nh: m.nh, ref: m };
+    });
+    var plan = planSheetLayers(parts, { canvasW: canvasW, canvasH: canvasH, mirror: o.mirror });
+
+    layers = [];
+    uidSeq = 0;
+    plan.forEach(function (p) {
+      var src = bySlot[p.srcSlot];
+      if (!src) return;
+      var url = p.mirrored ? flipCanvasUrl(src.canvas) : src.canvas.toDataURL("image/png");
+      if (!url) return;
+      layers.push({
+        id: "L" + (++uidSeq), file: p.slot + ".png", slot: p.slot, url: url,
+        nw: src.canvas.width, nh: src.canvas.height,
+        x: p.x, y: p.y, scale: p.scale, rot: 0, z: p.z, opacity: 1,
+        pivot: null, visible: true, fromSheet: true
+      });
+    });
+    selId = (layers.filter(function (L) { return L.slot === "pet-body"; })[0] || layers[0] || {}).id || null;
+    rebuild();
+  }
+
+  function flipCanvasUrl(srcCanvas) {
+    var c = document.createElement("canvas");
+    c.width = srcCanvas.width; c.height = srcCanvas.height;
+    var ctx = c.getContext("2d");
+    if (!ctx) return null;
+    ctx.translate(c.width, 0);
+    ctx.scale(-1, 1);
+    ctx.drawImage(srcCanvas, 0, 0);
+    return c.toDataURL("image/png");
+  }
+
+  /* ============================================================
+   * 10. 状态机（与矢量装配台一致）
+   * ============================================================ */
+  var STATES = {
+    idle: "待机", thinking: "思考中", talking: "说话中", working: "执行中",
+    happy: "开心", asleep: "睡觉", sad: "受挫"
+  };
+
+  function setState(next) {
+    if (!STATES[next]) return;
+    state = next;
+    stateAt = performance.now();
+    $("#stateChip").textContent = STATES[next];
+    $$("#stateBtns .btn").forEach(function (b) { b.classList.toggle("active", b.dataset.state === next); });
+    if (next === "happy") faceMode = "happy";
+    else if (next === "asleep") faceMode = "sleep";
+    else faceMode = "normal";
+    if (next === "happy" || next === "sad") {
+      window.setTimeout(function () { if (state === next) setState("idle"); }, 1500);
+    }
+  }
+
+  function drive() {
+    var t = performance.now() / 1000;
+    if (manual) { T.breath = Math.sin(t * 1.8); T.tailSway = Math.sin(t * 2.2) * tailAmp * 2; blinkTick(); return; }
+    T.blush = 0.35; T.squish = 0; T.headDrop = 0; T.hop = 0; T.earTwitch = 0; T.eyeOpen = 1;
+
+    if (state === "idle") {
+      T.breath = Math.sin(t * 1.8);
+      T.tailSway = Math.sin(t * 2.1) * tailAmp * (1 + idleImpulse * 1.5);
+      T.eyeBallX = Math.sin(t * 0.45) * 0.3;
+      T.eyeBallY = Math.sin(t * 0.7) * 0.12;
+      T.bodyAngleZ = Math.sin(t * 1.8) * 0.8 + idleImpulse * 1.6 * Math.sin(t * 9);
+      T.mouthOpenY = 0.02;
+      T.earTwitch = idleImpulse * Math.sin(t * 14) * 0.5;
+    } else if (state === "thinking") {
+      T.breath = Math.sin(t * 1.4); T.tailSway = Math.sin(t * 1.1) * tailAmp * 0.5;
+      T.eyeBallX = Math.sin(t * 3.1) * 0.9; T.eyeBallY = -0.45;
+      T.bodyAngleZ = Math.sin(t * 1.1) * 1.5; T.headAngleZ = Math.sin(t * 1.6) * 2.2;
+    } else if (state === "talking") {
+      T.breath = Math.sin(t * 2.2); T.tailSway = Math.sin(t * 3.4) * tailAmp * 1.1;
+      T.eyeBallX = Math.sin(t * 1.2) * 0.5; T.bodyAngleZ = Math.sin(t * 2.6) * 1.1;
+      T.headAngleZ = Math.sin(t * 2.6) * 2.4; T.blush = 0.55;
+      if (speak) {
+        var prog = Math.floor((performance.now() - speak.t0) / 70);
+        if (prog > speak.i) speak.i = prog;
+        T.mouthOpenY = Math.abs(Math.sin(speak.i * 0.85)) * (0.6 + Math.sin(speak.i * 2.7) * 0.4);
+        if (speak.i >= speak.text.length + 4) { speak = null; setState("idle"); }
+      } else {
+        T.mouthOpenY = Math.abs(Math.sin(t * 11)) * 0.7;
+      }
+    } else if (state === "working") {
+      T.breath = Math.sin(t * 3.4) * 0.7; T.tailSway = Math.sin(t * 6) * tailAmp * 1.2;
+      T.bodyAngleZ = Math.sin(t * 13) * 2.2; T.headAngleZ = Math.sin(t * 13) * 1.5;
+      T.eyeBallX = Math.sin(t * 8) * 0.35; T.earTwitch = Math.sin(t * 9) * 0.6;
+    } else if (state === "happy") {
+      var k = Math.min(1, (performance.now() - stateAt) / 320);
+      var arc = Math.sin(Math.min(Math.PI, k * Math.PI * 2.2));
+      T.hop = Math.max(0, arc) * 1.2; T.squish = -arc * 0.5;
+      T.breath = Math.sin(t * 4) * 0.6; T.tailSway = Math.sin(t * 8) * tailAmp * 1.5;
+      T.mouthOpenY = 0.8; T.blush = 0.95; T.headAngleZ = Math.sin(t * 8) * 3;
+    } else if (state === "asleep") {
+      T.breath = Math.sin(t * 0.85) * 1.8; T.tailSway = Math.sin(t * 0.6) * tailAmp * 0.3;
+      T.bodyAngleZ = Math.sin(t * 0.85) * 1.5; T.headDrop = 0.85; T.mouthOpenY = 0.1; T.blush = 0.4;
+    } else if (state === "sad") {
+      T.breath = Math.sin(t * 1.2) * 0.7; T.tailSway = Math.sin(t * 0.9) * tailAmp * 0.3;
+      T.eyeBallY = 0.5; T.headDrop = 0.8; T.blush = 0.15;
+    }
+    blinkTick();
+  }
+
+  function blinkTick() {
+    var now = performance.now();
+    if (now > idleNext) { idleNext = now + 4200 + Math.random() * 5200; idleImpulse = 1; }
+    if (idleImpulse > 0) idleImpulse = Math.max(0, idleImpulse - 0.012);
+    if (faceMode === "normal") {
+      if (now > nextBlink && now > blinkUntil) {
+        blinkUntil = now + (state === "working" ? 90 : 130);
+        nextBlink = now + 2200 + Math.random() * 3400;
+      }
+      T.eyeOpen = now < blinkUntil ? 0 : 1;
+    }
+  }
+
+  function frame() {
+    drive();
+    integrate();
+    apply();
+    requestAnimationFrame(frame);
+  }
+
+  function simulate() {
+    if (busy) return;
+    busy = true;
+    setState("thinking"); speak = null;
+    var seq = [
+      function () { setState("working"); },
+      function () { setState("happy"); },
+      function () { setState("talking"); speak = { text: "四年级一班最近三次测验我都看过了，", i: 0, t0: performance.now() }; },
+      function () { if (speak) speak.text += "有 3 位同学的成绩连续下滑，需要重点关注。"; }
+    ];
+    var i = 0;
+    var step = function () {
+      if (i >= seq.length) {
+        window.setTimeout(function () {
+          busy = false;
+          window.setTimeout(function () { if (state !== "talking") setState("idle"); }, 1200);
+        }, 900);
+        return;
+      }
+      seq[i++]();
+      window.setTimeout(step, 700 + Math.random() * 400);
+    };
+    step();
+  }
+
+  /* ============================================================
+   * 11. 导出
+   * ============================================================ */
+  function currentManifest() {
+    var map = {};
+    layers.forEach(function (L) {
+      if (!L.slot) return;
+      var o = {
+        slot: L.slot, file: L.file,
+        x: Math.round(L.x), y: Math.round(L.y), scale: Number(L.scale.toFixed(3)),
+        z: L.z
+      };
+      if (L.rot) o.rotation = Math.round(L.rot * 10) / 10;
+      if (L.opacity !== 1) o.opacity = Number(L.opacity.toFixed(2));
+      if (L.pivot) o.pivot = [Math.round(L.pivot[0]), Math.round(L.pivot[1])];
+      if (!map[L.slot]) map[L.slot] = [];
+      map[L.slot].push(o);
+    });
+    var flat = [];
+    Object.keys(map).forEach(function (k) {
+      map[k].forEach(function (o) { flat.push(o); });
+    });
+    flat.sort(function (a, b) { return a.z - b.z; });
+    return {
+      schema: "aprilio.pet/1",
+      id: "custom-raster",
+      name: "自定义贴图形象",
+      runtime: "raster-layered",
+      author: "me",
+      version: "1.0.0",
+      canvas: {
+        width: canvasMeta.width, height: canvasMeta.height,
+        groundLineY: canvasMeta.groundLineY,
+        // same-size：每层与画布等大、原位对齐（PS / Procreate 分层导出）
+        // placed   ：每层自带自然尺寸，渲染尺寸 = 自然尺寸 × scale，中心放在 (x, y)
+        align: layers.some(function (L) { return L.fromSheet; }) ? "placed" : "same-size",
+        assetDir: "assets"
+      },
+      layers: flat,
+      behavior: { blinkIntervalMs: [2200, 5600], tailAmp: 0.6 }
+    };
+  }
+  function renderManifest() {
+    $("#manifest").textContent = JSON.stringify(currentManifest(), null, 2);
+  }
+
+  /* ============================================================
+   * 12. UI
+   * ============================================================ */
+  $("#btnPick").onclick = function () { $("#fileImgs").click(); };
+  $("#fileImgs").onchange = function (e) { addFiles(e.target.files); e.target.value = ""; };
+  $("#btnDemo").onclick = generateDemo;
+
+  // 素材板切片器
+  $("#btnSheetPick").onclick = function () { $("#fileSheet").click(); };
+  $("#fileSheet").onchange = function (e) { loadSheet(e.target.files && e.target.files[0]); e.target.value = ""; };
+  $("#btnSheetSlice").onclick = sliceSheet;
+  $("#btnSheetSample").onclick = function () {
+    if (!sheetUrl) { $("#sheetHint").textContent = "先拖入一张素材板图。"; return; }
+    var probe = new Image();
+    probe.onload = function () {
+      var c = document.createElement("canvas");
+      c.width = probe.naturalWidth; c.height = probe.naturalHeight;
+      var ctx = c.getContext("2d");
+      if (!ctx) { $("#sheetHint").textContent = "当前环境读不出像素，手动填背景色即可。"; return; }
+      ctx.drawImage(probe, 0, 0);
+      var d = ctx.getImageData(0, 0, c.width, c.height);
+      var s = sampleCorners(d.data, c.width, c.height, 0.02);
+      $("#sheetBg").value = rgbToHex(s.color);
+      $("#sheetHint").textContent = "重新取到背景色 " + rgbToHex(s.color) + "。";
+    };
+    probe.src = sheetUrl;
+  };
+  ["dragenter", "dragover"].forEach(function (ev) {
+    $("#sheetDrop").addEventListener(ev, function (e) {
+      e.preventDefault(); e.stopPropagation(); $("#sheetDrop").classList.add("over");
+    });
+  });
+  ["dragleave", "drop"].forEach(function (ev) {
+    $("#sheetDrop").addEventListener(ev, function (e) {
+      e.preventDefault(); e.stopPropagation(); $("#sheetDrop").classList.remove("over");
+    });
+  });
+  $("#sheetDrop").addEventListener("drop", function (e) {
+    loadSheet(e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]);
+  });
+  $("#sheetDrop").onclick = function () { $("#fileSheet").click(); };
+  $("#sheetRows").onchange = drawSheetGrid;
+  $("#sheetCols").onchange = drawSheetGrid;
+  $("#sheetMirror").onchange = renderSheetMap;
+  drawSheetGrid();
+  $("#btnClear").onclick = function () {
+    layers = []; selId = null; canvasMeta.locked = false; rebuild();
+    $("#tagInfo").textContent = "等待素材"; $("#modeChip").textContent = "";
+  };
+  $("#btnAutoMap").onclick = function () {
+    layers.forEach(function (L) { var g = guessSlot(L.file); if (g) { L.slot = g; L.unmapped = false; } });
+    buildDom(); rebuild();
+  };
+  $("#btnAlign").onclick = function () {
+    layers.forEach(function (L) { L.x = canvasMeta.width / 2; L.y = canvasMeta.height / 2; });
+    apply(); renderInspector(); renderManifest();
+  };
+
+  ["dragenter", "dragover"].forEach(function (ev) {
+    stage.addEventListener(ev, function (e) { e.preventDefault(); stage.classList.add("drag"); });
+  });
+  ["dragleave", "drop"].forEach(function (ev) {
+    stage.addEventListener(ev, function (e) { e.preventDefault(); stage.classList.remove("drag"); });
+  });
+  stage.addEventListener("drop", function (e) {
+    addFiles(e.dataTransfer && e.dataTransfer.files);
+  });
+
+  // 状态按钮
+  (function () {
+    var box2 = $("#stateBtns");
+    Object.keys(STATES).forEach(function (k) {
+      var b = document.createElement("button");
+      b.className = "btn" + (state === k ? " active" : "");
+      b.textContent = STATES[k];
+      b.dataset.state = k;
+      b.onclick = function () { speak = null; setState(k); };
+      box2.appendChild(b);
+    });
+  })();
+  $("#btnSim").onclick = simulate;
+
+  $("#pMouth").oninput = function () { manual = true; T.mouthOpenY = Number(this.value) / 100; };
+  $("#pEyeX").oninput = function () { manual = true; T.eyeBallX = Number(this.value) / 100; };
+  $("#pEyeY").oninput = function () { manual = true; T.eyeBallY = Number(this.value) / 100; };
+  $("#pTilt").oninput = function () { manual = true; T.bodyAngleZ = Number(this.value) / 10; };
+  $("#pTail").oninput = function () { tailAmp = Number(this.value) / 100 * 2; };
+
+  $("#btnCopy").onclick = function () {
+    if (navigator.clipboard) navigator.clipboard.writeText($("#manifest").textContent);
+  };
+  $("#btnDownload").onclick = function () {
+    var m = currentManifest();
+    var blob = new Blob([JSON.stringify(m, null, 2)], { type: "application/json" });
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = "pet.json"; a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
+  window.addEventListener("resize", function () { layoutScene(); apply(); drawOverlay(); });
+
+  /* ============================================================
+   * 13. 启动
+   * ============================================================ */
+  layoutScene();
+  renderList(); renderInspector(); renderManifest();
+  requestAnimationFrame(frame);
+
+  // 原型工具的自动化钩子：便于冒烟测试与脚本化装配（不影响正常使用）
+  var BLANK = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
+  window.__petRaster = {
+    guessSlot: guessSlot,
+    layers: function () { return layers; },
+    params: function () { return P; },
+    state: function () { return state; },
+    inject: function (slot, nw, nh) {
+      var L = {
+        id: "L" + (++uidSeq), file: slot + ".png", slot: slot, url: BLANK,
+        nw: nw || canvasMeta.width, nh: nh || canvasMeta.height,
+        x: canvasMeta.width / 2, y: canvasMeta.height / 2, scale: 1, rot: 0,
+        z: 10 + layers.length * 10, opacity: 1, pivot: null, visible: true
+      };
+      layers.push(L);
+      return L;
+    },
+    rebuild: rebuild,
+    setState: setState,
+    canvas: function () { return canvasMeta; },
+    // 素材板切片：纯计算部分单独暴露，便于脱离浏览器单测
+    sheet: {
+      order: SHEET_ORDER, layout: SHEET_LAYOUT, mirror: MIRROR_SLOTS,
+      makeKeyer: makeKeyer, keyRGBA: keyRGBA, contentBox: contentBox,
+      sampleCorners: sampleCorners, sliceCellData: sliceCellData,
+      placePart: placePart, planSheetLayers: planSheetLayers,
+      loadUrl: function (url) { sheetUrl = url; $("#sheetImg").src = url; $("#sheetPreview").style.display = "block"; },
+      setBg: function (hex) { $("#sheetBg").value = hex; },
+      setGrid: function (rows, cols) { $("#sheetRows").value = rows; $("#sheetCols").value = cols; drawSheetGrid(); },
+      slice: sliceSheet
+    }
+  };
+})();
+</script>
+</body>
+</html>
