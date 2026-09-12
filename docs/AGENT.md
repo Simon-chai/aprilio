@@ -24,10 +24,11 @@ src/agent/loop.ts —— tool-calling 循环（TS 侧）
       │     └── Rust 能力上报   → agent_capabilities 命令 → 桥接工具
       │
       └── 工具执行
-            ├── navigation.ts → navigate         页面跳转（vue-router）
+            ├── navigation.ts → navigate         页面跳转（vue-router；实体页面先查库解析再直达）
             ├── query.ts      → query_data       数据查询（lib/db.ts，浏览器/SQLite 双模式）
             ├── docs.ts       → find_docs        文档检索（构建期内联 docs/*.md）
             ├── analyze.ts    → analyze          深度分析（analysis/ 引擎，内置成绩分析器）
+            ├── current-page.ts → current_page   当前页面上下文（page-context-bus 快照）
             ├── student-ops.ts → manage_students 学生档案写操作（确认门）
             ├── roster-import.ts → import_student_roster 花名册导入（智能识别姓名列，确认门；成绩单自动分流）
             ├── score-import.ts → import_score_sheet 成绩单导入（生成考试批次，确认门）
@@ -66,8 +67,16 @@ src/agent/loop.ts —— tool-calling 循环（TS 侧）
 ### navigate —— 页面跳转
 
 `NAV_TARGETS`（src/agent/tools/navigation.ts）是**应用界面注册表**，
-Agent 可达页面的唯一清单：home / classes / students / photos / profile / settings，
-另支持 `student-detail` + `student_id` 跳学生详情（先查库校验存在性）。
+Agent 可达页面的唯一清单：home / classes / photos / timetable / recycle-bin /
+profile / settings，另有两类**实体页面**（带 `resolve` 解析器，先查库校验再跳转）：
+
+- `class-detail` + `class_name`：班级详情页。班级名宽容口语差异
+  （「三年二班」≈「三年级二班」），精确 → 归一 → 包含逐级匹配，
+  优先在用班；多命中报歧义让模型反问，零命中报找不到。
+- `student-detail` + `student_id`：学生详情页。
+
+学生列表已并入班级管理（原学生档案页下线），口语「打开学生列表」落到 classes。
+新增页面/实体页面在 NAV_TARGETS 登记一行即被 Agent 感知（工具参数 Schema 随之生成）。
 
 ### query_data —— 数据查询
 
@@ -129,7 +138,22 @@ Agent 可达页面的唯一清单：home / classes / students / photos / profile
 新建文件，`definePageAction()` 声明（page / name / label / run）并 default export。
 容器按当前路由动态生成 `ui_action` 工具的参数枚举，模型只能选清单内的动作；
 视图触发用 `emitPageAction()`（src/agent/page-action-bus.ts），
-StudentsView 有现成接法（动作清单 + beforeUnmount 退订）。
+ClassesView / ClassDetailView 有现成接法（动作清单 + beforeUnmount 退订）。
+
+### 页面上下文（page-context-bus / current_page）
+
+「当前页面渲染了什么」只有视图自己知道（路由参数、页签、加载完成的真实数据）。
+视图经 `reportPageContext()`（src/agent/page-context-bus.ts，page-action-bus 的
+对称面）在 onMounted、数据刷新、页签切换时上报快照（标题 / 路由参数 / 渲染摘要，
+数据与页面同源），卸载时 `clearPageContext()` 清除。两个消费端：
+
+- **system prompt 注入**：loop 每轮重建 prompt 时读取当前路由的最新快照，
+  模型不调工具也知道「这个班」是谁——「这个班成绩如何」这类追问因此可解。
+- **current_page 工具**（tools/current-page.ts）：模型主动查看页面渲染详情；
+  视图未上报时如实说明并指引改用 query_data。
+
+新页面接入与 page-action 对称：视图里 reportPageContext / clearPageContext 各一行，
+快照摘要控制在几行以内、不含敏感字段（隐私边界与 query_data 一致）。
 
 ## 如何新增能力（Rust 执行面）
 
@@ -225,5 +249,5 @@ TS 没有运行时反射，「扫描」注定是构建期的（`import.meta.glob
 ## 演示态
 
 浏览器模式（`npm run dev`）下没有 Tauri 外壳，Provider 自动切到
-`mock.ts` 规则解析：「打开学生列表」「现在有多少学生」「查一下林知远」
-都能走完 理解 → 调工具 → 回喂 → 总结 的完整链路，方便调 UI 与跑测试。
+`mock.ts` 规则解析：「打开学生列表」「打开三年二班的详情页」「现在有多少学生」
+「查一下林知远」都能走完 理解 → 调工具 → 回喂 → 总结 的完整链路，方便调 UI 与跑测试。

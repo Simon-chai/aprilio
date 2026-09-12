@@ -14,15 +14,14 @@ interface NavItem {
 const items: NavItem[] = [
   { name: "home", label: "首页", icon: "home" },
   { name: "classes", label: "班级管理", icon: "classes" },
-  { name: "students", label: "学生档案", icon: "users" },
   { name: "photos", label: "图片记录", icon: "image" },
   { name: "recycle-bin", label: "回收站", icon: "trash" },
   { name: "settings", label: "数据与设置", icon: "gear" },
 ];
 
 const activeName = computed(() => {
-  if (route.name === "student-detail") return "students";
-  if (route.name === "class-detail") return "classes";
+  // 班级详情与学生详情都是从「班级管理」下钻的层级，侧栏沿用同一高亮
+  if (route.name === "class-detail" || route.name === "student-detail") return "classes";
   return String(route.name ?? "");
 });
 </script>

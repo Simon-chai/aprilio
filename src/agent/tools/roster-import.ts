@@ -20,7 +20,6 @@ import {
   type SmartImportOutcome,
 } from "../../lib/roster";
 import { detectScoreSheet, runSmartScoreImport, type SmartScoreImportOutcome } from "../../lib/scores";
-import { applyInferredClassMeta } from "../../lib/semester-ai";
 import { defineAgentTool } from "../define";
 
 export default defineAgentTool({
@@ -30,6 +29,8 @@ export default defineAgentTool({
     "导入学生花名册表格（XLSX/XLS/XLSM/XLSB/ODS/CSV/TSV/TXT）。使用智能导入：自动根据表头与单元格内容识别姓名列，" +
     "其余列按表头自动映射（学号/性别/班级/监护人电话等），学号已存在或同名同生日的记录自动跳过。" +
     "整批无班级信息时会自动新建「未命名班级N」单立一班（两次导入分成两个班，重导入同一批则复用原班不搬家）。" +
+    "若表格实为成绩单会自动分流为成绩导入——成绩必须归属班级：表内无班级信息且无法按档案学生推断时不会落库，" +
+    "需先询问用户成绩属于哪个班级，再带 class_name 重新调用。" +
     "一次可导入多个文件（file_paths 数组，每文件独立识别、独立落库），也可用 file_path 传单个文件；" +
     "file_path / file_paths 缺省时弹出文件选择框由用户选择（可多选）。" +
     "识别置信度低时会返回候选列，需询问用户姓名在哪一列后带 name_column 参数（列名或列号）重新调用。" +
@@ -52,6 +53,12 @@ export default defineAgentTool({
         type: "string",
         description:
           "姓名列，列名文本或从 1 开始的列号（如 \"姓名\" 或 \"3\"）。缺省时自动识别；识别置信度低时必须提供",
+      },
+      class_name: {
+        type: "string",
+        description:
+          "成绩归属班级（如「三年级二班」）。仅当表格被判定为成绩单并分流为成绩导入时生效（普通花名册导入不读此参数，" +
+          "花名册按表内班级列映射或自动分班）：分流时若表内没有班级信息且无法按档案学生推断，必须先询问用户后带此参数重新调用",
       },
       confirm: {
         type: "boolean",
@@ -96,6 +103,10 @@ export default defineAgentTool({
       typeof args.name_column === "string" && args.name_column.trim()
         ? args.name_column.trim()
         : undefined;
+    const classNameArg =
+      typeof args.class_name === "string" && args.class_name.trim()
+        ? args.class_name.trim()
+        : undefined;
 
     // 多文件：每文件独立处理（成绩单分流各自判断），结果聚合回复。
     let totalImported = 0;
@@ -103,7 +114,6 @@ export default defineAgentTool({
     let totalSkipped = 0;
     let totalFailed = 0;
     const fileLines: string[] = [];
-    const metaNotes: string[] = [];
     const multi = loadedList.length > 1;
 
     for (const loaded of loadedList) {
@@ -111,7 +121,7 @@ export default defineAgentTool({
       // 转入成绩导入管道（自动建档 + 智能生成一次考试），而不是把成绩列当垃圾丢掉。
       const scoreDetection = detectScoreSheet(loaded.table, { fileName: loaded.fileName });
       if (scoreDetection && scoreDetection.confidence !== "low") {
-        const r = await importScoreFromRosterTool(loaded, nameColumnArg);
+        const r = await importScoreFromRosterTool(loaded, nameColumnArg, classNameArg);
         if (!r.ok) {
           return { ok: false, summary: "", error: multi ? `「${loaded.fileName}」${r.error}` : String(r.error) };
         }
@@ -187,25 +197,7 @@ export default defineAgentTool({
       logInfo(
         `花名册导入完成：成功 ${result.imported}，更新 ${result.updated}，跳过 ${result.skipped.length}，失败 ${result.failed.length}`,
       );
-
-      // 导入收尾：从文件名 / 标题行识别年级与学期，补写班级元信息（失败静默）
-      // 未命名批次用自动分配的班级，保证元信息落在新班上
-      const gradeCol = mapping.fields.grade_class;
-      const targetClasses = result.autoClass
-        ? [result.autoClass].filter((c) => c !== "未分班")
-        : gradeCol === undefined
-          ? []
-          : [...new Set(loaded.table.rows.map((r) => (r[gradeCol] ?? "").trim()))].filter(Boolean);
-      for (const cls of targetClasses) {
-        const guess = await applyInferredClassMeta(cls, [fileLabel, ...(loaded.table.titleText ?? [])]);
-        if (guess && (guess.grade != null || guess.semester != null)) {
-          metaNotes.push(
-            `${cls} 登记为${guess.grade != null ? `${guess.grade}年级` : ""}${guess.semester ? ` ${guess.semester}` : ""}`,
-          );
-        }
-      }
     }
-    if (metaNotes.length) fileLines.push(`已识别班级信息：${metaNotes.join("；")}`);
 
     const head = multi
       ? `共导入 ${loadedList.length} 个文件：成功 ${totalImported} 名，覆盖更新 ${totalUpdated} 名，跳过 ${totalSkipped} 条，失败 ${totalFailed} 条。分文件：`
@@ -228,11 +220,12 @@ export default defineAgentTool({
  * 花名册工具的成绩单分流：表格识别为成绩单时改走成绩导入管道（runSmartScoreImport），
  * 一次完成「学生建档 + 智能生成考试批次 + 成绩关联」，回复里向用户说明两件事都做了。
  */
-async function importScoreFromRosterTool(loaded: LoadedRoster, nameColumnArg?: string) {
+async function importScoreFromRosterTool(loaded: LoadedRoster, nameColumnArg?: string, classNameArg?: string) {
   let outcome: SmartScoreImportOutcome;
   try {
     outcome = await runSmartScoreImport(loaded.table, {
       nameColumn: nameColumnArg,
+      className: classNameArg,
       fileName: loaded.fileName,
     });
   } catch (e) {
@@ -241,7 +234,15 @@ async function importScoreFromRosterTool(loaded: LoadedRoster, nameColumnArg?: s
   }
 
   if (outcome.status !== "ok") {
-    return { ok: false, summary: "", error: outcome.message };
+    // 成绩必须归属班级：缺班级时不落库，引导模型向用户确认后带 class_name 重试
+    const needClass = outcome.status === "error" && outcome.message.includes("归属班级");
+    return {
+      ok: false,
+      summary: "",
+      error: needClass
+        ? `${outcome.message}请先向用户确认这份成绩属于哪个班级，然后带 class_name 参数重新调用。`
+        : outcome.message,
+    };
   }
 
   const { exam, examCreated, result } = outcome;

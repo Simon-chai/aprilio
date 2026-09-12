@@ -110,18 +110,12 @@ export interface ClassSummary {
   photoCount: number;
   classPhotoCount: number;
   studentPhotoCount: number;
-  /** 建档时的初始年级 1~6；null = 未登记（不显示升级徽标） */
-  entry_grade?: number | null;
-  /** 起始学期，如 2025-2026-1；null = 未登记 */
-  entry_semester?: string | null;
   /** 归档时刻；null = 在用。归档后进入「历史带过的班」，只读可恢复 */
   archived_at?: string | null;
 }
 
-/** 班级元信息：初始年级 + 起始学期 + 归档状态（见 docs/SEMESTER_MANAGEMENT.md） */
+/** 班级元信息：归档状态（见 docs/SEMESTER_MANAGEMENT.md） */
 export interface ClassMeta {
-  entry_grade: number | null;
-  entry_semester: string | null;
   archived_at: string | null;
 }
 
@@ -422,6 +416,69 @@ export interface StudentScoreReport {
   grade_class: string;
   /** 按考试时间倒序 */
   exams: StudentExamReport[];
+}
+
+/* ---------------- 单科成绩趋势（学生面板「单科透视」视图） ---------------- */
+
+/** 单科趋势的一个数据点：某次考试该科的成绩与班级对比 */
+export interface SubjectTrendPoint {
+  exam_id: number;
+  exam_name: string;
+  exam_date: string;
+  /** 本人该科数字分（缺考 / 等级制为 null） */
+  score: number | null;
+  /** 无数字分时的文字（缺考 / 免考…） */
+  grade: string | null;
+  /** 该科班级平均分（全班无数字分时为 null） */
+  class_average: number | null;
+  /** 该科班级排名（并列同名次；本人无数字分时为 null） */
+  class_rank: number | null;
+  class_student_count: number;
+}
+
+/** 单科趋势汇总：逐场数据点 + 统计口径（只统计数字分） */
+export interface SubjectTrendSummary {
+  /** 按考试时间正序（旧 → 新） */
+  points: SubjectTrendPoint[];
+  /** 有数字分的考试次数 */
+  count: number;
+  average: number | null;
+  max: number | null;
+  min: number | null;
+  /** 波动幅度：最高 − 最低（不足 2 次数字分为 null） */
+  range: number | null;
+  /** 最近一次数字分（从未有过数字分为 null） */
+  latestScore: number | null;
+  /** 最近一次较上一次数字分的差值（不足 2 次为 null） */
+  latestDelta: number | null;
+  /** 最近一次分数与该科班均的差值（本人或班均缺数字分为 null） */
+  latestGapToClassAvg: number | null;
+  /** 最好名次（数字越小越好；从未有名次为 null） */
+  bestRank: number | null;
+  /** 最近一次名次 */
+  latestRank: number | null;
+  /** 最近一次名次较上一次的变化（负数 = 名次提升；不足 2 次名次为 null） */
+  rankDelta: number | null;
+}
+
+/* ---------------- 各科成绩柱状图（个人面板 / 班级明细悬浮卡片共用） ---------------- */
+
+/** 柱状图里的一根柱：一个科目在一次考试中的成绩 */
+export interface SubjectScoreBarItem {
+  subject: string;
+  score: number | null;
+  /** 无数字分时的文字（缺考 / 优 / 免考…） */
+  grade?: string | null;
+}
+
+/** 柱状图分组：一组 = 一次考试场次 */
+export interface SubjectScoreBarGroup {
+  /** 场次名（考试名） */
+  label: string;
+  /** 次要信息（如日期 MM-DD） */
+  sub?: string;
+  /** 该场各科成绩（顺序即柱序） */
+  items: SubjectScoreBarItem[];
 }
 
 /* ------------------------------------------------------------------ */

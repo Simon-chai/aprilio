@@ -6,7 +6,7 @@ import { router } from "../src/router";
 
 describe("AppSidebar navigation", () => {
   it("contains 班级管理 nav item", async () => {
-    await router.push("/students");
+    await router.push("/classes");
     await router.isReady();
 
     const wrapper = mount(AppSidebar, {

@@ -15,12 +15,12 @@ describe("ui_action tool", () => {
   it("rejects unknown page actions with the available list", async () => {
     const container = buildCapabilityContainer();
     const result = await findUiAction(container).execute(
-      { page: "students", action: "nope" },
+      { page: "classes", action: "nope" },
       ctx,
     );
     expect(result.ok).toBe(false);
     expect(result.error).toContain("未知页面动作");
-    expect(result.error).toContain("students/create-student");
+    expect(result.error).toContain("classes/create-student");
   });
 
   it("gates dangerous actions behind confirm:true (human-in-the-loop v1)", async () => {
@@ -47,12 +47,12 @@ describe("ui_action tool", () => {
   it("delivers view-bound actions through the page action bus", async () => {
     const container = buildCapabilityContainer();
     let opened = false;
-    const off = onPageAction("students/create-student", () => {
+    const off = onPageAction("classes/create-student", () => {
       opened = true;
     });
 
     const result = await findUiAction(container).execute(
-      { page: "students", action: "create-student" },
+      { page: "classes", action: "create-student" },
       ctx,
     );
     off();
@@ -65,7 +65,7 @@ describe("ui_action tool", () => {
   it("delivers preset args to view through page action bus", async () => {
     const container = buildCapabilityContainer();
     let payload: unknown = null;
-    const off = onPageAction("students/create-student", (data) => {
+    const off = onPageAction("classes/create-student", (data) => {
       payload = data;
     });
 
@@ -80,7 +80,7 @@ describe("ui_action tool", () => {
 
     const result = await findUiAction(container).execute(
       {
-        page: "students",
+        page: "classes",
         action: "create-student",
         args: preset,
       },
@@ -96,7 +96,7 @@ describe("ui_action tool", () => {
   it("reports a failed delivery when no view is listening", async () => {
     const container = buildCapabilityContainer();
     const result = await findUiAction(container).execute(
-      { page: "students", action: "create-student" },
+      { page: "classes", action: "create-student" },
       ctx,
     );
     expect(result.ok).toBe(false);
@@ -104,9 +104,9 @@ describe("ui_action tool", () => {
   });
 
   it("emits nothing when the bus subscriber is removed", () => {
-    const off = onPageAction("students/create-student", () => {});
+    const off = onPageAction("classes/create-student", () => {});
     off();
-    expect(emitPageAction("students/create-student")).toBe(false);
+    expect(emitPageAction("classes/create-student")).toBe(false);
   });
 
   it("exposes the home pomodoro action and delivers it through the bus", async () => {
@@ -143,7 +143,7 @@ describe("ui_action tool", () => {
         push: async () => {
           pushed = true;
         },
-        currentRoute: { value: { name: "students" } },
+        currentRoute: { value: { name: "classes" } },
       },
     };
     const result = await findUiAction(container).execute(

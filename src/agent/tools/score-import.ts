@@ -8,12 +8,14 @@
  *
  * 标记为写操作（dangerous: true），必须包含 confirm 参数；姓名列置信度低时
  * 不落库，返回候选列让模型向用户确认后带 name_column 重试。
+ *
+ * 成绩必须归属班级：班级来自入口参数 → 成绩单「班级」列 → 档案学生推断；
+ * 都无法确定时不落库，返回错误让模型向用户确认班级后带 class_name 重试。
  */
 import { isTauri } from "../../lib/db";
 import { logError, logInfo } from "../../lib/logger";
 import { loadRosterTable, pickRosterFiles, type LoadedRoster } from "../../lib/roster";
 import { runSmartScoreImport, type SmartScoreImportOutcome } from "../../lib/scores";
-import { applyInferredClassMeta } from "../../lib/semester-ai";
 import { defineAgentTool } from "../define";
 
 export default defineAgentTool({
@@ -52,7 +54,9 @@ export default defineAgentTool({
       },
       class_name: {
         type: "string",
-        description: "成绩归属班级（如「三年级二班」）。缺省时按成绩单「班级」列，识别不到则不限定班级",
+        description:
+          "成绩归属班级（如「三年级二班」）。成绩必须归属到一个班级：缺省时先按成绩单「班级」列，再按成绩单学生在档案中的班级推断；" +
+          "仍无法确定时不会落库，此时必须先询问用户成绩属于哪个班级，拿到班级后带 class_name 重新调用",
       },
       name_column: {
         type: "string",
@@ -115,7 +119,6 @@ export default defineAgentTool({
     let totalSkipped = 0;
     let totalFailed = 0;
     const fileLines: string[] = [];
-    const metaNotes: string[] = [];
 
     for (const loaded of loadedList) {
       let outcome: SmartScoreImportOutcome;
@@ -135,7 +138,15 @@ export default defineAgentTool({
       }
 
       if (outcome.status !== "ok") {
-        return { ok: false, summary: "", error: multi ? `「${loaded.fileName}」${outcome.message}` : outcome.message };
+        const base = multi ? `「${loaded.fileName}」${outcome.message}` : outcome.message;
+        const needClass = outcome.status === "error" && outcome.message.includes("归属班级");
+        return {
+          ok: false,
+          summary: "",
+          error: needClass
+            ? `${base}请先向用户确认这份成绩属于哪个班级，然后带 class_name 参数重新调用。`
+            : base,
+        };
       }
 
       const { exam, examCreated, detection, result } = outcome;
@@ -183,22 +194,6 @@ export default defineAgentTool({
         `成绩单导入完成：考试「${exam.name}」(${exam.exam_date})，成绩 ${result.scores_written} 条，` +
           `匹配 ${result.students_matched} 人，建档 ${result.students_created} 人，跳过 ${result.skipped.length}，失败 ${result.failed.length}`,
       );
-
-      // 导入收尾：从文件名 / 标题行识别年级与学期，补写班级元信息（失败静默）
-      if (exam.class_name) {
-        const guess = await applyInferredClassMeta(exam.class_name, [
-          fileLabel,
-          ...(loaded.table.titleText ?? []),
-        ]);
-        if (guess && (guess.grade != null || guess.semester != null)) {
-          metaNotes.push(
-            `${exam.class_name} 登记为${guess.grade != null ? `${guess.grade}年级` : ""}${guess.semester ? ` ${guess.semester}` : ""}`,
-          );
-        }
-      }
-    }
-    if (metaNotes.length) {
-      fileLines.push(`已识别班级信息：${[...new Set(metaNotes)].join("；")}`);
     }
 
     const head = multi

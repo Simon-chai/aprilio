@@ -14,6 +14,7 @@ import {
   deleteExam,
   deleteStudent,
   getExamScores,
+  listExams,
   listExamsByClass,
   listStudentExamScores,
   listStudents,
@@ -218,6 +219,78 @@ describe("runSmartScoreImport", () => {
       expect(outcome2.result.scores_written).toBe(9);
     } finally {
       await cleanupTestClass();
+    }
+  });
+
+  it("refuses to save scores when no class can be determined", async () => {
+    await cleanupTestClass();
+    try {
+      // 成绩单里三名学生都不在档案里 → 无从推断班级，必须拒绝落库（防「未分班」批次）
+      const outcome = await runSmartScoreImport(parseRosterTable(SCORE_SHEET), { config: NO_AI_CONFIG });
+      expect(outcome.status).toBe("error");
+      if (outcome.status !== "error") return;
+      expect(outcome.message).toContain("归属班级");
+      expect((await listExams()).filter((e) => !e.class_name || e.class_name === "未分班")).toHaveLength(0);
+      expect(
+        (await listStudents()).filter((s) => ["林一", "王二", "李三"].includes(s.name))
+      ).toHaveLength(0);
+    } finally {
+      await cleanupTestClass();
+    }
+  });
+
+  it("infers the class from existing students when className is omitted", async () => {
+    await cleanupTestClass();
+    try {
+      await createStudent({
+        name: "林一",
+        gender: "女",
+        birth_date: null,
+        student_no: "9901",
+        grade_class: TEST_CLASS,
+        id_card: null,
+        address: null,
+        status: "active",
+        note: null,
+        guardians: [],
+      });
+      const outcome = await runSmartScoreImport(parseRosterTable(SCORE_SHEET), { config: NO_AI_CONFIG });
+      expect(outcome.status).toBe("ok");
+      if (outcome.status !== "ok" || !outcome.result) return;
+      // 按档案里唯一命中的班级归属，其余学生自动建档到该班
+      expect(outcome.exam.class_name).toBe(TEST_CLASS);
+      expect(outcome.result.students_matched).toBe(1);
+      expect(outcome.result.students_created).toBe(2);
+      expect(outcome.result.scores_written).toBe(9);
+    } finally {
+      await cleanupTestClass();
+    }
+  });
+
+  it("refuses when matched students span multiple classes", async () => {
+    await cleanupTestClass();
+    const otherClass = "成绩测试班C";
+    const cleanupOther = async () => {
+      for (const s of await listStudents()) {
+        if (s.grade_class === otherClass) await deleteStudent(s.id);
+      }
+    };
+    await cleanupOther();
+    try {
+      await createStudent({
+        name: "林一", gender: "女", birth_date: null, student_no: "9901",
+        grade_class: TEST_CLASS, id_card: null, address: null, status: "active", note: null, guardians: [],
+      });
+      await createStudent({
+        name: "王二", gender: "男", birth_date: null, student_no: "9902",
+        grade_class: otherClass, id_card: null, address: null, status: "active", note: null, guardians: [],
+      });
+      // 命中跨两个班 → 推断不唯一，宁缺勿滥拒绝落库
+      const outcome = await runSmartScoreImport(parseRosterTable(SCORE_SHEET), { config: NO_AI_CONFIG });
+      expect(outcome.status).toBe("error");
+    } finally {
+      await cleanupTestClass();
+      await cleanupOther();
     }
   });
 

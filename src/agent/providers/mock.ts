@@ -24,11 +24,11 @@ const STUDENT_WORDS = ["学生", "名单", "花名册", "档案", "资料"];
 const PHOTO_WORDS = ["照片", "相册", "图片"];
 const DOC_WORDS = ["文档", "帮助", "指南", "怎么用", "如何", "哪里", "说明", "手册", "配置", "排查"];
 
-/** 用户口语 → 界面注册表 key 的别名 */
+/** 用户口语 → 界面注册表 key 的别名（学生列表并入班级管理页） */
 const NAV_ALIASES: [string, string][] = [
-  ["学生列表", "students"],
-  ["学生名单", "students"],
-  ["学生档案", "students"],
+  ["学生列表", "classes"],
+  ["学生名单", "classes"],
+  ["学生档案", "classes"],
   ["首页", "home"],
   ["主页", "home"],
   ["设置", "settings"],
@@ -52,9 +52,9 @@ function matchNavTarget(text: string): string | undefined {
   return NAV_ALIASES.find(([alias]) => text.includes(alias))?.[1];
 }
 
-/** 从「归档三年级二班」这类指令里提取班级名（如 三年级二班 / 3年级2班） */
+/** 从「归档三年级二班」「打开三年二班详情」这类指令里提取班级名（「级」可省略） */
 function extractClassName(text: string): string {
-  const m = text.match(/([一二三四五六1-6]\s*年级\s*[一二三四五六七八九十0-9]+?\s*班)/);
+  const m = text.match(/([一二三四五六1-6]\s*年(?:级)?\s*[一二三四五六七八九十0-9]+?\s*班)/);
   return m ? m[1].replace(/\s+/g, "") : "";
 }
 
@@ -122,6 +122,20 @@ export function mockLlm(): AgentLlm {
         return { content: "", toolCalls: [call] };
       }
 
+      // 打开班级详情：带具体班级名的直达导航（「打开三年二班的详情页」），
+      // class_name 交给 navigate 的实体解析器查库校验；问成绩/统计等数据仍走查询与分析
+      if (NAV_WORDS.some((w) => userText.includes(w))) {
+        const className = extractClassName(userText);
+        if (className && !/成绩|统计|排名|分析|多少|几个/.test(userText)) {
+          const call: ToolCallPayload = {
+            id: nextCallId(),
+            name: "navigate",
+            arguments: { target: "class-detail", class_name: className },
+          };
+          return { content: "", toolCalls: [call] };
+        }
+      }
+
       const navTarget = matchNavTarget(userText);
       if (navTarget) {
         const call: ToolCallPayload = { id: nextCallId(), name: "navigate", arguments: { target: navTarget } };
@@ -137,7 +151,7 @@ export function mockLlm(): AgentLlm {
       }
 
       if (userText.includes("新建学生") || userText.includes("添加学生") || userText.includes("创建学生")) {
-        const call: ToolCallPayload = { id: nextCallId(), name: "ui_action", arguments: { page: "students", action: "create-student" } };
+        const call: ToolCallPayload = { id: nextCallId(), name: "ui_action", arguments: { page: "classes", action: "create-student" } };
         return { content: "", toolCalls: [call] };
       }
 
@@ -147,7 +161,7 @@ export function mockLlm(): AgentLlm {
         const call: ToolCallPayload = {
           id: nextCallId(),
           name: "ui_action",
-          arguments: { page: "students", action: "import-roster", args: { mode } },
+          arguments: { page: "classes", action: "import-roster", args: { mode } },
         };
         return { content: "", toolCalls: [call] };
       }

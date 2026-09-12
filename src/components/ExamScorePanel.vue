@@ -15,6 +15,7 @@ import AppButton from "./ui/AppButton.vue";
 import AppIconButton from "./ui/AppIconButton.vue";
 import EmptyState from "./ui/EmptyState.vue";
 import ImportScoreDialog from "./ImportScoreDialog.vue";
+import SubjectScoreBars from "./SubjectScoreBars.vue";
 import {
   deleteExam,
   deleteExamScore,
@@ -58,6 +59,9 @@ import type {
 
 const props = defineProps<{ className: string }>();
 
+/** 成绩数据发生变更（导入 / 改分 / 删考试）时回传，外层概览卡据此刷新 */
+const emit = defineEmits<{ changed: [] }>();
+
 const exams = ref<ExamWithStats[]>([]);
 const selectedExamId = ref<number | null>(null);
 const scores = ref<ExamScoreRow[]>([]);
@@ -96,8 +100,11 @@ function toggleType(type: ExamType) {
   expandedTypes.value[type] = !expandedTypes.value[type];
 }
 
-async function refresh() {
+/** notify=true 表示这次刷新源于用户改动成绩数据，完成后回传外层刷新概览卡 */
+async function refresh(notify = false) {
   loading.value = true;
+  hoverStudentId.value = null;
+  hoverAnchor.value = null;
   try {
     const [list, ov, tr] = await Promise.all([
       listExamsByClass(props.className),
@@ -120,6 +127,7 @@ async function refresh() {
   } finally {
     loading.value = false;
   }
+  if (notify) emit("changed");
 }
 
 watch(
@@ -131,10 +139,12 @@ watch(
 );
 
 watch(selectedExamId, async (id) => {
+  hoverStudentId.value = null;
+  hoverAnchor.value = null;
   scores.value = id ? await getExamScores(id) : [];
 });
 
-onMounted(refresh);
+onMounted(() => void refresh());
 
 /* ---------------- 考试明细：学生 × 科目矩阵 ---------------- */
 
@@ -253,6 +263,75 @@ const overviewStats = computed(() => {
 
 const selectedExam = computed(() => exams.value.find((e) => e.id === selectedExamId.value) ?? null);
 
+/* ---------------- 悬浮学生行：各科柱状图卡片（复用学生面板的柱状图组件） ---------------- */
+
+/** 当前悬浮的学生行 id（null = 不展示卡片） */
+const hoverStudentId = ref<number | null>(null);
+/** 卡片的 fixed 定位锚点（跟随鼠标；贴边时翻到另一侧） */
+const hoverAnchor = ref<{ left: number; top: number } | null>(null);
+
+/** 卡片尺寸估算（视口边界翻转用，与卡片实际宽度一致） */
+const HOVER_CARD_W = 264;
+const HOVER_CARD_H = 200;
+
+const hoverRow = computed(
+  () => detailRows.value.find((r) => r.id === hoverStudentId.value) ?? null
+);
+
+/** 跟随鼠标：默认落在光标右下方，贴近视口右/下边缘时翻到左上方 */
+function placeCard(clientX: number, clientY: number) {
+  const x = Number.isFinite(clientX) ? clientX : 0;
+  const y = Number.isFinite(clientY) ? clientY : 0;
+  const vw = typeof window === "undefined" ? 0 : window.innerWidth;
+  const vh = typeof window === "undefined" ? 0 : window.innerHeight;
+  const gap = 16;
+  hoverAnchor.value = {
+    left: x + gap + HOVER_CARD_W > vw - 8 ? Math.max(8, x - gap - HOVER_CARD_W) : x + gap,
+    top: y + gap + HOVER_CARD_H > vh - 8 ? Math.max(8, y - gap - HOVER_CARD_H) : y + gap,
+  };
+}
+
+function onRowEnter(row: { id: number }, event: MouseEvent) {
+  hoverStudentId.value = row.id;
+  placeCard(event.clientX, event.clientY);
+}
+
+/** 悬浮中随鼠标移动（卡片 pointer-events-none，不打断行命中） */
+function onRowMove(event: MouseEvent) {
+  if (!hoverStudentId.value) return;
+  placeCard(event.clientX, event.clientY);
+}
+
+function onRowLeave() {
+  hoverStudentId.value = null;
+  hoverAnchor.value = null;
+}
+
+/** 卡片里的柱状图分组：本场考试 + 该生各科（按明细列顺序，缺考不画柱） */
+const hoverBarGroups = computed(() => {
+  const row = hoverRow.value;
+  const exam = selectedExam.value;
+  if (!row || !exam) return [];
+  return [
+    {
+      label: exam.name,
+      sub: fmtDate(exam.exam_date).slice(5),
+      items: subjects.value.map((subject) => {
+        const cell = row.cells.get(subject);
+        return { subject, score: cell?.score ?? null, grade: cell?.grade ?? null };
+      }),
+    },
+  ];
+});
+
+/** 卡片右上角的总分（纯等级考试显示等级文本） */
+const hoverTotalText = computed(() => {
+  if (!hoverRow.value) return "";
+  const total = totalOf(hoverRow.value);
+  if (total.score !== null) return `总分 ${formatNumber(total.score)}`;
+  return total.grade ? `等级 ${total.grade}` : "";
+});
+
 /* ---------------- 成绩趋势：各次考试的班级均分与各科走势 ---------------- */
 
 /** 班级平均单科分（0~100，跨考试可比——不受科目数变化影响） */
@@ -300,7 +379,7 @@ async function saveExamEdit() {
     exam_type: editType.value,
   });
   editOpen.value = false;
-  await refresh();
+  await refresh(true);
 }
 
 /* ---------------- 改分纠错 ---------------- */
@@ -340,7 +419,7 @@ async function saveCorrect() {
       parsed.grade
     );
     correctOpen.value = false;
-    await refresh();
+    await refresh(true);
   } catch (e) {
     correctError.value = e instanceof Error ? e.message : String(e);
   } finally {
@@ -356,7 +435,7 @@ async function clearCorrect() {
   try {
     await deleteExamScore(target.examId, target.studentId, target.subject);
     correctOpen.value = false;
-    await refresh();
+    await refresh(true);
   } finally {
     correctSaving.value = false;
   }
@@ -389,7 +468,7 @@ async function onDeleteExam() {
   if (!ok) return;
   await deleteExam(exam.id);
   selectedExamId.value = null;
-  await refresh();
+  await refresh(true);
 }
 
 function fmtDate(d: string): string {
@@ -399,7 +478,7 @@ function fmtDate(d: string): string {
 
 <template>
   <div class="space-y-4" data-test="exam-score-panel">
-    <!-- 工具行：视角切换 → 「导入成绩」紧挨其右 → 说明文字 -->
+    <!-- 工具行：视角切换 → 「导入成绩」紧挨其右 → 说明文字；「等级映射」单独右对齐 -->
     <div class="flex flex-wrap items-center gap-3" data-test="score-toolbar">
       <div class="flex flex-wrap items-center gap-2" data-test="score-toolbar-actions">
         <div class="inline-flex rounded-md border border-hairline bg-parchment p-1">
@@ -432,7 +511,12 @@ function fmtDate(d: string): string {
           </button>
         </div>
 
-        <AppIconButton label="导入成绩" data-test="import-score-btn" @click="importOpen = true">
+        <AppIconButton
+          label="导入成绩"
+          data-test="import-score-btn"
+          class="bg-gradient-to-b from-white to-mint hover:from-mint"
+          @click="importOpen = true"
+        >
           <!-- 语义图标：文件上有对勾勾线，表示成绩单批量导入 -->
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
@@ -440,15 +524,6 @@ function fmtDate(d: string): string {
             <path d="M9 15l2 2 4-4" />
           </svg>
         </AppIconButton>
-
-        <button
-          type="button"
-          data-test="level-config-btn"
-          class="rounded-md border border-hairline px-3 py-1.5 text-caption text-weak transition-colors hover:border-ink hover:text-ink"
-          @click="openLevelConfig"
-        >
-          等级映射
-        </button>
       </div>
 
       <span class="text-fine text-weak">
@@ -460,6 +535,16 @@ function fmtDate(d: string): string {
               : "各次考试的班级均分与各科走势"
         }}
       </span>
+
+      <!-- 等级映射为低频配置项：仅它右对齐到工具行最右，不混进视角 / 导入操作组 -->
+      <button
+        type="button"
+        data-test="level-config-btn"
+        class="ml-auto rounded-md border border-hairline px-3 py-1.5 text-caption text-weak transition-colors hover:border-ink hover:text-ink"
+        @click="openLevelConfig"
+      >
+        等级映射
+      </button>
     </div>
 
     <p v-if="loading" class="text-caption text-weak">加载中…</p>
@@ -604,7 +689,7 @@ function fmtDate(d: string): string {
             </p>
             <p class="mt-0.5 text-fine text-weak">
               科目 {{ selectedExam.subject_count }} 个 · 成绩 {{ selectedExam.score_count }} 条 ·
-              学生 {{ selectedExam.student_count }} 人
+              学生 {{ selectedExam.student_count }} 人 · 悬浮学生行看各科柱状图
             </p>
           </div>
           <div class="flex items-center gap-1.5">
@@ -644,7 +729,14 @@ function fmtDate(d: string): string {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="row in detailRows" :key="row.id" class="border-t border-hairline">
+              <tr
+                v-for="row in detailRows"
+                :key="row.id"
+                class="border-t border-hairline transition-colors hover:bg-pearl"
+                @mouseenter="onRowEnter(row, $event)"
+                @mousemove="onRowMove"
+                @mouseleave="onRowLeave"
+              >
                 <td class="whitespace-nowrap px-4 py-2 tabular-nums text-weak">
                   {{ totalRanks.get(row.id) ?? "—" }}
                 </td>
@@ -707,6 +799,25 @@ function fmtDate(d: string): string {
               </tr>
             </tbody>
           </table>
+        </div>
+
+        <!-- 悬浮学生行：该生本场各科柱状图（跟随鼠标；渲染规则复用学生详情页成绩栏目） -->
+        <div
+          v-if="hoverRow && hoverBarGroups.length && hoverAnchor"
+          data-test="student-score-hover-card"
+          class="pointer-events-none fixed z-40 w-[264px] rounded-lg border border-hairline bg-canvas px-3 py-2.5 shadow-window"
+          :style="{ left: `${hoverAnchor.left}px`, top: `${hoverAnchor.top}px` }"
+        >
+          <div class="flex items-baseline justify-between gap-2">
+            <p class="truncate text-caption font-semibold text-ink">{{ hoverRow.name }}</p>
+            <span v-if="hoverTotalText" class="shrink-0 text-fine text-weak">{{ hoverTotalText }}</span>
+          </div>
+          <p v-if="selectedExam" class="mt-0.5 truncate text-fine text-weak">
+            {{ selectedExam.name }} · {{ fmtDate(selectedExam.exam_date).slice(5) }}
+          </p>
+          <div class="mt-2">
+            <SubjectScoreBars :groups="hoverBarGroups" compact fill :show-label="false" />
+          </div>
         </div>
       </div>
     </template>
@@ -1049,7 +1160,7 @@ function fmtDate(d: string): string {
       :open="importOpen"
       :preset-class="props.className"
       @close="importOpen = false"
-      @imported="refresh"
+      @imported="refresh(true)"
     />
   </div>
 </template>

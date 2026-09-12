@@ -133,6 +133,36 @@ describe("MyTimetableView.vue", () => {
     profile.value = { ...DEFAULT_PROFILE };
   });
 
+  it("switches between the table and calendar tabs (日历 = 月历 + 日详情，可速记)", async () => {
+    profile.value = { ...DEFAULT_PROFILE, my_subjects: ["语文"] };
+    const wrapper = mountView();
+    await flushPromises();
+
+    // 默认课表 tab：周课表卡片 + 课表形态子切换可见
+    expect(wrapper.find('[data-test="week-timetable-surface"]').exists()).toBe(true);
+    expect(wrapper.find('[data-test="table-mode-switch"]').exists()).toBe(true);
+
+    // 切到日历：周网格与子切换让位，42 格月历 + 右侧日详情出现
+    await wrapper.get('[data-test="view-tab-calendar"]').trigger("click");
+    await flushPromises();
+    expect(wrapper.find('[data-test="week-timetable-surface"]').exists()).toBe(false);
+    expect(wrapper.find('[data-test="table-mode-switch"]').exists()).toBe(false);
+    expect(wrapper.get('[data-test="my-calendar-title"]').text()).toMatch(/^\d{4}年\d{1,2}月$/);
+    expect(wrapper.findAll('[data-test="my-calendar-cell"]')).toHaveLength(42);
+    // 我的课（演示数据里的语文）投影到日历与日详情上
+    expect(wrapper.get('[data-test="my-calendar"]').text()).toContain("语文");
+    // 日历 tab 可速记（浅色可编辑形态）
+    expect(wrapper.find('[data-test="my-calendar-event-input"]').exists()).toBe(true);
+
+    // 切回课表：周网格恢复
+    await wrapper.get('[data-test="view-tab-table"]').trigger("click");
+    await flushPromises();
+    expect(wrapper.find('[data-test="week-timetable-surface"]').exists()).toBe(true);
+    expect(wrapper.find('[data-test="my-calendar"]').exists()).toBe(false);
+    wrapper.unmount();
+    profile.value = { ...DEFAULT_PROFILE };
+  });
+
   it("week view renders dated columns, subject chips and clickable cells", async () => {
     profile.value = { ...DEFAULT_PROFILE, my_subjects: ["语文"] };
     const wrapper = mountView();

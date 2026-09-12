@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildCapabilityContainer } from "../src/agent/manifest";
 import { onPageAction } from "../src/agent/page-action-bus";
-import importRosterPageAction from "../src/agent/page-actions/students-import";
+import importRosterPageAction from "../src/agent/page-actions/classes-import-roster";
 import type { AgentToolContext } from "../src/agent/types";
 
 const ctx: AgentToolContext = { router: {} as never };
@@ -37,15 +37,15 @@ describe("import_student_roster tool", () => {
   });
 });
 
-describe("students/import-roster page action", () => {
+describe("classes/import-roster page action", () => {
   it("broadcasts the import dialog request with mode", async () => {
     const received: (string | undefined)[] = [];
-    const off = onPageAction<string>("students/import-roster", (mode) => {
+    const off = onPageAction<string>("classes/import-roster", (mode) => {
       received.push(mode);
     });
 
     const result = await importRosterPageAction.run(ctx, {
-      page: "students",
+      page: "classes",
       action: "import-roster",
       args: { mode: "template" },
     });
@@ -58,19 +58,19 @@ describe("students/import-roster page action", () => {
 
   it("defaults to smart import mode", async () => {
     const received: (string | undefined)[] = [];
-    const off = onPageAction<string>("students/import-roster", (mode) => {
+    const off = onPageAction<string>("classes/import-roster", (mode) => {
       received.push(mode);
     });
 
-    const result = await importRosterPageAction.run(ctx, { page: "students", action: "import-roster" });
+    const result = await importRosterPageAction.run(ctx, { page: "classes", action: "import-roster" });
     off();
 
     expect(result.ok).toBe(true);
     expect(received).toEqual(["smart"]);
   });
 
-  it("fails gracefully when the students view is not mounted", async () => {
-    const result = await importRosterPageAction.run(ctx, { page: "students", action: "import-roster" });
+  it("fails gracefully when no class view is mounted", async () => {
+    const result = await importRosterPageAction.run(ctx, { page: "classes", action: "import-roster" });
     expect(result.ok).toBe(false);
     expect(result.error).toContain("无法打开导入对话框");
   });

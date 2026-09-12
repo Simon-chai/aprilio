@@ -5,6 +5,7 @@ import { onPageAction } from "../agent/page-action-bus";
 import FeatureIcon from "../components/FeatureIcon.vue";
 import appIcon from "../assets/app-icon.png";
 import BackgroundPickerDialog from "../components/BackgroundPickerDialog.vue";
+import MyTimetableCalendar from "../components/MyTimetableCalendar.vue";
 import { useClock } from "../composables/useClock";
 import { usePagedScroll } from "../composables/usePagedScroll";
 import AppLink from "../components/ui/AppLink.vue";
@@ -34,6 +35,7 @@ import {
   sessionProgress,
   subjectChipClass,
   subjectGlassBlockClass,
+  type MineOfClass,
   type MyDaySession,
 } from "../lib/timetable";
 import { fromDateStr, toDateStr } from "../lib/calendar";
@@ -46,7 +48,13 @@ import {
   timetableBgSrc,
 } from "../lib/profile";
 import { ensureBackgroundLibrary, markBackgroundUsed } from "../lib/backgrounds";
-import type { CalendarEvent, CalendarEventType, Stats, TimetablePeriod } from "../types";
+import type {
+  CalendarEvent,
+  CalendarEventType,
+  Stats,
+  TimetablePeriod,
+  TimetableSlotWithClass,
+} from "../types";
 
 const PAGES = 2;
 
@@ -65,6 +73,14 @@ const { hhmm, dateText, yearText, greeting, now } = useClock();
 const todaySessions = ref<MyDaySession[]>([]);
 const todayEvents = ref<CalendarEvent[]>([]);
 const panelOpen = ref(false);
+/** 展开面板的视图：课表（本周半透明周网格，默认）或日历（本月，我的课 + 日程） */
+const panelMode = ref<"week" | "calendar">("week");
+/** 当前学期全部班级课表格子：周网格与日历共用同一份投影素材 */
+const semesterRows = ref<TimetableSlotWithClass[]>([]);
+/** 「我的科目」判定器（班级三态标记 + 全局任教学科），日历视图按同一口径过滤 */
+const semesterMineOf = computed<MineOfClass>(() =>
+  mineOfClassResolver(semesterRows.value, profile.value.my_subjects ?? [])
+);
 const mySubjects = computed(() => profile.value.my_subjects ?? []);
 /** 每周总课时（第二屏「课程表」常驻卡的描述数据，与今日课程条同一份投影） */
 const weeklyTotal = ref(0);
@@ -196,11 +212,13 @@ async function loadTodayTimetable() {
     const subjects = profile.value.my_subjects ?? [];
     const mineOf = mineOfClassResolver(rows, subjects);
     const map = buildMyDays(rows, exceptions, mineOf, dates);
+    semesterRows.value = rows;
     weekMyDays.value = map;
     weekPeriods.value = periodsUnion(timetablePeriods.map((item) => item.periods));
     todaySessions.value = map.get(todayStr.value) ?? [];
     weeklyTotal.value = buildMySchedule(rows, mineOf).weekly_total;
   } catch {
+    semesterRows.value = [];
     weekMyDays.value = new Map();
     weekPeriods.value = defaultPeriods();
     todaySessions.value = [];
@@ -393,12 +411,6 @@ const features = computed(() => [
     icon: "classes" as const,
     title: "班级管理",
     desc: `${classCount.value} 个班级 · ${stats.value.students} 名学生`,
-  },
-  {
-    to: "/students",
-    icon: "students" as const,
-    title: "学生档案",
-    desc: `${stats.value.students} 名学生 · 本月新增 ${stats.value.month_new}`,
   },
   {
     to: "/photos",
@@ -646,7 +658,30 @@ const dotClass = (i: number) => {
         :style="panelBgStyle"
       >
             <div class="flex items-center justify-between gap-3">
-              <p class="text-caption font-semibold tracking-[0.5px] text-white/85">课程表 · 本周</p>
+              <div class="flex items-center gap-2.5">
+                <p class="text-caption font-semibold tracking-[0.5px] text-white/85">课程表</p>
+                <!-- 视图切换：课表（本周） / 日历（本月），与 /timetable 页同款双 tab 口径 -->
+                <div class="flex rounded-pill bg-white/10 p-0.5" data-test="panel-mode-switch">
+                  <button
+                    type="button"
+                    data-test="panel-mode-week"
+                    class="rounded-pill px-2.5 py-0.5 text-fine transition-colors"
+                    :class="panelMode === 'week' ? 'bg-white font-medium text-ink' : 'text-white/60 hover:text-white'"
+                    @click="panelMode = 'week'"
+                  >
+                    课表
+                  </button>
+                  <button
+                    type="button"
+                    data-test="panel-mode-calendar"
+                    class="rounded-pill px-2.5 py-0.5 text-fine transition-colors"
+                    :class="panelMode === 'calendar' ? 'bg-white font-medium text-ink' : 'text-white/60 hover:text-white'"
+                    @click="panelMode = 'calendar'"
+                  >
+                    日历
+                  </button>
+                </div>
+              </div>
               <div class="flex items-center gap-2">
                 <button
                   type="button"
@@ -697,6 +732,7 @@ const dotClass = (i: number) => {
 
             <!-- 小巧周课表：列 = 周一~周五（带日期），行 = 节次；连堂合并成跨行彩块，只显示科目 -->
             <div
+              v-if="panelMode === 'week'"
               data-test="panel-week-grid"
               class="mt-2.5 grid grid-cols-[22px_repeat(5,minmax(0,1fr))] gap-1"
               :style="{ gridTemplateRows: `24px repeat(${weekPeriods.length}, 28px)` }"
@@ -773,12 +809,21 @@ const dotClass = (i: number) => {
                 </template>
               </template>
             </div>
+
+            <!-- 小巧万年历：我的课（调课后）+ 日程投影；点任意一天看当天详情，只读不编辑 -->
+            <MyTimetableCalendar
+              v-else
+              variant="dark"
+              :rows="semesterRows"
+              :mine-of="semesterMineOf"
+            />
+
             <p v-if="!mySubjects.length" class="mt-2 text-fine text-white/40">
               登记任教学科或在班级课表标记「我的科目」后，这里显示你跨班的课；日程不受影响
             </p>
 
-            <!-- 今日日程：只读展示当天行程，沉在面板最底层；右上胶囊按类型筛选，再点取消 -->
-            <div class="mt-3 border-t border-white/10 pt-2.5">
+            <!-- 今日日程（课表模式）：只读展示当天行程，沉在面板最底层；右上胶囊按类型筛选，再点取消 -->
+            <div v-if="panelMode === 'week'" class="mt-3 border-t border-white/10 pt-2.5">
               <div class="flex items-center justify-between gap-2">
                 <p class="text-fine font-medium tracking-[0.5px] text-white/60">今日日程</p>
                 <div class="flex items-center gap-1.5">

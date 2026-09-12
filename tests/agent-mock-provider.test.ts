@@ -13,7 +13,19 @@ describe("mock provider (浏览器演示态规则解析)", () => {
     });
     expect(res.toolCalls).toHaveLength(1);
     expect(res.toolCalls[0].name).toBe("navigate");
-    expect(res.toolCalls[0].arguments.target).toBe("students");
+    expect(res.toolCalls[0].arguments.target).toBe("classes");
+  });
+
+  it("routes class-name navigation to the class detail target", async () => {
+    const llm = mockLlm();
+    const res = await llm.chat({
+      system: "",
+      messages: [{ role: "user", content: "帮我打开三年二班的详情页" }],
+      tools: [],
+      config: { provider: "mock", model: "mock", apiKey: "", baseUrl: "", temperature: 0, systemPrompt: "" },
+    });
+    expect(res.toolCalls[0].name).toBe("navigate");
+    expect(res.toolCalls[0].arguments).toMatchObject({ target: "class-detail", class_name: "三年二班" });
   });
 
   it("maps counting questions to stats queries", async () => {
@@ -55,8 +67,8 @@ describe("mock provider (浏览器演示态规则解析)", () => {
     const llm = mockLlm();
     const messages: AgentMessage[] = [
       { role: "user", content: "打开学生列表" },
-      { role: "assistant", content: "", toolCalls: [{ id: "c1", name: "navigate", arguments: { target: "students" } }] },
-      { role: "tool", toolCallId: "c1", name: "navigate", content: "已打开「学生档案」页面。" },
+      { role: "assistant", content: "", toolCalls: [{ id: "c1", name: "navigate", arguments: { target: "classes" } }] },
+      { role: "tool", toolCallId: "c1", name: "navigate", content: "已打开「班级管理」页面。" },
     ];
     const res = await llm.chat({ system: "", messages, tools: [], config: { provider: "mock", model: "mock", apiKey: "", baseUrl: "", temperature: 0, systemPrompt: "" } });
     expect(res.toolCalls).toHaveLength(0);

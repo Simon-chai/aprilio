@@ -1,25 +1,29 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { RouterLink, useRouter } from "vue-router";
 import AppButton from "../components/ui/AppButton.vue";
+import AppIconButton from "../components/ui/AppIconButton.vue";
 import ClassFormDialog, { type ClassFormValue } from "../components/ClassFormDialog.vue";
 import StudentFormDialog from "../components/StudentFormDialog.vue";
+import ImportRosterDialog from "../components/ImportRosterDialog.vue";
+import ImportScoreDialog from "../components/ImportScoreDialog.vue";
 import { getPhotosDir, photoUrl } from "../lib/photos";
+import { onPageAction } from "../agent/page-action-bus";
+import { clearPageContext, reportPageContext } from "../agent/page-context-bus";
+import type { ImportRosterMode } from "../agent/page-actions/classes-import-roster";
+import type { RosterImportResult, RosterTable } from "../lib/roster";
 import {
   archiveClass,
   createClass,
   createStudent,
   deleteClass,
-  getClassMeta,
+  getStats,
   listClasses,
   listPhotos,
   listStudents,
   renameClass,
   restoreClass,
-  saveClassMeta,
 } from "../lib/db";
-import { classCurrentLabel, upgradedClasses } from "../lib/semester";
-import { currentSemester } from "../lib/timetable";
 import type { ClassSummary, Photo, StudentInput, StudentRow } from "../types";
 
 const router = useRouter();
@@ -39,12 +43,15 @@ const photosDir = ref("");
 
 const showCreateDialog = ref(false);
 const showStudentDialog = ref(false);
+/** 添加学生对话框预填（Agent 动作可带参） */
+const studentDialogInitial = ref<Partial<StudentInput> | null>(null);
+const importOpen = ref(false);
+const importMode = ref<ImportRosterMode>("smart");
+// 花名册对话框检测到成绩单后交接进来：携带已解析表格直接进入成绩导入
+const scoreImportOpen = ref(false);
+const scoreHandoff = ref<{ table: RosterTable; fileName: string } | null>(null);
 const renameDialogOpen = ref(false);
 const renamingClassName = ref<string | null>(null);
-const renamingMeta = ref<{ entry_grade: number | null; entry_semester: string | null }>({
-  entry_grade: null,
-  entry_semester: null,
-});
 const deleteDialogOpen = ref(false);
 const deletingClassName = ref<string | null>(null);
 const archiveDialogOpen = ref(false);
@@ -62,49 +69,86 @@ const shownClasses = computed(() =>
 const totalStudents = computed(() =>
   activeClasses.value.reduce((acc, g) => acc + g.studentCount, 0)
 );
+/** 全库本月新增学生数（原学生档案页统计卡迁移至此） */
+const monthNew = ref(0);
 
-/** 班级当前年级文案（未登记返回 null） */
-function currentLabel(g: ClassSummary): string | null {
-  return classCurrentLabel(g.entry_grade ?? null, g.entry_semester ?? null);
-}
-
-/** 升级提醒：已升过年级的在用班级（仅提示，不自动改数据） */
-const upgradeNotices = computed(() => upgradedClasses(activeClasses.value));
-/** 升级提醒的关闭状态：按学期记忆，进入新学期的第一天再提醒一次 */
-const UPGRADE_NOTICE_KEY = "aprilio:upgrade-notice-dismissed-semester";
-
-function readDismissedSemester(): string | null {
-  try {
-    return sessionStorage.getItem(UPGRADE_NOTICE_KEY);
-  } catch {
-    return null;
-  }
-}
-
-const dismissedSemester = ref<string | null>(readDismissedSemester());
-/** 当前学期是否已点过「知道了」 */
-const noticeDismissed = computed(() => dismissedSemester.value === currentSemester());
-
-function dismissNotice() {
-  dismissedSemester.value = currentSemester();
-  try {
-    sessionStorage.setItem(UPGRADE_NOTICE_KEY, currentSemester());
-  } catch {
-    /* 存储不可用时只保留本次挂载的关闭状态 */
-  }
-}
-
-/** 花名册批量导入入口：跳到学生档案页并自动打开导入对话框 */
-function goImportRoster() {
-  router.push({ path: "/students", query: { import: "1" } });
+/** 花名册批量导入入口：就地打开导入对话框（多班花名册按表内班级列自动分发） */
+function openImportDialog(mode: ImportRosterMode = "smart") {
+  importMode.value = mode;
+  importOpen.value = true;
 }
 
 /** 手动添加单个学生：创建后留在本页刷新统计 */
+function openStudentDialog(preset?: Partial<StudentInput> | null) {
+  studentDialogInitial.value = preset ?? null;
+  showStudentDialog.value = true;
+}
+
 async function handleCreateStudent(input: StudentInput) {
   await createStudent(input);
   showStudentDialog.value = false;
   await refresh();
 }
+
+/** 花名册导入完成：无失败行 → 关闭对话框并进入目标班级详情；有失败行 → 留在对话框看明细 */
+function onRosterImported(payload: { result: RosterImportResult; targetClass: string | null }) {
+  void refresh();
+  if (payload.result.failed.length > 0) return;
+  importOpen.value = false;
+  if (payload.targetClass) {
+    router.push({ name: "class-detail", params: { name: payload.targetClass } });
+  }
+}
+
+/** 花名册对话框检测到成绩单：交接已解析表格，就地打开成绩导入 */
+function switchToScoreImport(payload: { table: RosterTable; fileName: string }) {
+  importOpen.value = false;
+  scoreHandoff.value = payload;
+  scoreImportOpen.value = true;
+}
+
+function closeScoreImport() {
+  scoreImportOpen.value = false;
+  scoreHandoff.value = null;
+}
+
+/** 成绩导入完成：进入归属班级的详情页查看成绩 */
+function onScoreImported(payload: { className: string | null }) {
+  closeScoreImport();
+  void refresh();
+  if (payload.className) {
+    router.push({ name: "class-detail", params: { name: payload.className } });
+  }
+}
+
+// Agent 的 ui_action 广播：班级维度动作在本页接住（添加学生 / 导入花名册对话框）
+const offCreateStudentAction = onPageAction<Partial<StudentInput>>(
+  "classes/create-student",
+  (preset) => openStudentDialog(preset),
+);
+const offImportRosterAction = onPageAction<ImportRosterMode>("classes/import-roster", (mode) =>
+  openImportDialog(mode ?? "smart"),
+);
+
+/** Agent 页面上下文：班级管理页的渲染概况（分组计数与当前页签，数据与页面同源） */
+function reportContext(): void {
+  reportPageContext({
+    page: "classes",
+    title: "班级管理",
+    summary: [
+      `在用 ${activeClasses.value.length} 个 · 已归档 ${archivedClasses.value.length} 个`,
+      `在用班级学生共 ${totalStudents.value} 人`,
+      `当前页签：${classTab.value === "active" ? "在用班级" : "历史带过的班"}`,
+    ].join(" · "),
+  });
+}
+watch(classTab, () => reportContext());
+
+onBeforeUnmount(() => {
+  offCreateStudentAction();
+  offImportRosterAction();
+  clearPageContext("classes");
+});
 
 /** 最近 4 条图片记录；浏览器演示模式下文件不存在，展示占位底色 */
 const recent = computed<RecordCard[]>(() =>
@@ -117,46 +161,37 @@ const recent = computed<RecordCard[]>(() =>
 );
 
 async function refresh() {
-  const [classList, studentRows, photoRows] = await Promise.all([
+  const [classList, studentRows, photoRows, stats] = await Promise.all([
     listClasses(),
     listStudents(),
     listPhotos(),
+    getStats(),
   ]);
   groups.value = classList;
   rows.value = studentRows;
   photos.value = photoRows;
   names.value = new Map(studentRows.map((s) => [s.id, s.name]));
+  monthNew.value = stats.month_new;
   photosDir.value = await getPhotosDir();
+  reportContext();
 }
 
 onMounted(refresh);
 
 async function handleCreateClass(value: ClassFormValue) {
   await createClass(value.name);
-  if (value.entry_grade != null || value.entry_semester) {
-    await saveClassMeta(value.name, {
-      entry_grade: value.entry_grade,
-      entry_semester: value.entry_semester,
-    });
-  }
   showCreateDialog.value = false;
   await refresh();
 }
 
-async function openRenameDialog(name: string) {
+function openRenameDialog(name: string) {
   renamingClassName.value = name;
-  const meta = await getClassMeta(name);
-  renamingMeta.value = { entry_grade: meta.entry_grade, entry_semester: meta.entry_semester };
   renameDialogOpen.value = true;
 }
 
 async function handleRenameClass(value: ClassFormValue) {
   if (renamingClassName.value) {
     await renameClass(renamingClassName.value, value.name);
-    await saveClassMeta(value.name, {
-      entry_grade: value.entry_grade,
-      entry_semester: value.entry_semester,
-    });
   }
   renameDialogOpen.value = false;
   renamingClassName.value = null;
@@ -212,7 +247,7 @@ async function handleDeleteClass(recreate: boolean) {
 <template>
   <div class="flex h-full min-h-0 flex-col bg-parchment">
     <!-- 导航栏 -->
-    <header class="flex h-16 shrink-0 items-center justify-between border-b border-divider bg-canvas pl-7 pr-10">
+    <header class="flex h-16 shrink-0 items-center border-b border-divider bg-canvas pl-7 pr-10">
       <RouterLink
         to="/home"
         class="flex items-center gap-1.5 transition-transform active:scale-[0.95]"
@@ -228,84 +263,70 @@ async function handleDeleteClass(recreate: boolean) {
         </svg>
         <span class="text-body text-primary">首页</span>
       </RouterLink>
-
-      <div class="flex items-center gap-3">
-        <AppButton variant="secondary" @click="goImportRoster">导入花名册</AppButton>
-        <AppButton variant="secondary" data-test="add-student-btn" @click="showStudentDialog = true">
-          添加学生
-        </AppButton>
-        <AppButton variant="primary" @click="showCreateDialog = true">
-          新建班级
-        </AppButton>
-
-        <ClassFormDialog
-          :open="showCreateDialog"
-          mode="create"
-          :existing-classes="groups"
-          @close="showCreateDialog = false"
-          @submit="handleCreateClass"
-        />
-
-        <StudentFormDialog
-          :open="showStudentDialog"
-          title="添加学生"
-          @close="showStudentDialog = false"
-          @submit="handleCreateStudent"
-        />
-      </div>
     </header>
 
     <!-- 内容 -->
     <div class="scroll-thin min-h-0 flex-1 overflow-y-auto px-20 py-10">
       <h1 class="text-display font-semibold text-ink">班级管理</h1>
       <p class="mt-2 text-caption text-weak">
-        {{ activeClasses.length }} 个在用班级 · {{ totalStudents }} 名学生<span v-if="archivedClasses.length"> · 历史带过的班 {{ archivedClasses.length }} 个</span>
+        {{ activeClasses.length }} 个在用班级 · {{ totalStudents }} 名学生 · 本月新增 {{ monthNew }}<span v-if="archivedClasses.length"> · 历史带过的班 {{ archivedClasses.length }} 个</span>
       </p>
 
-      <!-- 升级提醒：新学期的第一天提示哪些班已升年级（只提示，不自动改数据） -->
-      <div
-        v-if="upgradeNotices.length && !noticeDismissed"
-        data-test="upgrade-notice"
-        class="mt-5 flex items-start justify-between gap-4 rounded-lg border border-primary/30 bg-primary-soft/50 px-4 py-3"
-      >
-        <div class="min-w-0">
-          <p class="text-caption font-medium text-ink">新的学期开始了</p>
-          <p class="mt-1 text-fine text-muted">
-            <span v-for="(n, i) in upgradeNotices" :key="n.name">
-              {{ i > 0 ? "、" : "" }}{{ n.name }} 现在是{{ n.label }}
-            </span>
-            。不再带的班级可以归档，归档后数据仍可查。
-          </p>
+      <!-- 在用 / 历史带过的班 + 快捷操作 -->
+      <div class="mt-6 flex items-center gap-4" data-test="class-tab-row">
+        <div
+          class="inline-flex rounded-pill border border-hairline bg-canvas p-0.5"
+          data-test="class-tab-group"
+        >
+          <button
+            type="button"
+            data-test="class-tab-active"
+            class="inline-flex items-center justify-center rounded-pill px-4 py-1.5 text-caption font-medium transition-colors"
+            :class="classTab === 'active' ? 'bg-ink text-canvas' : 'text-weak hover:text-ink'"
+            @click="classTab = 'active'"
+          >
+            在用班级
+          </button>
+          <button
+            type="button"
+            data-test="class-tab-archived"
+            class="inline-flex items-center justify-center rounded-pill px-4 py-1.5 text-caption font-medium transition-colors"
+            :class="classTab === 'archived' ? 'bg-ink text-canvas' : 'text-weak hover:text-ink'"
+            @click="classTab = 'archived'"
+          >
+            历史带过的班
+          </button>
         </div>
-        <button
-          type="button"
-          class="inline-flex shrink-0 items-center text-caption text-primary hover:underline"
-          @click="dismissNotice"
-        >
-          知道了
-        </button>
-      </div>
 
-      <!-- 在用 / 历史带过的班 -->
-      <div class="mt-6 inline-flex rounded-pill border border-hairline bg-canvas p-0.5">
-        <button
-          type="button"
-          data-test="class-tab-active"
-          class="inline-flex items-center justify-center rounded-pill px-4 py-1.5 text-caption font-medium transition-colors"
-          :class="classTab === 'active' ? 'bg-ink text-canvas' : 'text-weak hover:text-ink'"
-          @click="classTab = 'active'"
-        >
-          在用班级
-        </button>
-        <button
-          type="button"
-          data-test="class-tab-archived"
-          class="inline-flex items-center justify-center rounded-pill px-4 py-1.5 text-caption font-medium transition-colors"
-          :class="classTab === 'archived' ? 'bg-ink text-canvas' : 'text-weak hover:text-ink'"
-          @click="classTab = 'archived'"
-        >
-          历史带过的班
-        </button>
+        <!-- 快捷操作：语义图标按钮（白→淡绿渐变底，悬浮显示说明文案） -->
+        <div class="flex items-center gap-2" data-test="class-quick-actions">
+          <AppIconButton
+            label="导入花名册"
+            data-test="import-roster-btn"
+            class="bg-gradient-to-b from-white to-mint hover:from-mint"
+            @click="openImportDialog('smart')"
+          >
+            <!-- 花名册：大号 2×3 格表格在左下，加号在右上角外侧、与表格留白分离 -->
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="2.8" y="11.4" width="17.6" height="9.6" rx="2.4" />
+              <path d="M2.8 16.2h17.6M8.67 11.4V21M14.53 11.4V21" />
+              <path d="M19.2 3v5.4M16.5 5.7h5.4" />
+            </svg>
+          </AppIconButton>
+
+          <AppIconButton
+            label="新建班级"
+            data-test="add-class-btn"
+            class="bg-gradient-to-b from-white to-mint hover:from-mint"
+            @click="showCreateDialog = true"
+          >
+            <!-- 加号 + 尖顶房子 -->
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M3.8 11 12 4.3 20.2 11v9a1.8 1.8 0 0 1-1.8 1.8H5.6a1.8 1.8 0 0 1-1.8-1.8Z" />
+              <path d="M12 12v5.6M9.2 14.8h5.6" />
+            </svg>
+          </AppIconButton>
+        </div>
       </div>
 
       <!-- 班级卡片 -->
@@ -381,9 +402,6 @@ async function handleDeleteClass(recreate: boolean) {
                   </button>
                 </div>
                 <p class="mt-0.5 text-caption text-weak">
-                  <template v-if="currentLabel(g)">
-                    <span data-test="class-grade-badge" class="text-primary">{{ currentLabel(g) }}</span> ·
-                  </template>
                   {{ g.studentCount }} 名学生 ({{ g.maleCount }} 男 · {{ g.femaleCount }} 女)
                 </p>
               </div>
@@ -437,7 +455,7 @@ async function handleDeleteClass(recreate: boolean) {
       </p>
 
       <p v-else class="mt-10 text-caption text-weak">
-        还没有学生记录 —— 点击右上角「导入花名册」批量建档，或到「学生档案」新建第一条学生。
+        还没有学生记录 —— 点击「导入花名册」图标批量建档，或进入班级后手动添加学生。
       </p>
 
       <!-- 最近记录 -->
@@ -487,12 +505,43 @@ async function handleDeleteClass(recreate: boolean) {
       </template>
     </div>
 
+    <!-- 新建班级 / 添加学生：浮层统一收在页面底部 -->
+    <ClassFormDialog
+      :open="showCreateDialog"
+      mode="create"
+      :existing-classes="groups"
+      @close="showCreateDialog = false"
+      @submit="handleCreateClass"
+    />
+
+    <StudentFormDialog
+      :open="showStudentDialog"
+      :initial="studentDialogInitial"
+      title="添加学生"
+      @close="showStudentDialog = false"
+      @submit="handleCreateStudent"
+    />
+
+    <ImportRosterDialog
+      :open="importOpen"
+      :initial-mode="importMode"
+      @close="importOpen = false"
+      @imported="onRosterImported"
+      @switch-to-scores="switchToScoreImport"
+    />
+
+    <ImportScoreDialog
+      :open="scoreImportOpen"
+      :initial-table="scoreHandoff?.table ?? null"
+      :initial-file-name="scoreHandoff?.fileName ?? ''"
+      @close="closeScoreImport"
+      @imported="onScoreImported"
+    />
+
     <ClassFormDialog
       :open="renameDialogOpen"
       mode="rename"
       :initial-name="renamingClassName"
-      :initial-grade="renamingMeta.entry_grade"
-      :initial-semester="renamingMeta.entry_semester"
       :existing-classes="groups"
       @close="renameDialogOpen = false"
       @submit="handleRenameClass"

@@ -205,7 +205,7 @@ describe("ExamScorePanel", () => {
     await cleanup();
   });
 
-  it("「导入成绩」紧挨视角切换右侧：与「按学生总览」同组且是相邻兄弟", async () => {
+  it("「导入成绩」紧挨视角切换右侧；「等级映射」单独右对齐到工具行末尾", async () => {
     await cleanup();
     const wrapper = mount(ExamScorePanel, { props: { className: CLASS_NAME } });
     await flushPromises();
@@ -219,7 +219,6 @@ describe("ExamScorePanel", () => {
       "view-overview-btn",
       "view-trend-btn",
       "import-score-btn",
-      "level-config-btn",
     ]);
 
     // 图标紧跟 segmented 控件（相邻兄弟节点），不是行首也不被推到行尾
@@ -228,6 +227,21 @@ describe("ExamScorePanel", () => {
     const importIdx = kids.findIndex((el) => el.getAttribute("data-test") === "import-score-btn");
     expect(toggleIdx).toBeGreaterThanOrEqual(0);
     expect(importIdx).toBe(toggleIdx + 1);
+
+    // 导入成绩图标：与花名册按钮同款白→淡绿渐变底
+    const importBtn = wrapper.get("[data-test='import-score-btn']");
+    expect(importBtn.classes()).toContain("bg-gradient-to-b");
+    expect(importBtn.classes()).toContain("from-white");
+    expect(importBtn.classes()).toContain("to-mint");
+    expect(importBtn.classes()).toContain("hover:from-mint");
+
+    // 等级映射从操作组移出：仅它带 ml-auto，且是工具行最后一个子元素
+    const levelBtn = wrapper.get("[data-test='level-config-btn']");
+    expect(levelBtn.classes()).toContain("ml-auto");
+    expect(actions.element.contains(levelBtn.element)).toBe(false);
+    const toolbar = wrapper.get("[data-test='score-toolbar']");
+    const toolbarKids = Array.from(toolbar.element.children);
+    expect(toolbarKids[toolbarKids.length - 1]).toBe(levelBtn.element);
     await cleanup();
   });
 });

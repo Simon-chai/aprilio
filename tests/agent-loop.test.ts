@@ -13,7 +13,7 @@ async function makeRouter(): Promise<Router> {
     history: createMemoryHistory(),
     routes: [
       { path: "/home", name: "home", component: Blank },
-      { path: "/students", name: "students", component: Blank },
+      { path: "/classes", name: "classes", component: Blank },
       { path: "/students/:id", name: "student-detail", component: Blank, props: true },
     ],
   });
@@ -54,8 +54,8 @@ describe("runAgentTurn", () => {
   it("executes tool calls, feeds results back and returns the final reply", async () => {
     const router = await makeRouter();
     const { llm, seen } = scriptedLlm([
-      { content: "", toolCalls: [{ id: "c1", name: "navigate", arguments: { target: "students" } }] },
-      { content: "已打开学生档案，需要我查点什么吗？", toolCalls: [] },
+      { content: "", toolCalls: [{ id: "c1", name: "navigate", arguments: { target: "classes" } }] },
+      { content: "已打开班级管理，需要我查点什么吗？", toolCalls: [] },
     ]);
 
     const events: AgentEvent[] = [];
@@ -70,13 +70,13 @@ describe("runAgentTurn", () => {
       onEvent: (e) => events.push(e),
     });
 
-    expect(result.reply).toBe("已打开学生档案，需要我查点什么吗？");
-    expect(router.currentRoute.value.name).toBe("students");
+    expect(result.reply).toBe("已打开班级管理，需要我查点什么吗？");
+    expect(router.currentRoute.value.name).toBe("classes");
 
     // 消息序列：user → assistant(toolCalls) → tool → assistant(final)
     expect(result.messages.map((m) => m.role)).toEqual(["user", "assistant", "tool", "assistant"]);
     expect(result.messages[2]).toMatchObject({ role: "tool", toolCallId: "c1", name: "navigate" });
-    expect((result.messages[2] as { content: string }).content).toContain("已打开「学生档案」页面");
+    expect((result.messages[2] as { content: string }).content).toContain("已打开「班级管理」页面");
 
     expect(result.toolRuns).toHaveLength(1);
     expect(result.toolRuns[0].result.ok).toBe(true);
@@ -137,7 +137,7 @@ describe("runAgentTurn", () => {
     const router = await makeRouter();
     const endless: LlmResponse = {
       content: "",
-      toolCalls: [{ id: "c1", name: "navigate", arguments: { target: "students" } }],
+      toolCalls: [{ id: "c1", name: "navigate", arguments: { target: "classes" } }],
     };
     const { llm } = scriptedLlm([endless]);
 

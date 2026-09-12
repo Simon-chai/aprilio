@@ -123,10 +123,11 @@ afterEach(() => {
 
 describe("profile editor", () => {
   it("registers the profile route", async () => {
+    // 动态导入路由会连带加载全部视图组件，首次转换耗时随模块数增长，放宽超时避免环境性误报
     const { router } = await import("../src/router");
 
     expect(router.resolve("/profile").name).toBe("profile");
-  });
+  }, 20_000);
 
   it("shows a validation alert and focuses the name when it is blank", async () => {
     const { wrapper } = await mountEditor();

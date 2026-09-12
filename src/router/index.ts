@@ -2,7 +2,6 @@ import { createRouter, createWebHashHistory } from "vue-router";
 import HomeView from "../views/HomeView.vue";
 import ClassesView from "../views/ClassesView.vue";
 import ClassDetailView from "../views/ClassDetailView.vue";
-import StudentsView from "../views/StudentsView.vue";
 import PhotosView from "../views/PhotosView.vue";
 import RecycleBinView from "../views/RecycleBinView.vue";
 import MyTimetableView from "../views/MyTimetableView.vue";
@@ -24,7 +23,6 @@ export const router = createRouter({
       component: ClassDetailView,
       props: true,
     },
-    { path: "/students", name: "students", component: StudentsView },
     {
       path: "/students/:id",
       name: "student-detail",

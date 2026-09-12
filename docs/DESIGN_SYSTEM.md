@@ -6,6 +6,15 @@ aprilio 的视觉规范与 token 约定。**唯一事实源是 `src/style.css` �
 
 单一强调色 Action Blue，层级靠底色分层与 1px 发丝线表达，不靠阴影和重色块。
 
+## 校园气质（氛围色）
+
+面向校园场景，清新感由**偏白、低饱和的绿**表达，而不是引入第二个强调色：
+
+- 交互强调仍然只有 Action Blue 一种；绿只做氛围底色，绝不用于按钮实底、链接、选中态
+- 氛围渐变统一为「白 → `mint`」：极淡、自上而下，如班级管理页快捷操作图标按钮的 `bg-gradient-to-b from-white to-mint`，hover 时整体收拢为 `mint`
+- 表达「成功 / 正面」语义时仍走已有的 `success` / `tag-positive*`，不要用氛围绿顶替语义色
+- 氛围色只允许沿绿色系在 `mint` 附近加深 / 减淡；新增色值必须登记到 `src/style.css` 的 `@theme` 与下方「底色分层」表
+
 ## 颜色
 
 ### 强调色（唯一的交互色）
@@ -33,6 +42,7 @@ aprilio 的视觉规范与 token 约定。**唯一事实源是 `src/style.css` �
 | `canvas` | `#ffffff` | 内容底 |
 | `parchment` | `#f5f5f7` | 侧栏 / 顶栏 |
 | `pearl` | `#fafafc` | 表头 / 次级按钮底 |
+| `mint` | `#e8f5ec` | 校园清新绿氛围底：白 → `mint` 淡渐变的落点，不做交互强调 |
 | `tile` | `#272729` | 深色块 / tooltip |
 
 ### 线条与语义色

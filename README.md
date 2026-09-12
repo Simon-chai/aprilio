@@ -27,8 +27,7 @@ src/
 │   ├── roster.ts          # 花名册导入（解析 / 姓名列智能识别 / 批量落库）
 │   ├── scores.ts          # 成绩导入（成绩单识别 / 科目列映射 / 考试批次落库）
 │   ├── score-analysis.ts  # 成绩分析纯函数（班级统计 / 排名 / 档位 / 趋势，界面与 AI 共用）
-│   ├── semester.ts        # 学期化班级纯函数（学期线性化 / 年级实时推导 / 升级提醒）
-│   ├── semester-ai.ts     # 年级学期智能识别（规则优先 + AI 兜底，导入收尾补写班级元信息）
+│   ├── semester.ts        # 学期化纯函数（学期线性化 / 日期归属学期）
 │   ├── comment-ai.ts      # 学期评语 AI 草稿（无 AI 返回 null，手工兜底）
 │   └── timetable.ts       # 课程表纯函数（学期推导 / 网格构建 / 我的课表聚合）
 ├── components/
@@ -39,7 +38,7 @@ src/
 │   ├── ImportRosterDialog.vue / ImportScoreDialog.vue
 │   ├── ExamScorePanel.vue / StudentScorePanel.vue
 │   └── ui/                # AppButton / AppInput / AppCard / StatusChip / EmptyState
-└── views/                 # StudentsView · StudentDetailView · PhotosView · RecycleBinView · SettingsView
+└── views/                 # ClassesView · ClassDetailView · StudentDetailView · PhotosView · RecycleBinView · SettingsView
 
 src-tauri/
 ├── src/db.rs              # SQLite 直连（MCP 子进程只读 / RAG 读写）
@@ -59,11 +58,11 @@ src-tauri/
 `exams` + `exam_scores` — 考试批次（班级 / 考试名 / 考试时间）与学生 × 科目成绩（数字分或等级文字），
 （考试, 学生, 科目）唯一保证导入幂等，成绩自动关联学生档案与班级总览
 
-`timetables` + `timetable_slots` — 班级全科课表（一班一学期一张，格子 = 天 × 节 × 自由文本科目），以万年历为主视图展示；
+`timetables` + `timetable_slots` — 班级全科课表（一班一学期一张，格子 = 天 × 节 × 自由文本科目），数据层供「我的课表」页聚合展示；
 `calendar_memos` — 班级维度的日历备忘；「我的课表」按 `profile.my_subjects`（任教学科）从各班课表聚合，不落库（见 [docs/TIMETABLE.md](docs/TIMETABLE.md)）
 
-`classes` 扩展 + `student_term_comments` — 学期化班级管理：班级登记「初始年级 + 起始学期」随时间实时推导当前年级、可归档进「历史带过的班」（只读可恢复）；
-学期评语每生每学期一条，成绩/表现按日期实时归属学期（见 [docs/SEMESTER_MANAGEMENT.md](docs/SEMESTER_MANAGEMENT.md)）
+`classes` 扩展 + `student_term_comments` — 学期化班级管理：班级可归档进「历史带过的班」（只读可恢复）；
+学期评语每生每学期一条，成绩/表现/作业按日期实时归属学期、学生详情可切换学期回看（见 [docs/SEMESTER_MANAGEMENT.md](docs/SEMESTER_MANAGEMENT.md)）
 
 `recycle_bin` — 回收站：删除的班级 / 学生整体快照（JSON），保留 7 天内可恢复，过期在应用启动或打开回收站时彻底删除（含落盘图片）
 
@@ -101,7 +100,7 @@ npm install
 # 完整桌面应用
 npm run tauri:dev
 
-# 只看前端（浏览器打开 http://localhost:1420）
+# 只看前端（浏览器打开 http://localhost:5180）
 npm run dev
 ```
 

@@ -97,7 +97,7 @@ export default defineAgentTool({
       return {
         ok: true,
         summary:
-          "还无法确定「我的课表」：请引导用户到「个人资料」登记任教学科，或在班级详情的「课程表」里标记本班「我的科目」。",
+          "还无法确定「我的课表」：请引导用户到「个人资料」登记任教学科（也可在导入课表时标记本班科目）。",
         data: { my_subjects: mySubjects },
       };
     }

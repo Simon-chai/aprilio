@@ -1,8 +1,8 @@
 /**
- * 学生档案页的页面动作（声明式注册，default export 即被容器装载）。
+ * 班级维度的页面动作：新建学生（声明式注册，default export 即被容器装载）。
  *
  * create-student 需要视图内部状态（对话框开关及预填字段），动作只负责广播，
- * StudentsView 通过 page-action-bus 挂监听接住 —— 动作本体不含视图引用。
+ * ClassesView / ClassDetailView 通过 page-action-bus 挂监听接住 —— 动作本体不含视图引用。
  */
 import { emitPageAction } from "../page-action-bus";
 import { definePageAction } from "../define";
@@ -17,7 +17,7 @@ export interface CreateStudentPreset {
 }
 
 export default definePageAction({
-  page: "students",
+  page: "classes",
   key: "create-student",
   label: "新建学生",
   description:
@@ -39,9 +39,9 @@ export default definePageAction({
       preset.guardian_phone = raw.guardian_phone.trim();
     if (typeof raw.note === "string" && raw.note.trim()) preset.note = raw.note.trim();
 
-    const delivered = emitPageAction("students/create-student", preset);
+    const delivered = emitPageAction("classes/create-student", preset);
     if (!delivered) {
-      return { ok: false, summary: "", error: "当前不在学生档案页或视图未挂载，无法打开新建对话框。" };
+      return { ok: false, summary: "", error: "当前不在班级管理或班级详情页或视图未挂载，无法打开新建对话框。" };
     }
 
     const keys = Object.keys(preset);

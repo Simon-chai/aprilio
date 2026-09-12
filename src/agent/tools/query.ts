@@ -18,7 +18,6 @@ import {
   listTermComments,
 } from "../../lib/db";
 import { defineAgentTool } from "../define";
-import { classCurrentLabel } from "../../lib/semester";
 import { semesterLabel } from "../../lib/timetable";
 
 const DEFAULT_LIMIT = 20;
@@ -229,9 +228,8 @@ export default defineAgentTool({
       const rows = filtered.slice(0, limit);
       const summary = rows
         .map((c) => {
-          const label = classCurrentLabel(c.entry_grade ?? null, c.entry_semester ?? null);
           const state = c.archived_at ? `已归档（${c.archived_at.slice(0, 10)}）` : "在用";
-          return `${c.name} · ${state}${label ? ` · 当前${label}` : ""} · 学生 ${c.studentCount} 人`;
+          return `${c.name} · ${state} · 学生 ${c.studentCount} 人`;
         })
         .join("\n");
       return {

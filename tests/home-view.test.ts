@@ -194,7 +194,7 @@ describe("HomeView today panel", () => {
     expect(toggle.attributes("aria-expanded")).toBe("true");
     expect(wrapper.find('[data-test="panel-scrim"]').exists()).toBe(true);
     const panel = wrapper.get('[data-test="today-panel"]');
-    expect(panel.text()).toContain("课程表 · 本周");
+    expect(panel.text()).toContain("课程表");
     const grid = wrapper.get('[data-test="panel-week-grid"]');
     expect(grid.text()).toContain("周一");
     expect(wrapper.findAll('[data-test="panel-period-cell"]')).toHaveLength(8);
@@ -211,6 +211,38 @@ describe("HomeView today panel", () => {
     // 再点入口一键收起
     await toggle.trigger("click");
     expect(wrapper.find('[data-test="today-panel"]').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("switches the panel to the month calendar: my lessons + events, then back to the week grid", async () => {
+    const wrapper = await mountWithMondayLessons();
+    await wrapper.get('[data-test="timetable-toggle"]').trigger("click");
+
+    // 默认仍是周课表：日历未挂载
+    expect(wrapper.find('[data-test="panel-week-grid"]').exists()).toBe(true);
+    expect(wrapper.find('[data-test="my-calendar"]').exists()).toBe(false);
+
+    // 切到日历：周网格与今日日程让位，42 格月历出现（标题 = 年 + 月）
+    await wrapper.get('[data-test="panel-mode-calendar"]').trigger("click");
+    await flushPromises();
+    expect(wrapper.find('[data-test="panel-week-grid"]').exists()).toBe(false);
+    expect(wrapper.get('[data-test="my-calendar-title"]').text()).toMatch(/^\d{4}年\d{1,2}月$/);
+    expect(wrapper.findAll('[data-test="my-calendar-cell"]')).toHaveLength(42);
+
+    // 我的课（跨班聚合）与日程都投影到日历上：格子里有语文，日详情列出当天课与日程
+    const calendar = wrapper.get('[data-test="my-calendar"]');
+    expect(calendar.text()).toContain("语文");
+    expect(calendar.text()).toContain("布置语文第 3 课抄写");
+    expect(calendar.text()).toContain("下午教研组会议");
+    // 首页日历只读：没有速记输入 / 勾选 / 删除入口
+    expect(wrapper.find('[data-test="my-calendar-event-input"]').exists()).toBe(false);
+    expect(wrapper.find('button[aria-label="删除日程"]').exists()).toBe(false);
+
+    // 切回课表：周网格与今日日程恢复
+    await wrapper.get('[data-test="panel-mode-week"]').trigger("click");
+    await flushPromises();
+    expect(wrapper.find('[data-test="panel-week-grid"]').exists()).toBe(true);
+    expect(wrapper.get('[data-test="today-panel"]').text()).toContain("今日日程");
     wrapper.unmount();
   });
 

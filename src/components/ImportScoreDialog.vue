@@ -13,7 +13,7 @@
 import { computed, ref, watch } from "vue";
 import AppButton from "./ui/AppButton.vue";
 import AnalyzingOverlay from "./AnalyzingOverlay.vue";
-import { isTauri } from "../lib/db";
+import { isTauri, listClasses } from "../lib/db";
 import { isAiConfigured, loadAiConfig } from "../lib/ai";
 import { createLlm } from "../agent/providers";
 import { logError, logInfo } from "../lib/logger";
@@ -28,7 +28,6 @@ import {
   type ScoreImportResult,
   type ScoreSheetDetection,
 } from "../lib/scores";
-import { applyInferredClassMeta } from "../lib/semester-ai";
 
 /** 多文件队列中的单个成绩单及其独立考试信息 */
 interface ScoreFileEntry {
@@ -71,6 +70,24 @@ const nextKey = ref(1);
 const analyzing = ref(false);
 const importing = ref(false);
 const readError = ref("");
+/** 成绩归属班级：有预设班级（班级详情页入口）时用预设，否则必须由用户选择 */
+const classChoice = ref("");
+const classOptions = ref<string[]>([]);
+
+/** 本次导入实际生效的班级（预设优先；没有预设时必须已选择） */
+const classTarget = computed(() => props.presetClass || classChoice.value);
+/** 无非预设班级时加载候选：在用班级（排除「未分班」），供用户选择 */
+async function loadClassOptions() {
+  if (props.presetClass) return;
+  try {
+    const list = await listClasses();
+    classOptions.value = list
+      .filter((c) => !c.archived_at && c.name !== "未分班")
+      .map((c) => c.name);
+  } catch {
+    classOptions.value = [];
+  }
+}
 
 const activeFile = computed(
   () => files.value.find((f) => f.key === activeKey.value) ?? files.value[0] ?? null,
@@ -85,6 +102,9 @@ watch(
     analyzing.value = false;
     importing.value = false;
     readError.value = "";
+    classChoice.value = "";
+    classOptions.value = [];
+    if (!props.presetClass) void loadClassOptions();
     if (props.initialTable) {
       void addTable(props.initialTable, props.initialFileName);
     }
@@ -160,6 +180,12 @@ async function analyzeEntry(entry: ScoreFileEntry) {
     entry.selectedColumn = rule.nameColumn;
     entry.examName = rule.examName ?? "";
     entry.examDate = rule.examDate ?? localDateStr();
+    // 成绩单自带「班级」列：无预设班级时带入候选并预选（用户仍可改）
+    const detectedClass = (rule.className ?? "").trim();
+    if (!props.presetClass && detectedClass && detectedClass !== "未分班") {
+      if (!classOptions.value.includes(detectedClass)) classOptions.value.push(detectedClass);
+      if (!classChoice.value) classChoice.value = detectedClass;
+    }
   } finally {
     analyzing.value = false;
   }
@@ -167,6 +193,8 @@ async function analyzeEntry(entry: ScoreFileEntry) {
 
 /** 新增一个已解析表格到队列并分析（文件入口 / 花名册对话框交接共用） */
 async function addTable(table: RosterTable, label: string, sheet = "") {
+  // 无预设班级时先备好候选（首次加载；mounted/open 变化时可能已加载过）
+  if (!props.presetClass && !classOptions.value.length) await loadClassOptions();
   const entry: ScoreFileEntry = {
     key: nextKey.value++,
     label,
@@ -288,6 +316,8 @@ function isEntryReady(entry: ScoreFileEntry): boolean {
   if (entry.result || entry.notScoreSheet || entry.error) return false;
   if (!entry.detection || entry.selectedColumn < 0) return false;
   if (!entry.examName.trim() || !/^\d{4}-\d{2}-\d{2}$/.test(entry.examDate)) return false;
+  // 成绩必须归属班级：无预设班级时必须先选择
+  if (!classTarget.value) return false;
   const prep = preparedOf(entry);
   return !!prep && prep.rows.length > 0;
 }
@@ -350,7 +380,7 @@ async function doImport() {
       entry.error = "";
       try {
         const outcome = await runSmartScoreImport(entry.table, {
-          className: props.presetClass || undefined,
+          className: classTarget.value || undefined,
           examName: entry.examName.trim() || undefined,
           examDate: entry.examDate || undefined,
           // options.nameColumn 口径是「从 1 起的列号」（与 Agent 工具、报错提示一致）；
@@ -371,11 +401,9 @@ async function doImport() {
               `匹配 ${outcome.result.students_matched} 人，建档 ${outcome.result.students_created} 人，` +
               `跳过 ${outcome.result.skipped.length}，失败 ${outcome.result.failed.length}`,
           );
-          // 导入收尾：从文件名 / 标题行识别年级与学期，补写班级元信息（失败静默，不阻塞）
-          const targetClass = props.presetClass || outcome.exam.class_name;
+          const targetClass = classTarget.value || outcome.exam.class_name;
           if (targetClass) {
             examClasses.push(targetClass);
-            await applyInferredClassMeta(targetClass, [entry.label, ...(entry.table.titleText ?? [])]);
           }
         } else {
           // not-score-sheet / need-column / error 都带 message
@@ -391,7 +419,7 @@ async function doImport() {
       `成绩批量导入完成：文件 ${files.value.length} 个，` +
         `写入 ${aggregated.value?.written ?? 0} 条成绩，建档 ${aggregated.value?.created ?? 0} 人`,
     );
-    emit("imported", { className: props.presetClass || (distinct.length === 1 ? distinct[0] : null) });
+    emit("imported", { className: classTarget.value || (distinct.length === 1 ? distinct[0] : null) });
   } finally {
     importing.value = false;
   }
@@ -503,6 +531,17 @@ defineExpose({ loadText, loadTable, analyzeFromTable });
               <span v-if="props.presetClass" class="rounded-sm bg-canvas px-2 py-1 text-fine text-muted">
                 班级 {{ props.presetClass }}
               </span>
+              <label v-else class="flex items-center gap-2">
+                <span class="text-caption text-ink">班级</span>
+                <select
+                  v-model="classChoice"
+                  data-test="score-class-select"
+                  class="h-8 rounded-sm border border-hairline bg-canvas px-2 text-caption text-ink outline-none focus:border-primary-focus"
+                >
+                  <option value="" disabled>请选择成绩归属班级</option>
+                  <option v-for="c in classOptions" :key="c" :value="c">{{ c }}</option>
+                </select>
+              </label>
               <span
                 v-if="activeFile.examName || activeFile.detection.examName"
                 class="rounded-sm bg-canvas px-2 py-1 text-fine text-muted"
@@ -513,6 +552,12 @@ defineExpose({ loadText, loadTable, analyzeFromTable });
             </div>
             <p v-if="activeFile.detection.confidence === 'low'" class="mt-2 text-fine text-danger">
               未能可靠识别姓名列，请在下方人工选择；科目列与考试信息也建议核对。
+            </p>
+            <p v-if="!props.presetClass && !classTarget" class="mt-2 text-fine text-danger">
+              请选择成绩归属班级后再导入：成绩必须归属到一个班级，否则班级成绩页看不到。
+            </p>
+            <p v-if="!props.presetClass && !classOptions.length" class="mt-2 text-fine text-danger">
+              还没有可用班级：请先在「班级管理」创建班级。
             </p>
           </div>
 

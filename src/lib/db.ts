@@ -112,11 +112,9 @@ const SCHEMA_DDL: string[] = [
     FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE
   )`,
   `CREATE TABLE IF NOT EXISTS classes (
-    name           TEXT PRIMARY KEY,
-    entry_grade    INTEGER,
-    entry_semester TEXT,
-    archived_at    TEXT,
-    created_at     TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+    name        TEXT PRIMARY KEY,
+    archived_at TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
   )`,
   `CREATE TABLE IF NOT EXISTS profile (
     id           INTEGER PRIMARY KEY,
@@ -365,18 +363,6 @@ async function ensureSchema(db: Database): Promise<void> {
     /* 列已存在 */
   }
   try {
-    // 班级初始年级（2026-09-09）：旧库幂等补列；NULL = 未登记，回退旧行为
-    await db.execute("ALTER TABLE classes ADD COLUMN entry_grade INTEGER");
-  } catch {
-    /* 列已存在 */
-  }
-  try {
-    // 班级起始学期（2026-09-09）：NULL = 未登记
-    await db.execute("ALTER TABLE classes ADD COLUMN entry_semester TEXT");
-  } catch {
-    /* 列已存在 */
-  }
-  try {
     // 班级归档时刻（2026-09-09）：NULL = 在用；有值 = 历史带过的班
     await db.execute("ALTER TABLE classes ADD COLUMN archived_at TEXT");
   } catch {
@@ -421,7 +407,7 @@ interface MemoryStore {
   students: Student[];
   photos: Photo[];
   classes: string[];
-  /** 班级元信息（初始年级 / 起始学期 / 归档），按班级名索引 */
+  /** 班级元信息（归档状态），按班级名索引 */
   classMeta: Record<string, ClassMeta>;
   /** 学期评语（每生每学期一条） */
   termComments: StudentTermComment[];
@@ -1121,7 +1107,16 @@ export async function getStudent(id: number): Promise<Student | null> {
   };
 }
 
+/** 学生落库前确保班级存在：手动输入的新班级名默认建档（已存在 / 「未分班」跳过） */
+async function ensureClassForStudent(gradeClass: string | null | undefined): Promise<void> {
+  const name = (gradeClass ?? "").trim();
+  if (!name || name === "未分班") return;
+  await createClass(name);
+}
+
 export async function createStudent(input: StudentInput): Promise<number> {
+  await ensureClassForStudent(input.grade_class);
+
   if (!isTauri()) {
     const store = mem();
     const id = store.nextStudentId++;
@@ -1181,6 +1176,9 @@ export async function createStudent(input: StudentInput): Promise<number> {
 }
 
 export async function updateStudent(id: number, input: StudentInput): Promise<void> {
+  // 编辑档案时改成新班级名，同样默认建档
+  await ensureClassForStudent(input.grade_class);
+
   if (!isTauri()) {
     const store = mem();
     const idx = store.students.findIndex((s) => s.id === id);
@@ -1733,7 +1731,7 @@ export async function listClasses(): Promise<ClassSummary[]> {
   let students: Student[];
   let photos: Photo[];
   const classNames = new Set<string>();
-  const metaByName = new Map<string, ClassMeta>();
+  const archivedByName = new Map<string, string | null>();
 
   if (!isTauri()) {
     const store = mem();
@@ -1743,22 +1741,18 @@ export async function listClasses(): Promise<ClassSummary[]> {
       if (c && c !== "未分班") classNames.add(c);
     }
     for (const [name, meta] of Object.entries(store.classMeta)) {
-      metaByName.set(name, meta);
+      archivedByName.set(name, meta.archived_at);
     }
   } else {
     const db = await getDb();
     students = await db.select<Student[]>("SELECT * FROM students");
     photos = await db.select<Photo[]>("SELECT * FROM photos");
-    const explicitClasses = await db.select<
-      { name: string; entry_grade: number | null; entry_semester: string | null; archived_at: string | null }[]
-    >("SELECT name, entry_grade, entry_semester, archived_at FROM classes");
+    const explicitClasses = await db.select<{ name: string; archived_at: string | null }[]>(
+      "SELECT name, archived_at FROM classes"
+    );
     for (const row of explicitClasses) {
       if (row.name && row.name !== "未分班") classNames.add(row.name);
-      metaByName.set(row.name, {
-        entry_grade: row.entry_grade ?? null,
-        entry_semester: row.entry_semester ?? null,
-        archived_at: row.archived_at ?? null,
-      });
+      archivedByName.set(row.name, row.archived_at ?? null);
     }
   }
 
@@ -1805,9 +1799,7 @@ export async function listClasses(): Promise<ClassSummary[]> {
       photoCount: classPhotoCount + studentPhotoCount,
       classPhotoCount,
       studentPhotoCount,
-      entry_grade: metaByName.get(name)?.entry_grade ?? null,
-      entry_semester: metaByName.get(name)?.entry_semester ?? null,
-      archived_at: metaByName.get(name)?.archived_at ?? null,
+      archived_at: archivedByName.get(name) ?? null,
     });
   }
 
@@ -1828,7 +1820,7 @@ export async function createClass(name: string): Promise<void> {
       store.classes.push(trimmed);
     }
     if (!store.classMeta[trimmed]) {
-      store.classMeta[trimmed] = { entry_grade: null, entry_semester: null, archived_at: null };
+      store.classMeta[trimmed] = { archived_at: null };
     }
     return;
   }
@@ -1837,10 +1829,10 @@ export async function createClass(name: string): Promise<void> {
   await db.execute("INSERT OR IGNORE INTO classes (name) VALUES (?)", [trimmed]);
 }
 
-/** 班级元信息（初始年级 / 起始学期 / 归档）；未登记返回三个 null */
+/** 班级元信息（归档状态）；班级不存在返回 archived_at: null */
 export async function getClassMeta(name: string): Promise<ClassMeta> {
   const trimmed = name.trim();
-  const empty: ClassMeta = { entry_grade: null, entry_semester: null, archived_at: null };
+  const empty: ClassMeta = { archived_at: null };
   if (!trimmed) return empty;
 
   if (!isTauri()) {
@@ -1848,65 +1840,13 @@ export async function getClassMeta(name: string): Promise<ClassMeta> {
   }
 
   const db = await getDb();
-  const rows = await db.select<
-    { entry_grade: number | null; entry_semester: string | null; archived_at: string | null }[]
-  >("SELECT entry_grade, entry_semester, archived_at FROM classes WHERE name = ?", [trimmed]);
+  const rows = await db.select<{ archived_at: string | null }[]>(
+    "SELECT archived_at FROM classes WHERE name = ?",
+    [trimmed]
+  );
   const row = rows[0];
   if (!row) return empty;
-  return {
-    entry_grade: row.entry_grade ?? null,
-    entry_semester: row.entry_semester ?? null,
-    archived_at: row.archived_at ?? null,
-  };
-}
-
-/**
- * 保存班级元信息（部分字段）：初始年级 / 起始学期。
- * 传 `undefined` 的字段保持不变；传 `null` 表示清空。归档状态由 archiveClass/restoreClass 管。
- */
-export async function saveClassMeta(
-  name: string,
-  meta: { entry_grade?: number | null; entry_semester?: string | null }
-): Promise<void> {
-  const trimmed = name.trim();
-  if (!trimmed) throw new Error("班级名称不能为空");
-  if (meta.entry_grade != null && (!Number.isInteger(meta.entry_grade) || meta.entry_grade < 1 || meta.entry_grade > 6)) {
-    throw new Error("年级需为 1~6");
-  }
-  if (meta.entry_semester != null && meta.entry_semester !== "" && !/^\d{4}-\d{4}-[12]$/.test(meta.entry_semester.trim())) {
-    throw new Error("学期号格式应为 YYYY-YYYY-1/2");
-  }
-  const grade = meta.entry_grade === undefined ? undefined : meta.entry_grade;
-  const semester =
-    meta.entry_semester === undefined ? undefined : meta.entry_semester ? meta.entry_semester.trim() : null;
-
-  if (!isTauri()) {
-    const store = mem();
-    if (!store.classes.includes(trimmed)) store.classes.push(trimmed);
-    const current = store.classMeta[trimmed] ?? { entry_grade: null, entry_semester: null, archived_at: null };
-    store.classMeta[trimmed] = {
-      entry_grade: grade === undefined ? current.entry_grade : grade,
-      entry_semester: semester === undefined ? current.entry_semester : semester,
-      archived_at: current.archived_at,
-    };
-    return;
-  }
-
-  const db = await getDb();
-  await db.execute("INSERT OR IGNORE INTO classes (name) VALUES (?)", [trimmed]);
-  const sets: string[] = [];
-  const params: unknown[] = [];
-  if (grade !== undefined) {
-    sets.push("entry_grade = ?");
-    params.push(grade);
-  }
-  if (semester !== undefined) {
-    sets.push("entry_semester = ?");
-    params.push(semester);
-  }
-  if (!sets.length) return;
-  params.push(trimmed);
-  await db.execute(`UPDATE classes SET ${sets.join(", ")} WHERE name = ?`, params);
+  return { archived_at: row.archived_at ?? null };
 }
 
 /** 归档班级：从班级管理移出，进入「历史带过的班」；数据全部保留 */
@@ -1925,7 +1865,7 @@ async function setClassArchived(name: string, archived: boolean): Promise<void> 
 
   if (!isTauri()) {
     const store = mem();
-    const current = store.classMeta[trimmed] ?? { entry_grade: null, entry_semester: null, archived_at: null };
+    const current = store.classMeta[trimmed] ?? { archived_at: null };
     store.classMeta[trimmed] = { ...current, archived_at: archived ? now() : null };
     return;
   }
@@ -2309,14 +2249,12 @@ export async function renameClass(oldName: string, newName: string): Promise<voi
 
   const db = await getDb();
   await db.execute("INSERT OR IGNORE INTO classes (name) VALUES (?)", [newTrimmed]);
-  // 元信息随改名迁移（新行已 INSERT OR IGNORE，这里把旧行的年级/学期/归档补过去）
+  // 归档状态随改名迁移（新行已 INSERT OR IGNORE，这里把旧行的归档时刻补过去）
   await db.execute(
     `UPDATE classes
-        SET entry_grade = (SELECT entry_grade FROM classes WHERE name = ?),
-            entry_semester = (SELECT entry_semester FROM classes WHERE name = ?),
-            archived_at = (SELECT archived_at FROM classes WHERE name = ?)
+        SET archived_at = (SELECT archived_at FROM classes WHERE name = ?)
       WHERE name = ?`,
-    [oldTrimmed, oldTrimmed, oldTrimmed, newTrimmed]
+    [oldTrimmed, newTrimmed]
   );
   if (oldTrimmed === "未分班") {
     await db.execute(
@@ -3030,10 +2968,27 @@ function assertExamDate(date: string): void {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("考试时间格式应为 YYYY-MM-DD");
 }
 
+/**
+ * 考试批次归属班级校验：成绩必须挂在具体班级下。
+ *
+ * 空班级 /「未分班」会让班级成绩页（按 exam.class_name 过滤）查不到数据——
+ * 数据在库里但界面没有任何入口能看到（历史事故：导入时没有班级上下文，
+ * 批次落在「未分班」，班级面板 0 条、助手却能从全局查到）。所有写入口一律
+ * 拒绝，宁可报错让调用方去要班级，也不产生"看不见的成绩"。
+ */
+function assertExamClassName(className: string | null | undefined): string {
+  const name = (className ?? "").trim();
+  if (!name || name === "未分班") {
+    throw new Error("考试批次必须归属一个班级（不能为空或「未分班」）：请先选择成绩所属班级");
+  }
+  return name;
+}
+
 /** 新建考试批次。返回新考试 id。 */
 export async function createExam(input: ExamInput): Promise<number> {
   const name = input.name.trim();
   if (!name) throw new Error("考试名称不能为空");
+  const className = assertExamClassName(input.class_name);
   assertExamDate(input.exam_date);
   const examType = input.exam_type ?? inferExamType(name);
 
@@ -3043,7 +2998,7 @@ export async function createExam(input: ExamInput): Promise<number> {
     const ts = now();
     store.exams.push({
       id,
-      class_name: input.class_name,
+      class_name: className,
       name,
       exam_date: input.exam_date,
       exam_type: examType,
@@ -3057,7 +3012,7 @@ export async function createExam(input: ExamInput): Promise<number> {
   const db = await getDb();
   const result = await db.execute(
     "INSERT INTO exams (class_name, name, exam_date, exam_type, note) VALUES (?, ?, ?, ?, ?)",
-    [input.class_name, name, input.exam_date, examType, input.note ?? null]
+    [className, name, input.exam_date, examType, input.note ?? null]
   );
   return Number(result.lastInsertId ?? 0);
 }
@@ -3083,15 +3038,16 @@ export async function findExam(className: string, name: string, examDate: string
 export async function findOrCreateExam(input: ExamInput): Promise<{ exam: Exam; created: boolean }> {
   const name = input.name.trim();
   if (!name) throw new Error("考试名称不能为空");
+  const className = assertExamClassName(input.class_name);
   assertExamDate(input.exam_date);
 
-  const existing = await findExam(input.class_name, name, input.exam_date);
+  const existing = await findExam(className, name, input.exam_date);
   if (existing) return { exam: existing, created: false };
-  const id = await createExam(input);
+  const id = await createExam({ ...input, class_name: className });
   return {
     exam: {
       id,
-      class_name: input.class_name,
+      class_name: className,
       name,
       exam_date: input.exam_date,
       exam_type: input.exam_type ?? inferExamType(name),

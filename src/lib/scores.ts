@@ -643,9 +643,36 @@ export type SmartScoreImportOutcome =
   | { status: "need-column"; detection: ScoreSheetDetection; message: string }
   | { status: "error"; message: string };
 
+/** 导入班级值归一：空 /「未分班」都视为没有班级（成绩必须归属具体班级） */
+function normalizeImportClass(value: string | null | undefined): string {
+  const name = (value ?? "").trim();
+  return name === "未分班" ? "" : name;
+}
+
+/**
+ * 无班级上下文时按已建档学生推断成绩归属班：
+ * 行内学生（学号优先、其次姓名）命中且班集合唯一才返回；命中多班 / 没命中返回 null。
+ */
+async function inferClassNameFromRows(rows: ScoreRow[]): Promise<string | null> {
+  const students = await listStudents();
+  const classes = new Set<string>();
+  for (const row of rows) {
+    const no = row.student_no.trim();
+    for (const s of students) {
+      if (!(no && s.student_no === no) && s.name !== row.name) continue;
+      const c = normalizeImportClass(s.grade_class);
+      if (c) classes.add(c);
+    }
+  }
+  return classes.size === 1 ? [...classes][0] : null;
+}
+
 /**
  * 智能成绩导入编排（表格入口）：成绩单识别（已配置模型时叠加 AI）→ 校验
  * → 考试批次幂等复用 → 成绩落库。置信度低且未指定姓名列时返回 need-column。
+ *
+ * 班级归属是硬约束（成绩必须归属一个班级）：入口上下文 → 成绩单「班级」列
+ * → 按已建档学生推断；三者都拿不到时不落库，返回 error 让入口去询问用户。
  */
 export async function runSmartScoreImport(
   table: RosterTable,
@@ -711,7 +738,18 @@ export async function runSmartScoreImport(
 
   const examName = (options.examName ?? detection.examName ?? "未命名考试").trim() || "未命名考试";
   const examDate = options.examDate ?? detection.examDate ?? localDateStr();
-  const className = (options.className ?? detection.className ?? "").trim();
+
+  // 成绩必须归属班级：入口上下文 → 成绩单「班级」列 → 按档案学生推断唯一班级
+  let className = normalizeImportClass(options.className ?? detection.className);
+  if (!className) className = (await inferClassNameFromRows(prep.rows)) ?? "";
+  if (!className) {
+    return {
+      status: "error",
+      message:
+        "无法确定成绩归属班级：成绩单里没有班级信息，也没有可推断的学生班级。" +
+        "请指定成绩归属的班级（如「三年级二班」）后重试——成绩必须归属到一个班级，否则班级成绩页看不到。",
+    };
+  }
 
   if (options.dryRun) {
     return {
@@ -739,7 +777,7 @@ export async function runSmartScoreImport(
     exam_type: inferExamType(examName),
   });
   const result = await importScoreBatch(prep, exam, {
-    className: className || undefined,
+    className,
     autoCreateStudents: options.autoCreateStudents,
   });
   return { status: "ok", table, detection, exam, examCreated: created, result };

@@ -5,11 +5,16 @@
  * 数据来自 getStudentScoreReport（按考试时间倒序）：每场给出各科分数
  * （含班级平均分 / 单科排名 + 档位进度条）、总分（含班级平均 / 总分排名）
  * 与相较上一次考试的进退步，一眼看清「单科强弱 + 整体走势」。
+ * 走势区可按科目下钻：选单科进入「单科透视」（本人 vs 班级均分、
+ * 统计条、趋势小结、历次名次），默认「全部」保持全科折线。
  */
 import { computed, onMounted, ref, watch } from "vue";
 import ScoreLineChart from "./ScoreLineChart.vue";
+import SubjectScoreBars from "./SubjectScoreBars.vue";
+import SubjectTrendView from "./SubjectTrendView.vue";
 import { getStudentScoreReport } from "../lib/db";
 import { semesterOfDate } from "../lib/semester";
+import { chartColorOf } from "../lib/chart-palette";
 import {
   SCORE_LEVEL_BAR,
   SCORE_LEVEL_TEXT,
@@ -59,6 +64,8 @@ async function refresh() {
   try {
     report.value = await getStudentScoreReport(props.studentId);
     selectedExamId.value = null;
+    barExamId.value = null;
+    activeSubject.value = null;
   } finally {
     loading.value = false;
   }
@@ -67,6 +74,7 @@ async function refresh() {
 watch(() => props.studentId, refresh);
 watch(() => props.semester, () => {
   selectedExamId.value = null;
+  barExamId.value = null;
 });
 onMounted(refresh);
 
@@ -146,7 +154,63 @@ function avgSingleOf(exam: StudentExamReport): number | null {
   return numeric ? round1(exam.total / numeric) : null;
 }
 
-/* ---------------- 科目成绩折线图（按大考 / 小考分组） ---------------- */
+/* ---------------- 各科成绩柱状图（按考试场次，复用 SubjectScoreBars） ---------------- */
+
+/** 柱状图选中的考试场次；null = 默认看最近一场 */
+const barExamId = ref<number | null>(null);
+
+/** 当前场次（考试列表按时间倒序，未选择时取最近一场） */
+const activeBarExam = computed<StudentExamReport | null>(() => {
+  const exams = filteredReport.value?.exams ?? [];
+  return exams.find((e) => e.exam_id === barExamId.value) ?? exams[0] ?? null;
+});
+
+/** 当前场次的柱状图数据（单组：每科一根柱，铺满卡片均分） */
+const activeBarGroups = computed(() => {
+  const exam = activeBarExam.value;
+  if (!exam) return [];
+  return [
+    {
+      label: exam.exam_name,
+      sub: exam.exam_date.slice(5, 10),
+      items: exam.subjects.map((s) => ({ subject: s.subject, score: s.score, grade: s.grade })),
+    },
+  ];
+});
+
+/** 当前场次的摘要行：日期 · 大考/小考 · 总分（或等级）· 排名 · 班均 */
+const activeBarMeta = computed(() => {
+  const exam = activeBarExam.value;
+  if (!exam) return [];
+  const parts: string[] = [exam.exam_date.slice(0, 10), exam.exam_type === "major" ? "大考" : "小考"];
+  if (exam.total !== null) parts.push(`总分 ${formatNumber(exam.total)}`);
+  else if (exam.total_grade) parts.push(`等级 ${exam.total_grade}`);
+  if (exam.class_total_rank !== null) parts.push(`班级第 ${exam.class_total_rank}`);
+  if (exam.class_total_average !== null) parts.push(`班均 ${formatNumber(exam.class_total_average)}`);
+  return parts;
+});
+
+/* ---------------- 科目成绩折线图（按大考 / 小考分组，可下钻单科） ---------------- */
+
+/** 全局科目顺序（报告里按首次出现，最近考试的科目优先）：芯片色点与折线配色共用 */
+const globalSubjects = computed(() => {
+  const names: string[] = [];
+  for (const exam of filteredReport.value?.exams ?? []) {
+    for (const s of exam.subjects) {
+      if (!names.includes(s.subject)) names.push(s.subject);
+    }
+  }
+  return names;
+});
+
+/** 科目图表色：与全局顺序对齐，保证同科目跨图表同色 */
+function subjectColorOf(subject: string): string {
+  const index = globalSubjects.value.indexOf(subject);
+  return chartColorOf(index >= 0 ? index : 0);
+}
+
+/** 单科透视选中的科目；null = 全科走势（每科一条线） */
+const activeSubject = ref<string | null>(null);
 
 interface ScoreChartGroup {
   type: ExamType;
@@ -160,18 +224,16 @@ interface ScoreChartGroup {
 /**
  * 每个大类一张折线图：横轴是该类的考试（按时间正序），
  * 每条折线一个科目，缺考的点为空（折线断开）。
+ * 科目顺序取全局顺序（过滤掉该组没有的科目），让大考 / 小考两图同科目同色。
  */
 const chartGroups = computed<ScoreChartGroup[]>(() => {
   const exams = filteredReport.value?.exams ?? [];
   const build = (type: ExamType, title: string): ScoreChartGroup | null => {
     const list = exams.filter((e) => e.exam_type === type).slice().reverse();
     if (!list.length) return null;
-    const subjectNames: string[] = [];
-    for (const exam of list) {
-      for (const s of exam.subjects) {
-        if (!subjectNames.includes(s.subject)) subjectNames.push(s.subject);
-      }
-    }
+    const subjectNames = globalSubjects.value.filter((name) =>
+      list.some((e) => e.subjects.some((s) => s.subject === name))
+    );
     return {
       type,
       title,
@@ -202,6 +264,17 @@ const activeGroup = computed<ScoreChartGroup | null>(
     chartGroups.value[0] ??
     null
 );
+
+/** 切换大考/小考或学期后，所选科目在该组没有任何成绩时回退「全部」 */
+watch(activeGroup, (group) => {
+  if (
+    activeSubject.value &&
+    group &&
+    !group.exams.some((e) => e.subjects.some((s) => s.subject === activeSubject.value))
+  ) {
+    activeSubject.value = null;
+  }
+});
 
 /** 选中考试在某组里的下标（用于高亮节点）；不在该组则为 null */
 function selectedIndexOf(group: ScoreChartGroup): number | null {
@@ -251,6 +324,47 @@ function onPointClick(group: ScoreChartGroup | null, payload: { index: number })
         </div>
       </div>
 
+      <!-- 各科成绩柱状图：先选考试场次，再看该场每科得分（渲染规则与悬浮卡片同源） -->
+      <div
+        v-if="activeBarExam"
+        class="rounded-lg border border-hairline bg-canvas p-4"
+        data-test="student-subject-bars"
+      >
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <p class="text-caption font-medium text-ink">各科成绩柱状图</p>
+          <p class="text-fine text-weak">按考试场次查看 · 每根柱一个科目</p>
+        </div>
+
+        <!-- 场次入口：一次考试一个芯片，默认选中最近一场 -->
+        <div class="scroll-thin mt-3 flex flex-wrap items-center gap-2" data-test="subject-bars-exams">
+          <button
+            v-for="exam in filteredReport.exams"
+            :key="exam.exam_id"
+            type="button"
+            :data-test="`subject-bars-exam-${exam.exam_id}`"
+            class="rounded-pill px-3 py-1.5 text-caption transition-colors"
+            :class="
+              exam.exam_id === activeBarExam.exam_id
+                ? 'bg-ink font-medium text-canvas'
+                : 'border border-hairline bg-canvas text-weak hover:border-ink hover:text-ink'
+            "
+            @click="barExamId = exam.exam_id"
+          >
+            {{ exam.exam_name }}
+            <span class="opacity-70">· {{ exam.exam_date.slice(5, 10) }}</span>
+          </button>
+        </div>
+
+        <!-- 当前场次摘要 -->
+        <p v-if="activeBarMeta.length" class="mt-2.5 text-fine text-weak" data-test="subject-bars-meta">
+          {{ activeBarMeta.join(" · ") }}
+        </p>
+
+        <div class="mt-3">
+          <SubjectScoreBars :groups="activeBarGroups" fill :show-label="false" />
+        </div>
+      </div>
+
       <!-- 多次考试对比：走势图（大考 / 小考 分 Tab）+ 逐次矩阵 -->
       <div v-if="examColumns.length > 1" class="space-y-3" data-test="multi-exam-section">
         <!-- 成绩走势：大考 / 小考 用 Tab 切换，不再并排堆在一栏 -->
@@ -260,7 +374,9 @@ function onPointClick(group: ScoreChartGroup | null, payload: { index: number })
           :data-test="`line-chart-${activeGroup.type}`"
         >
           <div class="flex flex-wrap items-center justify-between gap-2">
-            <p class="text-caption font-medium text-ink">{{ activeGroup.title }}成绩走势</p>
+            <p class="text-caption font-medium text-ink">
+              {{ activeGroup.title }}{{ activeSubject ? `·${activeSubject}` : "" }}成绩走势
+            </p>
             <div class="flex items-center gap-2">
               <p class="text-fine text-weak">
                 {{ activeGroup.labels.length }} 次 · 悬浮看分数 · 点击看该次考试
@@ -289,8 +405,53 @@ function onPointClick(group: ScoreChartGroup | null, payload: { index: number })
             </div>
           </div>
 
+          <!-- 科目维度：全部 = 每科一条线；选单科进入单科透视 -->
+          <div class="scroll-thin mt-3 flex flex-wrap items-center gap-2" data-test="subject-trend-chips">
+            <button
+              type="button"
+              data-test="subject-chip-all"
+              class="rounded-pill px-3 py-1.5 text-caption transition-colors"
+              :class="
+                activeSubject === null
+                  ? 'bg-ink font-medium text-canvas'
+                  : 'border border-hairline bg-canvas text-weak hover:border-ink hover:text-ink'
+              "
+              @click="activeSubject = null"
+            >
+              全部
+            </button>
+            <button
+              v-for="subject in globalSubjects"
+              :key="subject"
+              type="button"
+              :data-test="`subject-chip-${subject}`"
+              class="inline-flex items-center gap-1.5 rounded-pill px-3 py-1.5 text-caption transition-colors"
+              :class="
+                activeSubject === subject
+                  ? 'bg-ink font-medium text-canvas'
+                  : 'border border-hairline bg-canvas text-weak hover:border-ink hover:text-ink'
+              "
+              @click="activeSubject = subject"
+            >
+              <span
+                class="inline-block h-2 w-2 shrink-0 rounded-full"
+                :style="{ backgroundColor: subjectColorOf(subject) }"
+              />
+              {{ subject }}
+            </button>
+          </div>
+
           <div class="mt-3" data-test="student-trend-chart">
+            <SubjectTrendView
+              v-if="activeSubject"
+              :exams="activeGroup.exams"
+              :subject="activeSubject"
+              :color="subjectColorOf(activeSubject)"
+              :selected-index="selectedIndexOf(activeGroup)"
+              @point-click="(payload) => onPointClick(activeGroup, payload)"
+            />
             <ScoreLineChart
+              v-else
               :labels="activeGroup.labels"
               :series="activeGroup.series"
               :ids="activeGroup.exams.map((e) => e.exam_id)"
@@ -372,7 +533,15 @@ function onPointClick(group: ScoreChartGroup | null, payload: { index: number })
             </div>
 
             <div class="space-y-2.5 px-4 py-3">
-              <div v-for="s in selectedExam.subjects" :key="s.subject" class="flex items-center gap-3">
+              <div
+                v-for="s in selectedExam.subjects"
+                :key="s.subject"
+                class="flex items-center gap-3"
+                :class="
+                  activeSubject === s.subject ? '-mx-2 rounded-md bg-pearl px-2 py-1' : ''
+                "
+                :data-test="activeSubject === s.subject ? 'exam-card-active-subject' : undefined"
+              >
                 <span class="w-20 shrink-0 whitespace-nowrap text-caption" :class="levelText(s.score)">
                   {{ s.subject }} {{ displayScore(s) }}
                 </span>

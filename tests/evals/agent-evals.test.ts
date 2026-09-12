@@ -156,7 +156,7 @@ describe("Agent Evals 意图与质量防退化评测", () => {
       expect(result.toolRuns).toHaveLength(1);
       expect(result.toolRuns[0].call.name).toBe("navigate");
       expect(result.toolRuns[0].result.ok).toBe(true);
-      expect(result.reply).toContain("已打开「学生档案」页面");
+      expect(result.reply).toContain("已打开「班级管理」页面");
     });
 
     it("executes docs search turn and returns relevant content summary", async () => {

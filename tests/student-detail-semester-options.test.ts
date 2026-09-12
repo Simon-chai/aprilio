@@ -13,7 +13,6 @@ describe("StudentDetailView 学期下拉", () => {
     return createRouter({
       history: createMemoryHistory(),
       routes: [
-        { path: "/students", name: "students", component: { template: "<div>Students</div>" } },
         { path: "/students/:id", name: "student-detail", component: StudentDetailView },
       ],
     });

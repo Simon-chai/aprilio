@@ -18,6 +18,7 @@
   --color-canvas: #ffffff; /* 内容底 */
   --color-parchment: #f5f5f7; /* 侧栏 / 顶栏 */
   --color-pearl: #fafafc; /* 表头 / 次级按钮底 */
+  --color-mint: #e8f5ec; /* 校园清新绿：氛围底色（白 → mint 淡渐变的落点），不做交互强调色 */
   --color-hairline: #e0e0e0; /* 1px 边框 */
   --color-divider: #f0f0f0; /* 行分隔线 */
   --color-tile: #272729; /* 深色块 */

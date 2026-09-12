@@ -37,7 +37,6 @@ import {
   type RosterTable,
 } from "../lib/roster";
 import { detectScoreSheet, type ScoreSheetDetection } from "../lib/scores";
-import { applyInferredClassMeta } from "../lib/semester-ai";
 import type { StudentInput } from "../types";
 
 type Mode = "smart" | "template";
@@ -376,13 +375,11 @@ async function doImport() {
         logInfo(
           `花名册导入完成「${entry.label || "未命名文件"}」：成功 ${r.imported}，更新 ${r.updated}，跳过 ${r.skipped.length}，失败 ${r.failed.length}`,
         );
-        // 导入收尾：从文件名 / 标题行识别年级与学期，补写班级元信息（失败静默，不阻塞）
         // 未命名批次优先用落库时分配的自动班级，保证两次导入分成两个班后能正确跳转
         const targetClass = r.autoClass || inferTargetClass(prep.rows as StudentInput[]);
         if (r.autoClass) autoClasses.push(r.autoClass);
         if (targetClass) {
           targetClasses.push(targetClass);
-          await applyInferredClassMeta(targetClass, [entry.label, ...(entry.table.titleText ?? [])]);
         }
       } catch (e) {
         logError("花名册导入失败", e);

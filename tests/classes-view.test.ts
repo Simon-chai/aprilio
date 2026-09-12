@@ -2,9 +2,11 @@ import { flushPromises, mount } from "@vue/test-utils";
 import { createMemoryHistory, createRouter } from "vue-router";
 import { describe, expect, it } from "vitest";
 import ClassesView from "../src/views/ClassesView.vue";
-import AppButton from "../src/components/ui/AppButton.vue";
+import AppIconButton from "../src/components/ui/AppIconButton.vue";
 import StudentFormDialog from "../src/components/StudentFormDialog.vue";
-import { deleteStudent, listRecycleItems, listStudents } from "../src/lib/db";
+import ImportRosterDialog from "../src/components/ImportRosterDialog.vue";
+import { listRecycleItems } from "../src/lib/db";
+import { emitPageAction } from "../src/agent/page-action-bus";
 describe("ClassesView.vue", () => {
   function createTestRouter() {
     return createRouter({
@@ -18,13 +20,12 @@ describe("ClassesView.vue", () => {
           component: { template: "<div>ClassDetail</div>" },
           props: true,
         },
-        { path: "/students", name: "students", component: { template: "<div>Students</div>" } },
         { path: "/photos", name: "photos", component: { template: "<div>Photos</div>" } },
       ],
     });
   }
 
-  it("header action buttons all use AppButton and no raw unstyled button exists in header", async () => {
+  it("快捷操作以「图标 + 悬浮文案」落在历史班标签右侧，且不再占据顶栏", async () => {
     const router = createTestRouter();
     await router.push("/classes");
     await router.isReady();
@@ -36,25 +37,80 @@ describe("ClassesView.vue", () => {
     });
     await flushPromises();
 
+    // 顶栏只保留「首页」返回，业务操作全部下移到标签行
     const header = wrapper.get("header");
-    const appButtons = header.findAllComponents(AppButton);
-    const rawButtons = header.findAll("button");
+    expect(header.findAll("button").length).toBe(0);
 
-    // Every button in the header must be managed by AppButton
-    expect(appButtons.length).toBeGreaterThanOrEqual(2);
-    expect(appButtons.length).toBe(rawButtons.length);
+    // 标签行 = 标签组 + 右侧两个快捷图标按钮（新建学生已迁移到班级详情页）
+    const tabRow = wrapper.get("[data-test='class-tab-row']");
+    expect(tabRow.element.closest("header")).toBeNull();
 
-    // Specifically check import roster button and new class button
-    const secondaryBtn = appButtons.find((btn) => btn.props("variant") === "secondary");
-    const primaryBtn = appButtons.find((btn) => btn.props("variant") === "primary");
-    expect(secondaryBtn).toBeDefined();
-    expect(secondaryBtn?.text()).toContain("导入花名册");
-    expect(primaryBtn).toBeDefined();
-    expect(primaryBtn?.text()).toContain("新建班级");
+    const tabGroup = tabRow.get("[data-test='class-tab-group']");
+    const quickActions = tabRow.get("[data-test='class-quick-actions']");
+    const children = Array.from(tabRow.element.children);
+    expect(children.indexOf(tabGroup.element as Element)).toBe(0);
+    expect(children.indexOf(quickActions.element as Element)).toBe(1);
 
-    // Verify there are no raw unstyled buttons anywhere on the page
-    const unstyledButtons = wrapper.findAll("button:not(.inline-flex)");
-    expect(unstyledButtons.length).toBe(0);
+    const iconButtons = quickActions.findAllComponents(AppIconButton);
+    expect(iconButtons.length).toBe(2);
+
+    // 语义图标：上传表格 / 加号 + 尖顶房子，且都带悬浮文案；新建学生入口已迁往班级详情页
+    const labels = iconButtons.map((btn) => btn.props("label"));
+    expect(labels).toEqual(["导入花名册", "新建班级"]);
+    const tooltips = quickActions.findAll("[role='tooltip']");
+    expect(tooltips.map((t) => t.text())).toEqual(["导入花名册", "新建班级"]);
+    iconButtons.forEach((btn) => {
+      expect(btn.find("svg").exists()).toBe(true);
+      // 校园氛围淡渐变底（白 → mint），悬浮时整体收拢到淡绿底
+      expect(btn.classes()).toContain("bg-gradient-to-b");
+      expect(btn.classes()).toContain("from-white");
+      expect(btn.classes()).toContain("to-mint");
+      expect(btn.classes()).toContain("hover:from-mint");
+    });
+
+    // 页面上不存在裸控件：原生按钮都带统一布局样式
+    const nakedButtons = wrapper
+      .findAll("button")
+      .filter((btn) => {
+        const cls = btn.attributes("class") ?? "";
+        return !cls.includes("inline-flex") && !cls.includes("group/icon-btn");
+      });
+    expect(nakedButtons.length).toBe(0);
+
+    // 「导入花名册」图标 → 就地打开导入对话框（学生条目已并入班级管理）
+    const rosterDialog = wrapper.findComponent(ImportRosterDialog);
+    expect(rosterDialog.props("open")).toBe(false);
+    await iconButtons[0].trigger("click");
+    await flushPromises();
+    expect(rosterDialog.props("open")).toBe(true);
+    expect(router.currentRoute.value.path).toBe("/classes");
+  });
+
+  it("opens student and roster dialogs from Agent page actions", async () => {
+    const router = createTestRouter();
+    await router.push("/classes");
+    await router.isReady();
+
+    const wrapper = mount(ClassesView, {
+      global: { plugins: [router] },
+    });
+    await flushPromises();
+
+    // Agent 的 classes/create-student → 打开添加学生对话框并预填
+    emitPageAction("classes/create-student", { name: "动作预填生" });
+    await flushPromises();
+    const studentDialog = wrapper.findComponent(StudentFormDialog);
+    expect(studentDialog.props("open")).toBe(true);
+    expect(studentDialog.props("initial")).toMatchObject({ name: "动作预填生" });
+
+    // Agent 的 classes/import-roster → 打开花名册对话框并带上模式
+    emitPageAction("classes/import-roster", "template");
+    await flushPromises();
+    const rosterDialog = wrapper.findComponent(ImportRosterDialog);
+    expect(rosterDialog.props("open")).toBe(true);
+    expect(rosterDialog.props("initialMode")).toBe("template");
+
+    wrapper.unmount();
   });
 
   it("renders class cards with RouterLink pointing to class-detail route and displays correct summary stats", async () => {
@@ -202,56 +258,4 @@ describe("ClassesView.vue", () => {
     expect(cardText).toContain("0 名学生");
   });
 
-  it("add-student button opens the student form dialog titled 添加学生", async () => {
-    const router = createTestRouter();
-    await router.push("/classes");
-    await router.isReady();
-
-    const wrapper = mount(ClassesView, {
-      global: { plugins: [router] },
-    });
-    await flushPromises();
-
-    const addBtn = wrapper.get("[data-test='add-student-btn']");
-    expect(addBtn.text()).toContain("添加学生");
-    expect(wrapper.findComponent(StudentFormDialog).props("open")).toBe(false);
-
-    await addBtn.trigger("click");
-    const dialog = wrapper.findComponent(StudentFormDialog);
-    expect(dialog.exists()).toBe(true);
-    expect(dialog.props("open")).toBe(true);
-    expect(dialog.props("title")).toBe("添加学生");
-  });
-
-  it("submitting the add-student dialog creates the student and refreshes the page", async () => {
-    const no = "CV_ADD_001";
-    for (const s of await listStudents()) {
-      if (s.student_no === no) await deleteStudent(s.id);
-    }
-
-    const router = createTestRouter();
-    await router.push("/classes");
-    await router.isReady();
-
-    const wrapper = mount(ClassesView, {
-      global: { plugins: [router] },
-    });
-    await flushPromises();
-
-    await wrapper.get("[data-test='add-student-btn']").trigger("click");
-    const dialog = wrapper.findComponent(StudentFormDialog);
-    // 表单前两个输入框依次为姓名、学号
-    const inputs = dialog.findAll("input");
-    await inputs[0].setValue("班级页添加生");
-    await inputs[1].setValue(no);
-    await dialog.findAll("button").find((b) => b.text() === "保存")!.trigger("click");
-    await flushPromises();
-
-    // 学生已建档，对话框关闭
-    const created = (await listStudents()).find((s) => s.student_no === no);
-    expect(created?.name).toBe("班级页添加生");
-    expect(wrapper.findComponent(StudentFormDialog).props("open")).toBe(false);
-
-    if (created) await deleteStudent(created.id);
-  });
 });

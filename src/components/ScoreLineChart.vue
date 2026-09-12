@@ -9,13 +9,15 @@
  *   所以节点再密也能选中；悬浮提示「哪次考试 + 分数」，点击展开该次考试详情。
  */
 import { computed, ref } from "vue";
+import { chartColorOf } from "../lib/chart-palette";
 
 const props = withDefaults(
   defineProps<{
     /** 横轴：每次考试的标签（label 为轴上的短标签，full 为悬浮时的完整名，sub 为日期） */
     labels: { label: string; sub?: string; full?: string }[];
-    /** 每条折线：科目名 + 与 labels 对齐的分数（null 表示该次缺考） */
-    series: { name: string; values: (number | null)[] }[];
+    /** 每条折线：科目名 + 与 labels 对齐的分数（null 表示该次缺考）；
+     *  dashed = 参照线（虚线弱化）；color = 覆盖调色板颜色（如班级均分用灰色） */
+    series: { name: string; values: (number | null)[]; dashed?: boolean; color?: string }[];
     /** 与 labels 对齐的考试 ID，用于给热区打 data 属性方便定位 */
     ids?: (number | string)[];
     /** 当前选中的考试下标（高亮对应列与节点） */
@@ -32,6 +34,11 @@ const emit = defineEmits<{
   "point-click": [payload: { index: number; subject: string; score: number }];
 }>();
 
+/** 折线颜色：series 显式指定优先（参照线用灰），否则按调色板取科目色 */
+function lineColorOf(s: { color?: string }, index: number): string {
+  return s.color ?? chartColorOf(index);
+}
+
 const PAD = { l: 40, r: 18, t: 16, b: 48 };
 const H = 240;
 /** 相邻两次考试的最小水平间距：不够就横向滚动，避免节点挤在一起 */
@@ -43,22 +50,6 @@ const plotW = computed(() =>
   Math.max(MIN_PLOT_W, Math.max(0, props.labels.length - 1) * MIN_STEP)
 );
 const W = computed(() => PAD.l + plotW.value + PAD.r);
-
-/** 科目配色（与主题色系一致） */
-const PALETTE = [
-  "#0066cc",
-  "#248a3d",
-  "#d70015",
-  "#c26a00",
-  "#6b3fd1",
-  "#0b7285",
-  "#c2185b",
-  "#5f7d00",
-];
-
-function colorOf(index: number): string {
-  return PALETTE[index % PALETTE.length];
-}
 
 /**
  * 纵轴范围：按数据自动收紧，让折线尽量铺满绘图区。
@@ -254,7 +245,7 @@ function onBandClick(index: number, event: MouseEvent) {
       >
         <span
           class="inline-block h-2 w-2 shrink-0 rounded-full"
-          :style="{ backgroundColor: colorOf(si) }"
+          :style="{ backgroundColor: lineColorOf(s, si) }"
         />
         {{ s.name }}
       </span>
@@ -336,8 +327,9 @@ function onBandClick(index: number, event: MouseEvent) {
               :key="`seg-${si}-${gi}`"
               :points="seg"
               fill="none"
-              :stroke="colorOf(si)"
+              :stroke="lineColorOf(s, si)"
               stroke-width="2"
+              :stroke-dasharray="s.dashed ? '6 4' : undefined"
               stroke-linejoin="round"
               stroke-linecap="round"
             />
@@ -348,7 +340,7 @@ function onBandClick(index: number, event: MouseEvent) {
                 :cy="p.y"
                 r="7"
                 fill="none"
-                :stroke="colorOf(si)"
+                :stroke="lineColorOf(s, si)"
                 stroke-width="1.5"
                 pointer-events="none"
               />
@@ -359,7 +351,7 @@ function onBandClick(index: number, event: MouseEvent) {
                 :cx="p.x"
                 :cy="p.y"
                 :r="p.index === selectedIndex ? 4 : 3"
-                :fill="colorOf(si)"
+                :fill="lineColorOf(s, si)"
                 pointer-events="none"
               />
             </g>

@@ -115,17 +115,17 @@ describe("capability container", () => {
     const def = container.uiActionDefinition();
     expect(def.name).toBe("ui_action");
     const desc = def.description;
-    expect(desc).toContain("students/create-student");
+    expect(desc).toContain("classes/create-student");
     expect(desc).toContain("settings/clear-all-data");
     expect(desc).toContain("需确认");
     const pageEnum = def.parameters.properties.page?.enum;
-    expect(pageEnum).toEqual(expect.arrayContaining(["students", "settings"]));
+    expect(pageEnum).toEqual(expect.arrayContaining(["classes", "settings"]));
   });
 
   it("exposes capability lines for the system prompt", () => {
     const container = buildCapabilityContainer();
     const lines = container.capabilityLines();
     expect(lines.some((l) => l.startsWith("- navigate（界面跳转）"))).toBe(true);
-    expect(lines.some((l) => l.startsWith("- ui_action students/create-student"))).toBe(true);
+    expect(lines.some((l) => l.startsWith("- ui_action classes/create-student"))).toBe(true);
   });
 });

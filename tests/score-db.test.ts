@@ -81,6 +81,22 @@ describe("exam batches", () => {
     }
   });
 
+  it("rejects exam batches without a concrete class", async () => {
+    // 成绩必须归属班级：空班级 /「未分班」一律拒绝，防止产生班级页看不到的批次
+    await expect(createExam({ class_name: "", name: "单元测验", exam_date: "2026-06-20" })).rejects.toThrow(
+      "归属一个班级"
+    );
+    await expect(
+      createExam({ class_name: "未分班", name: "单元测验", exam_date: "2026-06-20" })
+    ).rejects.toThrow("归属一个班级");
+    await expect(
+      findOrCreateExam({ class_name: "   ", name: "单元测验", exam_date: "2026-06-20" })
+    ).rejects.toThrow("归属一个班级");
+    await expect(
+      findOrCreateExam({ class_name: "未分班", name: "单元测验", exam_date: "2026-06-20" })
+    ).rejects.toThrow("归属一个班级");
+  });
+
   it("updates and deletes exam batches", async () => {
     await cleanup();
     try {

@@ -8,9 +8,10 @@ import {
   scoreLevel,
   scoreRatio,
   subjectAverages,
+  summarizeSubjectTrend,
   trendOf,
 } from "../src/lib/score-analysis";
-import type { ExamScoreRow } from "../src/types";
+import type { ExamScoreRow, StudentExamReport } from "../src/types";
 
 function row(
   student_id: number,
@@ -29,6 +30,39 @@ function row(
     student_no: `S${student_id}`,
     created_at: "",
     updated_at: "",
+  };
+}
+
+/** 构造单科趋势测试用的考试报告（科目明细只保留测试关心的字段） */
+function examReport(
+  exam_id: number,
+  exam_date: string,
+  subjects: {
+    subject: string;
+    score?: number | null;
+    grade?: string | null;
+    class_average?: number | null;
+    class_rank?: number | null;
+  }[]
+): StudentExamReport {
+  return {
+    exam_id,
+    exam_name: `考试${exam_id}`,
+    exam_date,
+    exam_type: "major",
+    subjects: subjects.map((s) => ({
+      subject: s.subject,
+      score: s.score ?? null,
+      grade: s.grade ?? null,
+      class_average: s.class_average ?? null,
+      class_rank: s.class_rank ?? null,
+    })),
+    total: null,
+    total_grade: null,
+    class_total_average: null,
+    class_total_rank: null,
+    class_student_count: 3,
+    total_delta: null,
   };
 }
 
@@ -113,5 +147,66 @@ describe("score-analysis 纯函数", () => {
     expect(trendOf(200, 200)).toBe(0);
     expect(trendOf(null, 200)).toBeNull();
     expect(trendOf(200, null)).toBeNull();
+  });
+
+  it("summarizeSubjectTrend 汇总单科趋势：统计、较上次差值与名次变化", () => {
+    const exams = [
+      examReport(1, "2026-03-01", [
+        { subject: "语文", score: 80, class_average: 85, class_rank: 3 },
+        { subject: "数学", score: 90, class_average: 88, class_rank: 2 },
+      ]),
+      examReport(2, "2026-04-01", [
+        { subject: "语文", score: 90, class_average: 80, class_rank: 1 },
+        { subject: "数学", score: 85, class_average: 86, class_rank: 2 },
+      ]),
+      examReport(3, "2026-05-01", [{ subject: "语文", score: 85, class_average: 82.5, class_rank: 2 }]),
+    ];
+    const trend = summarizeSubjectTrend(exams, "语文");
+    // 数据点覆盖每场考试（第三场没有数学也不影响语文），按时间正序
+    expect(trend.points).toHaveLength(3);
+    expect(trend.points.map((p) => p.exam_id)).toEqual([1, 2, 3]);
+    expect(trend.count).toBe(3);
+    expect(trend.average).toBe(85); // (80+90+85)/3
+    expect(trend.max).toBe(90);
+    expect(trend.min).toBe(80);
+    expect(trend.range).toBe(10);
+    expect(trend.latestScore).toBe(85);
+    expect(trend.latestDelta).toBe(-5); // 90 → 85
+    expect(trend.latestGapToClassAvg).toBe(2.5); // 85 − 82.5
+    expect(trend.bestRank).toBe(1);
+    expect(trend.latestRank).toBe(2);
+    expect(trend.rankDelta).toBe(1); // 第 1 → 第 2，正数 = 名次下滑
+  });
+
+  it("summarizeSubjectTrend 容错：缺考不参与统计、缺该科为断点、名次跳过空值", () => {
+    const exams = [
+      examReport(1, "2026-03-01", [{ subject: "语文", score: null, grade: "缺考" }]),
+      examReport(2, "2026-04-01", [{ subject: "语文", score: 88, class_average: 84, class_rank: 2 }]),
+      examReport(3, "2026-05-01", [{ subject: "数学", score: 70 }]),
+    ];
+    const trend = summarizeSubjectTrend(exams, "语文");
+    expect(trend.points).toHaveLength(3);
+    expect(trend.points[0].grade).toBe("缺考");
+    expect(trend.points[2].score).toBeNull(); // 该场没有语文 → 断点
+    expect(trend.count).toBe(1);
+    expect(trend.average).toBe(88);
+    expect(trend.range).toBeNull();
+    expect(trend.latestDelta).toBeNull();
+    expect(trend.latestGapToClassAvg).toBe(4); // 88 − 84
+    expect(trend.bestRank).toBe(2);
+    expect(trend.latestRank).toBe(2);
+    expect(trend.rankDelta).toBeNull(); // 只有一次名次无从比较
+  });
+
+  it("summarizeSubjectTrend 无数字分时统计为空", () => {
+    const trend = summarizeSubjectTrend(
+      [examReport(1, "2026-03-01", [{ subject: "语文", score: null, grade: "优" }])],
+      "语文"
+    );
+    expect(trend.count).toBe(0);
+    expect(trend.average).toBeNull();
+    expect(trend.latestScore).toBeNull();
+    expect(trend.bestRank).toBeNull();
+    expect(trend.latestRank).toBeNull();
   });
 });

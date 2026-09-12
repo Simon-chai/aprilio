@@ -8,12 +8,12 @@ export const EVAL_DATASET: EvalCase[] = [
   // ==================== 1. 页面跳转 (Navigation) ====================
   {
     id: "nav-students",
-    description: "跳转至学生档案/学生列表",
+    description: "学生列表并入班级管理：打开学生列表应落到班级管理",
     category: "navigation",
     input: "帮我打开学生列表",
     expected: {
       tool: "navigate",
-      args: { target: "students" },
+      args: { target: "classes" },
     },
   },
   {
@@ -64,6 +64,26 @@ export const EVAL_DATASET: EvalCase[] = [
     expected: {
       tool: "navigate",
       args: { target: "profile" },
+    },
+  },
+  {
+    id: "nav-class-detail",
+    description: "实体页面直达：带班级名的详情页导航（不再要求用户手点卡片）",
+    category: "navigation",
+    input: "帮我打开三年二班的详情页",
+    expected: {
+      tool: "navigate",
+      args: { target: "class-detail", class_name: "三年二班" },
+    },
+  },
+  {
+    id: "nav-class-detail-formal",
+    description: "实体页面直达：完整班级名与「进入」句式",
+    category: "navigation",
+    input: "进入三年级一班",
+    expected: {
+      tool: "navigate",
+      args: { target: "class-detail", class_name: "三年级一班" },
     },
   },
 
@@ -130,7 +150,7 @@ export const EVAL_DATASET: EvalCase[] = [
   },
   {
     id: "query-classes-list",
-    description: "查询班级列表（含在用 / 历史带过的班与当前年级）",
+    description: "查询班级列表（含在用 / 历史带过的班）",
     category: "data_query",
     input: "有哪些班级？",
     expected: {
@@ -243,7 +263,7 @@ export const EVAL_DATASET: EvalCase[] = [
     input: "新建学生",
     expected: {
       tool: "ui_action",
-      args: { page: "students", action: "create-student" },
+      args: { page: "classes", action: "create-student" },
       shouldGate: false,
     },
   },
@@ -254,7 +274,7 @@ export const EVAL_DATASET: EvalCase[] = [
     input: "帮我导入学生花名册",
     expected: {
       tool: "ui_action",
-      args: { page: "students", action: "import-roster" },
+      args: { page: "classes", action: "import-roster" },
       shouldGate: false,
     },
   },

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { reactive, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import AppButton from "./ui/AppButton.vue";
 import AppInput from "./ui/AppInput.vue";
 import AppLink from "./ui/AppLink.vue";
@@ -12,6 +12,7 @@ import {
   removeGuardianTagPreset,
   tagChipClass,
 } from "../lib/guardian-tags";
+import { listClasses } from "../lib/db";
 import type { Gender, GuardianTagPolarity, StudentInput } from "../types";
 
 const RELATIONS = ["父亲", "母亲", "爷爷", "奶奶", "外公", "外婆", "监护人", "其他"];
@@ -127,6 +128,59 @@ const presets = ref<string[]>([]);
 /** 标签情感倾向缓存（AI 判定结果，键为标签词） */
 const polarities = ref<Record<string, GuardianTagPolarity>>({});
 
+/* ---------------- 班级栏：手动输入 or 关联已有班级 ---------------- */
+
+/** 已有班级候选（在用班级，排除虚拟「未分班」），点击即关联 */
+const classOptions = ref<string[]>([]);
+const classMenuOpen = ref(false);
+const classFieldRoot = ref<HTMLElement | null>(null);
+
+/** 拉取候选班级：每次打开弹窗刷新，刚建的班级立即可选 */
+async function loadClassOptions() {
+  try {
+    const summaries = await listClasses();
+    classOptions.value = summaries
+      .filter((c) => c.name !== "未分班" && !c.archived_at)
+      .map((c) => c.name)
+      .sort((a, b) => a.localeCompare(b, "zh"));
+  } catch {
+    classOptions.value = [];
+  }
+}
+
+/** 按输入过滤后的候选（最多 8 条）；未输入时展示全部 */
+const classCandidates = computed(() => {
+  const q = form.grade_class.trim();
+  const list = q ? classOptions.value.filter((c) => c.includes(q)) : classOptions.value;
+  return list.slice(0, 8);
+});
+
+/** 手动输入的班级名（不在已有班级里）→ 提交时默认新建该班级 */
+const pendingNewClass = computed(() => {
+  const q = form.grade_class.trim();
+  if (!q || q === "未分班" || classOptions.value.includes(q)) return "";
+  return q;
+});
+
+function pickExistingClass(name: string) {
+  form.grade_class = name;
+  classMenuOpen.value = false;
+}
+
+/** 点击班级栏以外的地方收起候选 */
+function onClassFieldMouseDown(e: MouseEvent) {
+  if (classMenuOpen.value && !classFieldRoot.value?.contains(e.target as Node)) {
+    classMenuOpen.value = false;
+  }
+}
+
+function onClassFieldKeydown(e: KeyboardEvent) {
+  if (e.key === "Escape") classMenuOpen.value = false;
+}
+
+onMounted(() => document.addEventListener("mousedown", onClassFieldMouseDown));
+onBeforeUnmount(() => document.removeEventListener("mousedown", onClassFieldMouseDown));
+
 watch(
   [() => props.open, () => props.initial],
   ([open]) => {
@@ -134,6 +188,8 @@ watch(
     Object.assign(form, blank(), props.initial ? fromInput(props.initial) : {});
     Object.keys(tagDrafts).forEach((k) => delete tagDrafts[Number(k)]);
     error.value = "";
+    classMenuOpen.value = false;
+    void loadClassOptions();
     presets.value = loadGuardianTagPresets();
     polarities.value = loadTagPolarities();
     // AI 已配置时后台补齐缺失标签的倾向配色；未配置则保持留白，配置后打开页面会自动补齐
@@ -297,15 +353,56 @@ function submit() {
           <span class="text-fine text-weak">出生日期</span>
           <AppInput v-model="form.birth_date" type="date" variant="field" width="100%" />
         </label>
-        <label class="space-y-1.5">
+        <div ref="classFieldRoot" class="relative space-y-1.5">
           <span class="text-fine text-weak">年级班级</span>
-          <AppInput
-            v-model="form.grade_class"
-            variant="field"
-            width="100%"
-            placeholder="三年级二班"
-          />
-        </label>
+          <div class="relative">
+            <div
+              class="flex h-9 cursor-text items-center gap-2 rounded-sm border border-hairline bg-canvas px-3 text-caption focus-within:border-primary-focus"
+              @click="classMenuOpen = true"
+            >
+              <input
+                v-model="form.grade_class"
+                data-test="class-input"
+                class="w-full bg-transparent text-caption text-ink outline-none placeholder:text-weak"
+                placeholder="输入或选择已有班级"
+                @focus="classMenuOpen = true"
+                @input="classMenuOpen = true"
+                @keydown="onClassFieldKeydown"
+              />
+              <svg class="shrink-0" width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path
+                  d="M6 9l6 6 6-6"
+                  stroke="#7a7a7a"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </div>
+
+            <!-- 已有班级候选：点选即关联，不必手打全名 -->
+            <div
+              v-if="classMenuOpen && classCandidates.length"
+              data-test="class-options"
+              class="absolute left-0 right-0 top-full z-10 mt-1 max-h-44 overflow-y-auto rounded-sm border border-hairline bg-canvas py-1 shadow-window"
+            >
+              <button
+                v-for="c in classCandidates"
+                :key="c"
+                type="button"
+                data-test="class-option"
+                class="flex w-full items-center px-3 py-1.5 text-left text-caption text-ink hover:bg-parchment"
+                @click.stop="pickExistingClass(c)"
+              >
+                {{ c }}
+              </button>
+            </div>
+          </div>
+
+          <p v-if="pendingNewClass" data-test="class-new-hint" class="text-fine text-primary">
+            将新建班级「{{ pendingNewClass }}」
+          </p>
+        </div>
         <label class="space-y-1.5">
           <span class="text-fine text-weak">身份证号</span>
           <AppInput

@@ -2,14 +2,16 @@
 /**
  * 我的课表：按「任教学科」（profile.my_subjects）聚合全部班级课表格子的纯视图。
  *
- * - 周课表（默认）：完整节次 × 周一至周五网格，套用调课例外（停课划线 / 换课加课打标）
+ * - 两个 tab：「课表」（默认）与「日历」
+ * - 课表：周课表（默认）/ 按科目两种形态——周课表是完整节次 × 周一至周五网格，套用调课例外
+ *   （停课划线 / 换课加课打标）；按科目是每科一张完整表格，列出 周几 · 第几节 · 哪个班
  * - 点击课表格子直接展开格内编辑器：记 / 管「日期 × 节次」绑定的备忘，备忘就显示在该格子里；
  *   全天 / 日报事件（period 为空）显示在列头、从列头编辑
  * - 类型绑定在编辑器内完成：输入框前的色点下拉（悬浮出类型文案）；右上类型胶囊只做筛选——
  *   点选后未选中类型的备忘置灰，只高亮命中该类型的格子，再点取消
  * - 备忘格子 / 列表显示快速浏览标题：已配置 AI 模型时显示 AI 总结标题（编辑完成后后台生成），
  *   未配置则显示全文前几个字；悬浮标题看全文，点击弹悬浮卡片展示全文
- * - 按科目分块：每科一张完整表格，列出 周几 · 第几节 · 哪个班
+ * - 日历：跨班聚合的「我的课」与日程在月历上的投影（MyTimetableCalendar），可在日详情速记 / 勾选 / 删除日程
  * - 跨班撞课（同一时间出现在多个班）页顶横幅告警
  * 数据经 lib/timetable 从班级课表推导，本页不落课表；日程事件写 calendar_events。
  */
@@ -22,6 +24,7 @@ import AppLink from "../components/ui/AppLink.vue";
 import EventTypeSelect from "../components/EventTypeSelect.vue";
 import MemoHistoryDrawer from "../components/MemoHistoryDrawer.vue";
 import MemoTitle from "../components/MemoTitle.vue";
+import MyTimetableCalendar from "../components/MyTimetableCalendar.vue";
 import {
   addCalendarEvent,
   deleteCalendarEvent,
@@ -73,7 +76,10 @@ const loading = ref(true);
 const rows = ref<TimetableSlotWithClass[]>([]);
 const exceptions = ref<TimetableExceptionWithClass[]>([]);
 const events = ref<CalendarEvent[]>([]);
-const view = ref<"blocks" | "week">("week");
+/** 主 tab：课表（周课表 / 按科目两种形态）与日历 */
+const view = ref<"table" | "calendar">("table");
+/** 课表 tab 内的形态：周课表（默认）或按科目分块 */
+const tableMode = ref<"week" | "blocks">("week");
 const importOpen = ref(false);
 /** 历史备忘抽屉：过去日期的备忘没有别的入口，从这里回溯 */
 const historyOpen = ref(false);
@@ -313,27 +319,65 @@ onBeforeUnmount(() => {
           >
             导入课表
           </AppButton>
-          <button
-            type="button"
-            class="rounded-sm px-4 py-2 text-caption font-medium transition-colors"
-            :class="view === 'blocks' ? 'bg-ink text-canvas' : 'text-weak hover:text-ink hover:bg-pearl'"
-            @click="view = 'blocks'"
-          >
-            按科目
-          </button>
-          <button
-            type="button"
-            class="rounded-sm px-4 py-2 text-caption font-medium transition-colors"
-            :class="view === 'week' ? 'bg-ink text-canvas' : 'text-weak hover:text-ink hover:bg-pearl'"
-            @click="view = 'week'"
-          >
-            周课表
-          </button>
         </div>
       </div>
     </header>
 
     <div ref="scrollEl" class="scroll-thin min-h-0 flex-1 overflow-y-auto px-8 py-6 space-y-5">
+      <!-- 视图切换：课表 / 日历；课表内可再切 周课表 / 按科目 -->
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div class="flex flex-wrap items-center gap-2.5">
+          <div class="inline-flex rounded-md border border-hairline bg-parchment p-1" data-test="view-switch">
+            <button
+              type="button"
+              data-test="view-tab-table"
+              class="rounded-[6px] px-3 py-1.5 text-caption transition-colors"
+              :class="view === 'table' ? 'bg-canvas font-medium text-primary' : 'text-weak hover:text-ink'"
+              @click="view = 'table'"
+            >
+              课表
+            </button>
+            <button
+              type="button"
+              data-test="view-tab-calendar"
+              class="rounded-[6px] px-3 py-1.5 text-caption transition-colors"
+              :class="view === 'calendar' ? 'bg-canvas font-medium text-primary' : 'text-weak hover:text-ink'"
+              @click="view = 'calendar'"
+            >
+              日历
+            </button>
+          </div>
+          <!-- 课表形态：周课表（默认） / 按科目，仅在「课表」tab 下出现 -->
+          <div
+            v-if="view === 'table'"
+            data-test="table-mode-switch"
+            class="flex items-center gap-0.5 rounded-pill border border-hairline bg-canvas p-0.5"
+          >
+            <button
+              type="button"
+              data-test="table-mode-week"
+              class="rounded-pill px-2.5 py-0.5 text-fine transition-colors"
+              :class="tableMode === 'week' ? 'bg-pearl font-medium text-ink' : 'text-weak hover:text-ink'"
+              @click="tableMode = 'week'"
+            >
+              周课表
+            </button>
+            <button
+              type="button"
+              data-test="table-mode-blocks"
+              class="rounded-pill px-2.5 py-0.5 text-fine transition-colors"
+              :class="tableMode === 'blocks' ? 'bg-pearl font-medium text-ink' : 'text-weak hover:text-ink'"
+              @click="tableMode = 'blocks'"
+            >
+              按科目
+            </button>
+          </div>
+        </div>
+        <span class="text-fine text-weak">
+          每周共 {{ schedule.weekly_total }} 节 · 来自各班课表的自动聚合
+        </span>
+      </div>
+
       <!-- 任教学科条 -->
       <div class="flex flex-wrap items-center gap-2">
         <span class="text-caption text-weak">任教学科</span>
@@ -348,9 +392,6 @@ onBeforeUnmount(() => {
         </template>
         <span v-else class="text-caption text-weak">未登记</span>
         <AppLink to="/profile" size="sm">去个人资料调整</AppLink>
-        <span class="ml-auto text-fine text-weak">
-          每周共 {{ schedule.weekly_total }} 节 · 来自各班课表的自动聚合
-        </span>
       </div>
 
       <!-- 未登记任教学科：轻提示，不拦截——周课表与日程管理照常可用 -->
@@ -416,8 +457,19 @@ onBeforeUnmount(() => {
         </ol>
       </div>
 
+      <!-- 日历：跨班聚合的「我的课」+ 日程在月历上的投影，日详情可速记 / 勾选 / 删除 -->
+      <MyTimetableCalendar
+        v-if="view === 'calendar'"
+        :rows="rows"
+        :mine-of="mineOf"
+        editable
+        :surface-class="timetableBgSurfaceClass"
+        :surface-style="timetableBgSurfaceStyle"
+        @changed="reloadEvents"
+      />
+
       <!-- 按科目分块：每个科目仍然是一张完整的节次 × 工作日表 -->
-      <template v-if="view === 'blocks'">
+      <template v-else-if="tableMode === 'blocks'">
         <div v-if="schedule.bySubject.length" class="grid grid-cols-1 gap-5 xl:grid-cols-2">
           <AppCard v-for="block in schedule.bySubject" :key="block.subject" :class="timetableBgSurfaceClass" :style="timetableBgSurfaceStyle">
             <div class="mb-3 flex items-baseline justify-between">
@@ -472,7 +524,7 @@ onBeforeUnmount(() => {
           <!-- 类型胶囊：备忘类型筛选器——点选后未选中类型的备忘置灰，只高亮命中的格子，再点取消 -->
           <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
             <p class="text-fine text-weak">
-              点课表格子直接记备忘；课程展示调课后的实际行程，换课 / 停课 / 加课在对应班级的「课程表」日历里操作；右上胶囊按类型筛选备忘
+              点课表格子直接记备忘；课程展示调课后的实际行程；右上胶囊按类型筛选备忘
             </p>
             <div class="flex items-center gap-1.5">
               <button

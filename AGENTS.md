@@ -14,7 +14,7 @@
 | --- | --- | --- |
 | AI 研发 SOP | [docs/AI_DEVELOPMENT_SOP.md](docs/AI_DEVELOPMENT_SOP.md) | 需求澄清→Spec→TDD→架构约束→验证门禁的作业流程与意图防退化评测 |
 | 成绩导入 | [docs/SCORE_IMPORT.md](docs/SCORE_IMPORT.md) | 考试批次（考试名+时间）与成绩落库、成绩单智能识别、花名册入口分流 |
-| 学期化班级管理 | [docs/SEMESTER_MANAGEMENT.md](docs/SEMESTER_MANAGEMENT.md) | 班级初始年级+起始学期实时推导、学生按学期组织（成绩/表现/学期评语）、班级归档与历史班、AI 优先无 AI 可手工 |
+| 学期化班级管理 | [docs/SEMESTER_MANAGEMENT.md](docs/SEMESTER_MANAGEMENT.md) | 学生按学期组织（成绩/表现/作业/学期评语，按日期推导）、班级归档与历史班、AI 优先无 AI 可手工 |
 | 课程表 | [docs/TIMETABLE.md](docs/TIMETABLE.md) | 班级全科课表（万年历 + 备忘 + 网格编辑）与按科目聚合的我的课表（不绑教师名）：学期推导、首页今日课程、Agent 问课 |
 | Agent | [docs/AGENT.md](docs/AGENT.md) | 自主 Agent 框架分层、工具扩展步骤、应用界面注册表 |
 | Agent 技术栈 | [docs/AGENT_FRAMEWORK_EVALUATION.md](docs/AGENT_FRAMEWORK_EVALUATION.md) | Rig + rmcp 双轨方案、能力清单 manifest、迁移路线 |

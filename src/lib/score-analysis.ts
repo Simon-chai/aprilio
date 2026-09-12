@@ -14,7 +14,10 @@ import type {
   ExamType,
   ScoreLevel,
   ScoreLevelBand,
+  StudentExamReport,
   SubjectScoreStat,
+  SubjectTrendPoint,
+  SubjectTrendSummary,
 } from "../types";
 
 /** 单科满分基准（无满分字典时的默认值） */
@@ -297,4 +300,57 @@ export function subjectAverages(rows: ScoreCell[]): Map<string, number> {
 export function trendOf(current: number | null, previous: number | null): number | null {
   if (current === null || previous === null) return null;
   return round1(current - previous);
+}
+
+/**
+ * 单科成绩趋势汇总（学生面板「单科透视」视图用）。
+ *
+ * exams 为按时间正序（旧 → 新）的考试报告，逐场取该科成绩生成数据点
+ * （该场没这个科目 → 分数/班均/名次均为 null，折线在此断开）；
+ * 统计口径只算数字分，与全班统计一致。
+ */
+export function summarizeSubjectTrend(
+  exams: StudentExamReport[],
+  subject: string
+): SubjectTrendSummary {
+  const points: SubjectTrendPoint[] = exams.map((exam) => {
+    const cell = exam.subjects.find((s) => s.subject === subject);
+    return {
+      exam_id: exam.exam_id,
+      exam_name: exam.exam_name,
+      exam_date: exam.exam_date,
+      score: cell?.score ?? null,
+      grade: cell?.grade ?? null,
+      class_average: cell?.class_average ?? null,
+      class_rank: cell?.class_rank ?? null,
+      class_student_count: exam.class_student_count,
+    };
+  });
+
+  const numeric = points.filter((p) => p.score !== null);
+  const scores = numeric.map((p) => p.score as number);
+  const ranks = points.map((p) => p.class_rank).filter((r): r is number => r !== null);
+
+  const latest = numeric.length ? numeric[numeric.length - 1] : null;
+  const previousScore = numeric.length >= 2 ? numeric[numeric.length - 2].score : null;
+  const latestRank = ranks.length ? ranks[ranks.length - 1] : null;
+  const previousRank = ranks.length >= 2 ? ranks[ranks.length - 2] : null;
+
+  const max = scores.length ? Math.max(...scores) : null;
+  const min = scores.length ? Math.min(...scores) : null;
+
+  return {
+    points,
+    count: numeric.length,
+    average: scores.length ? round1(scores.reduce((a, b) => a + b, 0) / scores.length) : null,
+    max,
+    min,
+    range: scores.length >= 2 && max !== null && min !== null ? round1(max - min) : null,
+    latestScore: latest?.score ?? null,
+    latestDelta: trendOf(latest?.score ?? null, previousScore),
+    latestGapToClassAvg: trendOf(latest?.score ?? null, latest?.class_average ?? null),
+    bestRank: ranks.length ? Math.min(...ranks) : null,
+    latestRank,
+    rankDelta: latestRank !== null && previousRank !== null ? latestRank - previousRank : null,
+  };
 }

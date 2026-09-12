@@ -4,7 +4,7 @@
  * 「打开新建对话框」这类动作需要视图内部状态（dialogOpen），工具执行体
  * 拿不到组件实例，于是走总线广播；视图在 onMounted 挂监听即可被 Agent 感知：
  *
- *   const off = onPageAction("students/create-student", () => (dialogOpen.value = true));
+ *   const off = onPageAction("classes/create-student", () => (dialogOpen.value = true));
  *   onBeforeUnmount(off);
  *
  * 这与容器（container.ts）分工：容器管「有哪些动作」（声明、枚举、确认门），

@@ -7,7 +7,6 @@ import {
   listClasses,
   listTermComments,
   restoreClass,
-  saveClassMeta,
   upsertTermComment,
 } from "../src/lib/db";
 import { createStudent, deleteStudent } from "../src/lib/db";
@@ -35,46 +34,16 @@ async function cleanup() {
   await deleteClass(CLASS_B);
 }
 
-describe("semester class meta + archive", () => {
+describe("class archive", () => {
   afterEach(async () => {
     await cleanup();
-  });
-
-  it("saves and reads class meta idempotently", async () => {
-    await createClass(CLASS_A);
-    expect(await getClassMeta(CLASS_A)).toEqual({
-      entry_grade: null,
-      entry_semester: null,
-      archived_at: null,
-    });
-
-    await saveClassMeta(CLASS_A, { entry_grade: 3, entry_semester: "2025-2026-1" });
-    expect(await getClassMeta(CLASS_A)).toMatchObject({
-      entry_grade: 3,
-      entry_semester: "2025-2026-1",
-      archived_at: null,
-    });
-
-    // 再次保存覆盖，不新增
-    await saveClassMeta(CLASS_A, { entry_grade: 4, entry_semester: "2026-2027-1" });
-    expect(await getClassMeta(CLASS_A)).toMatchObject({
-      entry_grade: 4,
-      entry_semester: "2026-2027-1",
-    });
-  });
-
-  it("validates grade range and semester format", async () => {
-    await createClass(CLASS_A);
-    await expect(saveClassMeta(CLASS_A, { entry_grade: 0 })).rejects.toThrow("年级");
-    await expect(saveClassMeta(CLASS_A, { entry_grade: 7 })).rejects.toThrow("年级");
-    await expect(
-      saveClassMeta(CLASS_A, { entry_semester: "2026秋" })
-    ).rejects.toThrow("学期号");
   });
 
   it("archives and restores a class without touching its students", async () => {
     await createClass(CLASS_A);
     const sid = await createStudent(studentInput("归档学生", "SEM_001", CLASS_A));
+
+    expect((await getClassMeta(CLASS_A)).archived_at).toBeNull();
 
     await archiveClass(CLASS_A);
     const archived = await getClassMeta(CLASS_A);
@@ -92,15 +61,8 @@ describe("semester class meta + archive", () => {
     await deleteStudent(sid);
   });
 
-  it("exposes meta on listClasses", async () => {
-    await createClass(CLASS_B);
-    await saveClassMeta(CLASS_B, { entry_grade: 2, entry_semester: "2025-2026-1" });
-    const summary = (await listClasses()).find((c) => c.name === CLASS_B);
-    expect(summary).toMatchObject({
-      entry_grade: 2,
-      entry_semester: "2025-2026-1",
-      archived_at: null,
-    });
+  it("returns a null archive state for an unknown class", async () => {
+    expect(await getClassMeta("不存在的班级")).toEqual({ archived_at: null });
   });
 });
 

@@ -1,70 +1,64 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
-import AppButton from "../components/ui/AppButton.vue";
 import AppIconButton from "../components/ui/AppIconButton.vue";
-import AppCard from "../components/ui/AppCard.vue";
 import AppInput from "../components/ui/AppInput.vue";
 import AppLink from "../components/ui/AppLink.vue";
 import EmptyState from "../components/ui/EmptyState.vue";
 import StudentTable from "../components/StudentTable.vue";
 import StudentFormDialog from "../components/StudentFormDialog.vue";
 import ImportRosterDialog from "../components/ImportRosterDialog.vue";
-import ImportTimetableDialog from "../components/ImportTimetableDialog.vue";
 import ImportScoreDialog from "../components/ImportScoreDialog.vue";
 import ExamScorePanel from "../components/ExamScorePanel.vue";
+import ScoreTrendSparkline from "../components/ScoreTrendSparkline.vue";
 import ClassFormDialog from "../components/ClassFormDialog.vue";
 import type { ClassFormValue } from "../components/ClassFormDialog.vue";
 import QuickBehaviorPopover from "../components/QuickBehaviorPopover.vue";
 import ClassBehaviorTimeline from "../components/ClassBehaviorTimeline.vue";
-import TimetableGrid from "../components/TimetableGrid.vue";
-import TimetableCalendar from "../components/TimetableCalendar.vue";
 import {
   addClassPhoto,
   createStudent,
   deleteBehaviorRecord,
   deleteClass,
-  findOrCreateTimetable,
   getClassMeta,
+  getClassScoreTrend,
   getClassSummary,
-  getTimetableWithSlots,
   isTauri,
   listBehaviorRecordsByClass,
   listClasses,
   listExamsByClass,
   listPhotosByClass,
   listStudents,
-  listTimetableSlotsWithClass,
   renameClass,
   archiveClass,
   restoreClass,
-  saveClassMeta,
-  saveTimetableMySubjects,
 } from "../lib/db";
-import { currentSemester, resolveClassMySubjects, weekdayOf } from "../lib/timetable";
-import { classCurrentLabel } from "../lib/semester";
-import { ensureProfile, profile, timetableBgSurfaceClass, timetableBgSurfaceStyle } from "../lib/profile";
 import { getPhotosDir, importPhoto, photoUrl } from "../lib/photos";
+import { onPageAction } from "../agent/page-action-bus";
+import { clearPageContext, reportPageContext } from "../agent/page-context-bus";
+import type { ImportRosterMode } from "../agent/page-actions/classes-import-roster";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import type { RosterImportResult, RosterTable } from "../lib/roster";
-import type { BehaviorPolarity, ClassBehaviorRecord, ClassSummary, Photo, StudentInput, StudentRow, Timetable, TimetableSlot, TimetableSlotWithClass } from "../types";
+import { averageOfSubjectAverages, formatNumber } from "../lib/score-analysis";
+import type {
+  BehaviorPolarity,
+  ClassBehaviorRecord,
+  ClassExamTrendPoint,
+  ClassMeta,
+  ClassSummary,
+  Photo,
+  StudentInput,
+  StudentRow,
+} from "../types";
 
 const props = defineProps<{ name: string }>();
 const router = useRouter();
 
 const summary = ref<ClassSummary | null>(null);
-/** 班级元信息：初始年级 / 起始学期 / 归档状态 */
-const classMeta = ref<{ entry_grade: number | null; entry_semester: string | null; archived_at: string | null }>({
-  entry_grade: null,
-  entry_semester: null,
-  archived_at: null,
-});
+/** 班级元信息：归档状态 */
+const classMeta = ref<ClassMeta>({ archived_at: null });
 /** 归档班级为只读态：隐藏全部写入口 */
 const readOnly = computed(() => Boolean(classMeta.value.archived_at));
-/** 当前年级文案（未登记年级为 null） */
-const currentGradeLabel = computed(() =>
-  classCurrentLabel(classMeta.value.entry_grade, classMeta.value.entry_semester),
-);
 const students = ref<StudentRow[]>([]);
 const classStudents = ref<StudentRow[]>([]);
 const photos = ref<Photo[]>([]);
@@ -114,111 +108,52 @@ function onClassSwitchKeydown(e: KeyboardEvent): void {
 }
 
 const keyword = ref("");
-const activeTab = ref<"students" | "photos" | "behaviors" | "scores" | "timetable">("students");
+type ClassTab = "students" | "photos" | "behaviors" | "scores";
+const activeTab = ref<ClassTab>("students");
 const photoFilter = ref<"all" | "public" | "student">("all");
 const examCount = ref(0);
+/** 各次考试的班级统计快照（成绩概览卡的趋势折线用，按考试时间正序） */
+const scoreTrend = ref<ClassExamTrendPoint[]>([]);
 
-/* 课程表 Tab：默认直接展示可编辑的周网格；日历承载调课与日程 */
-const TIMETABLE_SEMESTER = currentSemester();
-const TIMETABLE_TODAY = weekdayOf();
-const timetable = ref<(Timetable & { slots: TimetableSlot[] }) | null>(null);
-const timetableLoading = ref(false);
-const timetableError = ref("");
-const timetableView = ref<"calendar" | "grid">("grid");
-/** 跨班撞课检测素材：本学期全部班级格子（联班级名/我的科目标记），传给 TimetableGrid */
-const conflictRows = ref<TimetableSlotWithClass[]>([]);
+/** 页签的中文对照：页面上下文摘要里给 Agent 看当前停在哪一块 */
+const TAB_LABELS: Record<ClassTab, string> = {
+  students: "学生名单",
+  photos: "照片",
+  behaviors: "日常表现",
+  scores: "考试成绩",
+};
 
-async function loadConflictRows(): Promise<void> {
-  conflictRows.value = await listTimetableSlotsWithClass(TIMETABLE_SEMESTER).catch(
-    () => [] as TimetableSlotWithClass[]
+/** Agent 页面上下文：告诉助手「当前在看哪个班、页面上有什么」，数据与页面同源 */
+function reportContext(): void {
+  const parts = [classMeta.value.archived_at ? "已归档（只读）" : "在用班级"];
+  if (summary.value) parts.push(`学生 ${summary.value.studentCount} 人`);
+  parts.push(
+    `考试成绩 ${examCount.value} 场`,
+    `表现记录 ${behaviorRecords.value.length} 条`,
+    `当前页签：${TAB_LABELS[activeTab.value]}`,
   );
+  reportPageContext({
+    page: "class-detail",
+    title: `班级详情 · ${props.name}`,
+    params: { name: props.name },
+    summary: parts.join(" · "),
+  });
 }
 
-/* ---------------- 我的科目标记（班级 × 科目）：胶囊条点选即存 ---------------- */
-
-const markingSaving = ref(false);
-
-/** 本班课表出现过的科目（去重按中文序），作为胶囊候选 */
-const classSubjects = computed<string[]>(() => {
-  const set = new Set<string>();
-  for (const slot of timetable.value?.slots ?? []) {
-    const s = slot.subject.trim();
-    if (s) set.add(s);
-  }
-  return [...set].sort((a, b) => a.localeCompare(b, "zh"));
-});
-
-/** 该科目是否算「我的课」：按班级标记（null 回退个人任教学科） */
-function isMarkedMine(subject: string): boolean {
-  if (!timetable.value) return false;
-  const effective = resolveClassMySubjects(
-    timetable.value.my_subjects,
-    profile.value.my_subjects ?? [],
-  );
-  return effective.includes(subject);
+/** 点击概览卡跳转到对应 Tab */
+function goTab(tab: ClassTab): void {
+  activeTab.value = tab;
 }
 
-/** 点胶囊切换标记：在「当前生效集合」上增减后落库 */
-async function toggleMySubject(subject: string): Promise<void> {
-  if (!timetable.value || markingSaving.value) return;
-  const effective = resolveClassMySubjects(
-    timetable.value.my_subjects,
-    profile.value.my_subjects ?? [],
-  );
-  const next = isMarkedMine(subject)
-    ? effective.filter((s) => s !== subject)
-    : [...effective, subject];
-  markingSaving.value = true;
-  try {
-    await saveTimetableMySubjects(timetable.value.id, next);
-    timetable.value = { ...timetable.value, my_subjects: [...next].sort((a, b) => a.localeCompare(b, "zh")) };
-  } finally {
-    markingSaving.value = false;
-  }
-}
-
-/** 课表请求序号：班级切换时，旧班级的响应不能覆盖新班级的课表 */
-let timetableSeq = 0;
-
-async function loadTimetable(): Promise<void> {
-  const seq = ++timetableSeq;
-  const target = props.name;
-  timetableLoading.value = true;
-  timetableError.value = "";
-  try {
-    await ensureProfile().catch(() => undefined);
-    await findOrCreateTimetable(target, TIMETABLE_SEMESTER);
-    const [withSlots] = await Promise.all([
-      getTimetableWithSlots(target, TIMETABLE_SEMESTER),
-      loadConflictRows(),
-    ]);
-    if (seq !== timetableSeq) return;
-    timetable.value = withSlots;
-  } catch (e) {
-    if (seq !== timetableSeq) return;
-    timetableError.value = `课表加载失败：${e instanceof Error ? e.message : String(e)}`;
-  } finally {
-    if (seq === timetableSeq) timetableLoading.value = false;
-  }
-}
-
-async function openTimetableTab(): Promise<void> {
-  activeTab.value = "timetable";
-  if (timetable.value || timetableLoading.value) return;
-  await loadTimetable();
-}
-
-async function refreshTimetable() {
-  const [withSlots] = await Promise.all([
-    getTimetableWithSlots(props.name, TIMETABLE_SEMESTER),
-    loadConflictRows(),
-  ]);
-  timetable.value = withSlots;
-}
+/** 概览卡统一样式：整卡是一个跳转按钮（hover / focus 高亮边框，右侧箭头呼应） */
+const metricCardClass =
+  "group flex h-full flex-col rounded-lg border border-hairline bg-canvas p-6 text-left transition-colors hover:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/15";
 
 const importOpen = ref(false);
-const timetableImportOpen = ref(false);
+const importMode = ref<ImportRosterMode>("smart");
 const createDialogOpen = ref(false);
+/** 新建学生对话框预填：默认带上本班，Agent 动作可追加字段 */
+const createInitial = ref<Partial<StudentInput>>({ grade_class: props.name });
 const renameDialogOpen = ref(false);
 const fileInputRef = ref<HTMLInputElement | null>(null);
 // 花名册对话框检测到成绩单后交接进来：携带已解析表格直接进入成绩导入
@@ -276,17 +211,19 @@ const filterOptions: { label: string; value: "all" | "public" | "student" }[] = 
 ];
 
 async function refresh() {
-  const [sum, studentList, photoList, allStudents, pDir, classList, bList, examList, meta] = await Promise.all([
-    getClassSummary(props.name),
-    listStudents(keyword.value, props.name),
-    listPhotosByClass(props.name, photoFilter.value),
-    listStudents(),
-    getPhotosDir(),
-    listClasses(),
-    listBehaviorRecordsByClass(props.name),
-    listExamsByClass(props.name),
-    getClassMeta(props.name),
-  ]);
+  const [sum, studentList, photoList, allStudents, pDir, classList, bList, examList, meta, trend] =
+    await Promise.all([
+      getClassSummary(props.name),
+      listStudents(keyword.value, props.name),
+      listPhotosByClass(props.name, photoFilter.value),
+      listStudents(),
+      getPhotosDir(),
+      listClasses(),
+      listBehaviorRecordsByClass(props.name),
+      listExamsByClass(props.name),
+      getClassMeta(props.name),
+      getClassScoreTrend(props.name),
+    ]);
   summary.value = sum;
   students.value = studentList;
   photos.value = photoList;
@@ -296,8 +233,42 @@ async function refresh() {
   existingClasses.value = classList;
   behaviorRecords.value = bList;
   examCount.value = examList.length;
+  scoreTrend.value = trend;
   classMeta.value = meta;
+  reportContext();
 }
+
+/** 成绩数据在成绩 Tab 内被改动后，只重拉概览卡需要的两项，不整页刷新 */
+async function refreshScoreOverview() {
+  const [examList, trend] = await Promise.all([
+    listExamsByClass(props.name),
+    getClassScoreTrend(props.name),
+  ]);
+  examCount.value = examList.length;
+  scoreTrend.value = trend;
+  reportContext();
+}
+
+/**
+ * 成绩概览卡的折线数据：每次考试一个点，取班级平均单科分。
+ * 该口径把该班所有考试、所有科目的每一条成绩都算进来（总分随科目数变化不可比，
+ * 单科均分恒为 0~100）；某次考试没有任何数字分（全等级制）时该点断开。
+ */
+const scoreTrendPoints = computed(() =>
+  scoreTrend.value.map((point) => ({
+    label: point.exam.name,
+    value: point.stats.subjects.length ? averageOfSubjectAverages(point.stats) : null,
+  }))
+);
+
+/** 最近一次有数字分的考试均分（卡片副标题展示） */
+const latestScoreAverage = computed<number | null>(() => {
+  for (let i = scoreTrendPoints.value.length - 1; i >= 0; i--) {
+    const value = scoreTrendPoints.value[i]?.value;
+    if (value !== null && value !== undefined) return value;
+  }
+  return null;
+});
 
 function openQuickBehavior(targetStudentId?: number) {
   quickAnchor.value = null;
@@ -318,6 +289,7 @@ function showToast(msg: string) {
 /** 仅重拉班级表现流水：局部更新概览卡与日常表现 Tab 的计数，不整页刷新 */
 async function refreshBehaviorRecords() {
   behaviorRecords.value = await listBehaviorRecordsByClass(props.name);
+  reportContext();
 }
 
 async function onQuickSaved(payload: { studentName: string; dimensionName: string; polarity: BehaviorPolarity }) {
@@ -343,33 +315,15 @@ function goStudentById(studentId: number) {
 
 async function handleRenameClass(value: ClassFormValue) {
   const newName = value.name;
-  if (newName && newName !== props.name) {
-    try {
-      await renameClass(props.name, newName);
-      await saveClassMeta(newName, {
-        entry_grade: value.entry_grade,
-        entry_semester: value.entry_semester,
-      });
-    } catch (e) {
-      // 失败保持弹窗打开，错误上浮到 toast——不再静默只进日志
-      showToast(`重命名失败：${e instanceof Error ? e.message : String(e)}`);
-      return;
-    }
-    renameDialogOpen.value = false;
-    router.replace({ name: "class-detail", params: { name: newName } });
-  } else {
-    // 名称未变：仍可能改了年级 / 学期
-    try {
-      await saveClassMeta(props.name, {
-        entry_grade: value.entry_grade,
-        entry_semester: value.entry_semester,
-      });
-    } catch (e) {
-      showToast(`保存失败：${e instanceof Error ? e.message : String(e)}`);
-      return;
-    }
-    renameDialogOpen.value = false;
+  try {
+    await renameClass(props.name, newName);
+  } catch (e) {
+    // 失败保持弹窗打开，错误上浮到 toast——不再静默只进日志
+    showToast(`重命名失败：${e instanceof Error ? e.message : String(e)}`);
+    return;
   }
+  renameDialogOpen.value = false;
+  router.replace({ name: "class-detail", params: { name: newName } });
 }
 
 /** 归档班级：移入「历史带过的班」，数据只读保留；回到班级管理页 */
@@ -429,11 +383,30 @@ watch(photoFilter, async () => {
 });
 
 watch(() => props.name, () => {
-  timetable.value = null;
-  timetableError.value = "";
   void refresh();
-  // 停留在课程表 Tab 时切换班级：必须重新拉新班级的课表，否则 Tab 整块空白
-  if (activeTab.value === "timetable") void loadTimetable();
+});
+
+// 页签切换即上报：Agent 的页面上下文要跟住「用户现在停在哪一块」
+watch(activeTab, () => reportContext());
+
+// Agent 的 ui_action 广播：班级维度动作在本页接住（复用对话框；归档班级只读时不放行写入口）
+const offCreateStudentAction = onPageAction<Partial<StudentInput>>(
+  "classes/create-student",
+  (preset) => {
+    if (readOnly.value) {
+      showToast("该班级已归档，只读");
+      return;
+    }
+    openCreateStudentDialog(preset);
+  },
+);
+
+const offImportRosterAction = onPageAction<ImportRosterMode>("classes/import-roster", (mode) => {
+  if (readOnly.value) {
+    showToast("该班级已归档，只读");
+    return;
+  }
+  openImportDialog(mode ?? "smart");
 });
 
 onMounted(() => {
@@ -446,13 +419,18 @@ onBeforeUnmount(() => {
   document.removeEventListener("keydown", onClassSwitchKeydown);
   clearTimeout(timer);
   clearTimeout(toastTimer);
+  offCreateStudentAction();
+  offImportRosterAction();
+  clearPageContext("class-detail");
 });
 
-function openImportDialog() {
+function openImportDialog(mode: ImportRosterMode = "smart") {
+  importMode.value = mode;
   importOpen.value = true;
 }
 
-function openCreateStudentDialog() {
+function openCreateStudentDialog(preset?: Partial<StudentInput> | null) {
+  createInitial.value = { grade_class: props.name, ...(preset ?? {}) };
   createDialogOpen.value = true;
 }
 
@@ -619,7 +597,7 @@ function goStudentDetail(row: StudentRow) {
                 <button
                   type="button"
                   class="flex h-7 w-7 items-center justify-center rounded-md text-weak hover:bg-pearl hover:text-ink transition-colors"
-                  title="编辑班级（名称 / 年级 / 学期）"
+                  title="修改班级名称"
                   @click="renameDialogOpen = true"
                 >
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -670,13 +648,6 @@ function goStudentDetail(row: StudentRow) {
                 >
                   已归档 · 只读
                 </span>
-                <span
-                  v-if="currentGradeLabel"
-                  data-test="class-grade-badge"
-                  class="rounded-pill bg-primary-soft px-2.5 py-0.5 text-fine font-medium text-primary"
-                >
-                  {{ currentGradeLabel }}
-                </span>
               </div>
               <span class="text-caption text-weak">
                 {{ summary?.studentCount ?? 0 }} 名学生 ({{ summary?.maleCount ?? 0 }} 男 · {{ summary?.femaleCount ?? 0 }} 女) · 照片 {{ summary?.photoCount ?? 0 }} 张
@@ -685,43 +656,130 @@ function goStudentDetail(row: StudentRow) {
           </div>
         </div>
 
-        <div class="flex items-center gap-3 shrink-0">
-          <AppButton v-if="!readOnly" variant="primary" @click="openCreateStudentDialog">新建学生</AppButton>
-        </div>
       </div>
     </header>
 
     <!-- 主体区域 -->
     <div class="scroll-thin min-h-0 flex-1 overflow-y-auto px-8 py-6 space-y-6">
-      <!-- 概览指标卡片 -->
-      <div class="grid grid-cols-1 sm:grid-cols-3 gap-5">
-        <AppCard>
-          <div class="text-caption text-weak">本班学生</div>
+      <!-- 概览指标卡片：整卡即跳转按钮，点击切到对应 Tab（右侧箭头提示可前往） -->
+      <div class="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+        <button
+          type="button"
+          data-test="metric-card-students"
+          :class="metricCardClass"
+          @click="goTab('students')"
+        >
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-caption text-weak">本班学生</span>
+            <span
+              data-test="metric-card-arrow"
+              class="shrink-0 text-faint transition-all duration-150 group-hover:translate-x-0.5 group-hover:text-primary"
+              aria-hidden="true"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="m9 18 6-6-6-6" />
+              </svg>
+            </span>
+          </div>
           <div class="mt-2 text-title font-semibold text-ink">
             {{ summary?.studentCount ?? 0 }} 人
           </div>
-          <div class="mt-1 text-fine text-muted">
+          <div class="mt-auto pt-1 text-fine text-muted">
             男 {{ summary?.maleCount ?? 0 }} · 女 {{ summary?.femaleCount ?? 0 }}
           </div>
-        </AppCard>
+        </button>
 
-        <AppCard>
-          <div class="text-caption text-weak">班级照片</div>
+        <button
+          type="button"
+          data-test="metric-card-photos"
+          :class="metricCardClass"
+          @click="goTab('photos')"
+        >
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-caption text-weak">班级照片</span>
+            <span
+              data-test="metric-card-arrow"
+              class="shrink-0 text-faint transition-all duration-150 group-hover:translate-x-0.5 group-hover:text-primary"
+              aria-hidden="true"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="m9 18 6-6-6-6" />
+              </svg>
+            </span>
+          </div>
           <div class="mt-2 text-title font-semibold text-ink">
             {{ summary?.photoCount ?? 0 }} 张
           </div>
-          <div class="mt-1 text-fine text-muted">
+          <div class="mt-auto pt-1 text-fine text-muted">
             公共 {{ summary?.classPhotoCount ?? 0 }} · 个人 {{ summary?.studentPhotoCount ?? 0 }}
           </div>
-        </AppCard>
+        </button>
 
-        <AppCard>
-          <div class="text-caption text-weak">档案动态</div>
+        <button
+          type="button"
+          data-test="metric-card-behaviors"
+          :class="metricCardClass"
+          @click="goTab('behaviors')"
+        >
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-caption text-weak">档案动态</span>
+            <span
+              data-test="metric-card-arrow"
+              class="shrink-0 text-faint transition-all duration-150 group-hover:translate-x-0.5 group-hover:text-primary"
+              aria-hidden="true"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="m9 18 6-6-6-6" />
+              </svg>
+            </span>
+          </div>
           <div class="mt-2 text-title font-semibold text-ink">
             {{ students.length }} 名有效学生
           </div>
-          <div class="mt-1 text-fine text-muted">已归档 · {{ behaviorRecords.length }} 条表现记录</div>
-        </AppCard>
+          <div class="mt-auto pt-1 text-fine text-muted">
+            已归档 · {{ behaviorRecords.length }} 条表现记录
+          </div>
+        </button>
+
+        <!-- 成绩卡：迷你趋势折线（每次考试一个点，全部成绩参与计算） -->
+        <button
+          type="button"
+          data-test="metric-card-scores"
+          :class="metricCardClass"
+          @click="goTab('scores')"
+        >
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-caption text-weak">考试成绩</span>
+            <span
+              data-test="metric-card-arrow"
+              class="shrink-0 text-faint transition-all duration-150 group-hover:translate-x-0.5 group-hover:text-primary"
+              aria-hidden="true"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="m9 18 6-6-6-6" />
+              </svg>
+            </span>
+          </div>
+          <div class="mt-2 min-h-14">
+            <ScoreTrendSparkline
+              v-if="scoreTrendPoints.length"
+              :points="scoreTrendPoints"
+              :height="56"
+            />
+            <p
+              v-else
+              class="flex h-14 items-center justify-center rounded-sm bg-parchment text-fine text-faint"
+            >
+              暂无成绩
+            </p>
+          </div>
+          <div class="mt-auto pt-1 text-fine text-muted">
+            <template v-if="scoreTrendPoints.length">
+              共 {{ examCount }} 次考试<template v-if="latestScoreAverage !== null"> · 最近均分 {{ formatNumber(latestScoreAverage) }}</template>
+            </template>
+            <template v-else>导入成绩后自动生成趋势</template>
+          </div>
+        </button>
       </div>
 
       <!-- Tab 切换 -->
@@ -759,19 +817,11 @@ function goStudentDetail(row: StudentRow) {
         >
           考试成绩 ({{ examCount }})
         </button>
-        <button
-          type="button"
-          data-test="tab-timetable"
-          class="rounded-sm px-4 py-2 text-caption font-medium transition-colors"
-          :class="activeTab === 'timetable' ? 'bg-ink text-canvas' : 'text-weak hover:text-ink hover:bg-pearl'"
-          @click="openTimetableTab"
-        >
-          课程表
-        </button>
       </div>
 
       <!-- Tab 1: 学生条目 -->
       <div v-if="activeTab === 'students'" class="space-y-4">
+        <!-- 搜索栏右侧并列两个写入口：导入本班花名册（本班导入，区别于班级管理页「导入时自动建班」）/ 新建学生（预填本班） -->
         <div class="flex items-center gap-3">
           <AppInput
             v-model="keyword"
@@ -782,13 +832,28 @@ function goStudentDetail(row: StudentRow) {
             v-if="!readOnly"
             label="导入本班花名册"
             data-test="import-roster-btn"
+            class="bg-gradient-to-b from-white to-mint hover:from-mint"
             @click="openImportDialog"
           >
-            <!-- 语义图标：上传托盘，表示批量导入花名册 -->
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <path d="M7 8l5-5 5 5" />
-              <path d="M12 3v12" />
+            <!-- 与班级管理页同款花名册图标：2×3 格表格 + 右上角加号 -->
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="2.8" y="11.4" width="17.6" height="9.6" rx="2.4" />
+              <path d="M2.8 16.2h17.6M8.67 11.4V21M14.53 11.4V21" />
+              <path d="M19.2 3v5.4M16.5 5.7h5.4" />
+            </svg>
+          </AppIconButton>
+          <AppIconButton
+            v-if="!readOnly"
+            label="新建学生"
+            data-test="create-student-btn"
+            class="bg-gradient-to-b from-white to-mint hover:from-mint"
+            @click="openCreateStudentDialog()"
+          >
+            <!-- 与班级管理页同款图标：加号 + 学生小人 -->
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="9.2" cy="7.4" r="3.6" />
+              <path d="M3 20.6a6.2 6.2 0 0 1 12.4 0" />
+              <path d="M18.6 8.4v6.2M15.5 11.5h6.2" />
             </svg>
           </AppIconButton>
         </div>
@@ -804,7 +869,7 @@ function goStudentDetail(row: StudentRow) {
         <EmptyState
           v-else
           title="暂无学生"
-          description="点击上方「导入花名册」图标或右上角「新建学生」为本班添加学生"
+          description="点击搜索栏右侧的「导入本班花名册」批量建档，或「新建学生」手动添加"
         />
       </div>
 
@@ -900,120 +965,16 @@ function goStudentDetail(row: StudentRow) {
 
       <!-- Tab 4: 考试成绩 -->
       <div v-else-if="activeTab === 'scores'">
-        <ExamScorePanel :class-name="name" />
+        <!-- 面板内改分 / 删考试后回传，保证上方概览卡的计数与趋势图不落后 -->
+        <ExamScorePanel :class-name="name" @changed="refreshScoreOverview" />
       </div>
 
-      <!-- Tab 5: 课程表：默认周网格，日历用于调课与日程 -->
-      <div v-else-if="activeTab === 'timetable'" class="space-y-4">
-        <p v-if="timetableError" class="rounded-md bg-[#fdeef0] p-3 text-caption text-danger">
-          {{ timetableError }}
-        </p>
-        <p v-else-if="timetableLoading" class="text-caption text-weak">正在载入课表…</p>
-        <template v-else-if="timetable">
-          <div class="flex flex-wrap items-center justify-between gap-2">
-            <div class="flex items-center gap-2">
-              <div class="inline-flex rounded-md border border-hairline bg-parchment p-1">
-                <button
-                  type="button"
-                  data-test="timetable-view-grid"
-                  class="rounded-[6px] px-3 py-1.5 text-caption transition-colors"
-                  :class="timetableView === 'grid' ? 'bg-canvas font-medium text-primary' : 'text-weak hover:text-ink'"
-                  @click="timetableView = 'grid'"
-                >
-                  课表
-                </button>
-                <button
-                  type="button"
-                  data-test="timetable-view-calendar"
-                  class="rounded-[6px] px-3 py-1.5 text-caption transition-colors"
-                  :class="timetableView === 'calendar' ? 'bg-canvas font-medium text-primary' : 'text-weak hover:text-ink'"
-                  @click="timetableView = 'calendar'"
-                >
-                  日历
-                </button>
-              </div>
-              <!-- 导入课表紧贴「日历」切换项右侧：导入的是这张课表，入口跟着视图切换走 -->
-              <AppButton
-                v-if="!readOnly"
-                variant="pearl"
-                data-test="timetable-import-btn"
-                @click="timetableImportOpen = true"
-              >
-                导入课表
-              </AppButton>
-            </div>
-            <p v-if="timetableView === 'grid'" class="text-fine text-weak">
-              换课 / 停课 / 日程在日历视图维护
-            </p>
-          </div>
-          <!-- 我的科目标记：点胶囊即存，勾选科目的格子高亮内描边 -->
-          <div
-            v-if="classSubjects.length"
-            class="flex flex-wrap items-center gap-2 rounded-md bg-parchment p-3"
-            data-test="my-subjects-strip"
-          >
-            <span class="text-caption text-ink">我的科目</span>
-            <button
-              v-for="s in classSubjects"
-              :key="s"
-              type="button"
-              data-test="my-subject-chip"
-              :disabled="markingSaving || readOnly"
-              class="rounded-pill border px-2.5 py-0.5 text-fine transition-colors disabled:opacity-40"
-              :class="
-                isMarkedMine(s)
-                  ? 'border-primary bg-primary/10 text-primary font-medium'
-                  : 'border-hairline bg-canvas text-muted hover:border-ink'
-              "
-              :aria-pressed="isMarkedMine(s)"
-              @click="toggleMySubject(s)"
-            >
-              {{ s }}
-            </button>
-            <span class="min-w-0 flex-1 text-fine text-weak">
-              勾选的科目会高亮并汇入「我的课表」；从没标记过的班级按个人资料的任教学科自动匹配
-            </span>
-          </div>
-          <TimetableCalendar
-            v-if="timetableView === 'calendar'"
-            :class-name="name"
-            :timetable="timetable"
-            :surface-style="timetableBgSurfaceStyle"
-            :surface-class="timetableBgSurfaceClass"
-            :readonly="readOnly"
-            @edit="timetableView = 'grid'"
-          />
-          <div
-            v-else
-            class="rounded-lg border border-hairline bg-canvas p-4"
-            :class="timetableBgSurfaceClass"
-            :style="timetableBgSurfaceStyle"
-            data-test="class-timetable-surface"
-          >
-            <TimetableGrid
-              :timetable="timetable"
-              :slots="timetable.slots"
-              :editable="!readOnly"
-              :my-subjects="profile.my_subjects ?? []"
-              :class-marked="timetable.my_subjects"
-              :conflict-rows="conflictRows"
-              :today="TIMETABLE_TODAY"
-              @changed="refreshTimetable"
-            />
-          </div>
-          <ImportTimetableDialog
-            :open="timetableImportOpen"
-            :preset-class="name"
-            @close="timetableImportOpen = false"
-            @imported="refreshTimetable(); timetableImportOpen = false"
-          />
-        </template>
-      </div>
     </div>
 
     <!-- 对话框 -->
     <ImportRosterDialog
       :open="importOpen"
+      :initial-mode="importMode"
       :preset-class="name"
       @close="importOpen = false"
       @imported="onRosterImported"
@@ -1031,7 +992,7 @@ function goStudentDetail(row: StudentRow) {
 
     <StudentFormDialog
       :open="createDialogOpen"
-      :initial="{ grade_class: name }"
+      :initial="createInitial"
       @close="createDialogOpen = false"
       @submit="handleCreateStudent"
     />
@@ -1040,8 +1001,6 @@ function goStudentDetail(row: StudentRow) {
       :open="renameDialogOpen"
       mode="rename"
       :initial-name="name"
-      :initial-grade="classMeta.entry_grade"
-      :initial-semester="classMeta.entry_semester"
       :existing-classes="existingClasses"
       @close="renameDialogOpen = false"
       @submit="handleRenameClass"

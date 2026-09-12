@@ -49,8 +49,10 @@ function toolDetail(call: ToolCallPayload): string {
   switch (call.name) {
     case "navigate": {
       const target = String(args.target ?? "");
-      const suffix = args.student_id !== undefined ? ` · 学生 #${String(args.student_id)}` : "";
-      return `→ ${target}${suffix}`;
+      const parts = [target];
+      if (args.class_name !== undefined) parts.push(String(args.class_name));
+      if (args.student_id !== undefined) parts.push(`学生 #${String(args.student_id)}`);
+      return `→ ${parts.join(" · ")}`;
     }
     case "query_data": {
       const parts: string[] = [String(args.entity ?? "")];

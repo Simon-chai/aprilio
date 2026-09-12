@@ -198,7 +198,16 @@ async function onDeleteStudent() {
   if (!ok) return;
 
   await deleteStudent(id.value);
-  router.push({ name: "students" });
+  goBackToList();
+}
+
+/** 删除 / 无返回历史时回到学生所属班级；没有班级则回班级管理列表 */
+function goBackToList() {
+  if (student.value?.grade_class) {
+    router.push(`/classes/${encodeURIComponent(student.value.grade_class)}`);
+    return;
+  }
+  router.push({ name: "classes" });
 }
 
 function goBack() {
@@ -206,11 +215,7 @@ function goBack() {
     router.back();
     return;
   }
-  if (student.value?.grade_class) {
-    router.push(`/classes/${encodeURIComponent(student.value.grade_class)}`);
-    return;
-  }
-  router.push({ name: "students" });
+  goBackToList();
 }
 </script>
 

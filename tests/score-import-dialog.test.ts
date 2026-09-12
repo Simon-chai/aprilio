@@ -1,7 +1,7 @@
 import { mount, flushPromises } from "@vue/test-utils";
 import { describe, expect, it } from "vitest";
 import ImportScoreDialog from "../src/components/ImportScoreDialog.vue";
-import { deleteExam, deleteStudent, listExamsByClass, listStudents } from "../src/lib/db";
+import { createStudent, deleteExam, deleteStudent, listExamsByClass, listStudents } from "../src/lib/db";
 
 const SCORE_TEXT =
   "春晖小学2024级三年级（2）班2026年秋季期中考试成绩单\n" +
@@ -94,6 +94,53 @@ describe("ImportScoreDialog", () => {
       );
     } finally {
       await cleanupMulti();
+    }
+  });
+
+  it("无预设班级时必须选择归属班级才能导入（成绩不允许无班级落库）", async () => {
+    const pickClass = "成绩导入选班测试班";
+    async function cleanupPick() {
+      for (const s of await listStudents()) {
+        if (s.grade_class === pickClass) await deleteStudent(s.id);
+      }
+      for (const e of await listExamsByClass(pickClass)) await deleteExam(e.id);
+    }
+    await cleanupPick();
+    try {
+      // 先准备一个可用班级（借占位学生建档自动建班）
+      await createStudent({
+        name: "占位学生",
+        gender: "男",
+        birth_date: null,
+        student_no: "98000",
+        grade_class: pickClass,
+        id_card: null,
+        address: null,
+        status: "active",
+        note: null,
+        guardians: [],
+      });
+
+      const wrapper = mount(ImportScoreDialog, { props: { open: true } });
+      await (wrapper.vm as unknown as Loader).loadText(SCORE_TEXT, "期中成绩单.csv");
+
+      // 无预设班级：出现班级下拉；未选择时导入按钮不可用
+      const select = wrapper.get('[data-test="score-class-select"]');
+      const importBtn = wrapper.get('[data-test="score-import-btn"]');
+      expect(importBtn.attributes("disabled")).toBeDefined();
+
+      // 选择班级后可导入，且考试批次归属所选班级
+      await select.setValue(pickClass);
+      expect(importBtn.attributes("disabled")).toBeUndefined();
+      await importBtn.trigger("click");
+      await flushPromises();
+
+      expect(wrapper.get('[data-test="score-import-result"]').text()).toContain("导入完成");
+      const exams = await listExamsByClass(pickClass);
+      expect(exams).toHaveLength(1);
+      expect(exams[0].class_name).toBe(pickClass);
+    } finally {
+      await cleanupPick();
     }
   });
 });

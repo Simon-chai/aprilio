@@ -48,9 +48,14 @@ export async function runAgentTurn(options: AgentTurnOptions): Promise<AgentTurn
   const messages: AgentMessage[] = [...history, { role: "user", content: userText }];
   const toolRuns: ToolRunRecord[] = [];
   const tools: ToolDefinition[] = registry.definitions();
-  const system = buildSystemPrompt(currentRoute, config.systemPrompt);
 
   for (let round = 0; round < maxRounds; round++) {
+    // 每轮重读当前路由并重建 system prompt：navigate 等工具可能在轮间切换了页面，
+    // 页面上下文快照（视图上报）要跟着走，模型下一轮就知道「现在在哪、页面上有什么」
+    const liveRoute = ctx.router?.currentRoute?.value?.name;
+    const routeName = typeof liveRoute === "string" && liveRoute ? liveRoute : currentRoute;
+    const system = buildSystemPrompt(routeName, config.systemPrompt);
+
     const res = await llm.chat({
       system,
       messages,

@@ -1,8 +1,8 @@
 /**
- * 学生档案页的页面动作：导入花名册（声明式注册，default export 即被容器装载）。
+ * 班级维度的页面动作：导入花名册（声明式注册，default export 即被容器装载）。
  *
  * 动作只负责打开对话框（文件选择、姓名列确认与导入都由用户在对话框内完成），
- * StudentsView 通过 page-action-bus 挂监听接住 —— 动作本体不含视图引用。
+ * ClassesView / ClassDetailView 通过 page-action-bus 挂监听接住 —— 动作本体不含视图引用。
  * 对话框内的「智能导入」与 Agent 工具 import_student_roster 共用同一条管道。
  */
 import { emitPageAction } from "../page-action-bus";
@@ -11,7 +11,7 @@ import { definePageAction } from "../define";
 export type ImportRosterMode = "template" | "smart";
 
 export default definePageAction({
-  page: "students",
+  page: "classes",
   key: "import-roster",
   label: "导入花名册",
   description:
@@ -23,9 +23,9 @@ export default definePageAction({
     ) as Record<string, unknown>;
 
     const mode: ImportRosterMode = raw.mode === "template" ? "template" : "smart";
-    const delivered = emitPageAction<ImportRosterMode>("students/import-roster", mode);
+    const delivered = emitPageAction<ImportRosterMode>("classes/import-roster", mode);
     if (!delivered) {
-      return { ok: false, summary: "", error: "当前不在学生档案页或视图未挂载，无法打开导入对话框。" };
+      return { ok: false, summary: "", error: "当前不在班级管理或班级详情页或视图未挂载，无法打开导入对话框。" };
     }
 
     return {

@@ -75,14 +75,11 @@ fn migrations() -> Vec<Migration> {
       );
 
       -- 显式班级（列表页班级卡片的权威来源，学生/照片上的班级名聚合为补充）
-      -- entry_grade/entry_semester：建档初始年级与起始学期，当前年级由前端实时推导；
       -- archived_at：NULL=在用，有值=已归档（历史带过的班）。旧库由 ensureSchema 幂等补列。
       CREATE TABLE IF NOT EXISTS classes (
-        name           TEXT PRIMARY KEY,
-        entry_grade    INTEGER,
-        entry_semester TEXT,
-        archived_at    TEXT,
-        created_at     TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+        name        TEXT PRIMARY KEY,
+        archived_at TEXT,
+        created_at  TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
       );
 
       CREATE TABLE IF NOT EXISTS profile (
@@ -423,7 +420,7 @@ fn migrations() -> Vec<Migration> {
   Migration {
     version: 7,
     description: "add_student_term_comments",
-    // 学期化班级管理：新增学期评语表。classes 的 entry_grade/entry_semester/archived_at
+    // 学期化班级管理：新增学期评语表。classes 的 archived_at
     // 由前端 ensureSchema try-ALTER 幂等补列（不能放这里 ALTER：被 ensureSchema 先补过列的
     // 库会因 duplicate column 使整个迁移失败，同 v3 注释）。
     sql: r#"
