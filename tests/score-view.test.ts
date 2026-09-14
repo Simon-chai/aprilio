@@ -12,9 +12,16 @@ import {
   listStudents,
   upsertExamScore,
 } from "../src/lib/db";
-import { resetScoreLevelConfig } from "../src/lib/score-config";
+import { resetScoreLevelConfig, saveScoreLevelConfig } from "../src/lib/score-config";
 
 const CLASS_NAME = "成绩测试班C";
+
+const DEFAULT_BANDS = [
+  { key: "excellent" as const, label: "优秀", min: 90 },
+  { key: "good" as const, label: "良好", min: 80 },
+  { key: "pass" as const, label: "及格", min: 60 },
+  { key: "fail" as const, label: "待提高", min: 0 },
+];
 const SCORE_SHEET =
   "三年级二班2026年秋季期中考试成绩单\n姓名,学号,语文,数学,英语,总分\n林一,9701,95,88,92,275\n王二,9702,85,90.5,78,253.5";
 
@@ -159,6 +166,46 @@ describe("ExamScorePanel", () => {
     }
   });
 
+  it("显示等级开关：打开后成绩只显示等级不显示具体分数，关掉恢复数字", async () => {
+    await cleanup();
+    try {
+      await seed(); // 林一 语文95 数学88；王二 语文85 数学90.5
+      const wrapper = mount(ExamScorePanel, { props: { className: CLASS_NAME } });
+      await flushPromises();
+
+      // 在「等级映射」弹窗里打开开关
+      await wrapper.get("[data-test='level-config-btn']").trigger("click");
+      expect(wrapper.get("[data-test='show-level-toggle']").attributes("aria-checked")).toBe("false");
+      await wrapper.get("[data-test='show-level-toggle']").trigger("click");
+      await wrapper.get("[data-test='save-level-btn']").trigger("click");
+      await flushPromises();
+
+      // 明细表：分数被等级名替代（95/90.5→优秀，88/85→良好），总分也显示等级
+      const table = wrapper.get("[data-test='exam-detail-table']");
+      const text = table.text();
+      expect(text).toContain("优秀");
+      expect(text).toContain("良好");
+      expect(text).not.toContain("95");
+      expect(text).not.toContain("90.5");
+      expect(text).not.toContain("183");
+
+      // 班级统计条：平均分（179.25 / 2 科 = 89.6）显示等级名
+      expect(wrapper.get("[data-test='stat-average']").text()).toBe("良好");
+
+      // 关掉开关后恢复数字显示
+      await wrapper.get("[data-test='level-config-btn']").trigger("click");
+      expect(wrapper.get("[data-test='show-level-toggle']").attributes("aria-checked")).toBe("true");
+      await wrapper.get("[data-test='show-level-toggle']").trigger("click");
+      await wrapper.get("[data-test='save-level-btn']").trigger("click");
+      await flushPromises();
+      expect(wrapper.get("[data-test='exam-detail-table']").text()).toContain("95");
+      expect(wrapper.get("[data-test='exam-detail-table']").text()).toContain("90.5");
+    } finally {
+      resetScoreLevelConfig();
+      await cleanup();
+    }
+  });
+
   it("改分纠错：点击分数可修改，也可清空该科成绩", async () => {
     await cleanup();
     try {
@@ -228,12 +275,10 @@ describe("ExamScorePanel", () => {
     expect(toggleIdx).toBeGreaterThanOrEqual(0);
     expect(importIdx).toBe(toggleIdx + 1);
 
-    // 导入成绩图标：与花名册按钮同款白→淡绿渐变底
+    // 导入成绩图标：渐变描边皮肤（与花名册按钮同款）
     const importBtn = wrapper.get("[data-test='import-score-btn']");
-    expect(importBtn.classes()).toContain("bg-gradient-to-b");
-    expect(importBtn.classes()).toContain("from-white");
-    expect(importBtn.classes()).toContain("to-mint");
-    expect(importBtn.classes()).toContain("hover:from-mint");
+    expect(importBtn.classes()).toContain("grad-border");
+    expect(importBtn.classes()).toContain("text-primary");
 
     // 等级映射从操作组移出：仅它带 ml-auto，且是工具行最后一个子元素
     const levelBtn = wrapper.get("[data-test='level-config-btn']");
@@ -247,6 +292,36 @@ describe("ExamScorePanel", () => {
 });
 
 describe("StudentScorePanel", () => {
+  it("等级模式：折线图悬浮显示等级，详情卡不再出现数字分", async () => {
+    await cleanup();
+    try {
+      const { studentIds } = await seed();
+      const secondExam = await createExam({ class_name: CLASS_NAME, name: "期末考试", exam_date: "2026-07-10" });
+      await upsertExamScore(secondExam, studentIds[0], "语文", 97, null);
+
+      saveScoreLevelConfig({ bands: [...DEFAULT_BANDS], showLevelOnly: true });
+      const wrapper = mount(StudentScorePanel, { props: { studentId: studentIds[0] } });
+      await flushPromises();
+
+      // 悬浮热区：提示里是该科的等级名而不是分数
+      const point = wrapper.find(`[data-test='chart-band'][data-exam-id='${secondExam}']`);
+      expect(point.exists()).toBe(true);
+      await point.trigger("mouseenter");
+      expect(wrapper.get("[data-test='chart-tooltip']").text()).toContain("语文：优秀");
+
+      // 点击节点展开详情：总分与单科成绩都是等级名
+      await point.trigger("click");
+      await flushPromises();
+      const card = wrapper.get("[data-test='exam-card']");
+      expect(card.text()).toContain("语文 优秀");
+      expect(card.text()).not.toContain("97");
+      expect(wrapper.get("[data-test='score-total']").text()).toBe("优秀");
+    } finally {
+      resetScoreLevelConfig();
+      await cleanup();
+    }
+  });
+
   it("默认不铺开单次考试，悬浮节点看信息、点击节点展开该次详情", async () => {
     await cleanup();
     try {

@@ -290,9 +290,9 @@ const MAX_CELL_ITEMS = 3;
   <div class="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
     <!-- 万年历网格 -->
     <div class="rounded-lg border border-hairline bg-canvas p-4" :class="props.surfaceClass" :style="props.surfaceStyle">
-      <!-- 月份导航：右上角为「编辑课表」唯一入口 -->
-      <div class="mb-3 flex items-center justify-between">
-        <div class="flex items-center gap-1">
+      <!-- 月份导航：右上角为「编辑课表」唯一入口；窄容器保持单行，控件不换行 -->
+      <div class="scrollbar-none mb-3 flex items-center justify-between gap-3 overflow-x-auto">
+        <div class="flex shrink-0 items-center gap-1">
           <button
             type="button"
             class="flex h-8 w-8 items-center justify-center rounded-md text-weak hover:bg-pearl hover:text-ink transition-colors"
@@ -317,10 +317,10 @@ const MAX_CELL_ITEMS = 3;
             </svg>
           </button>
         </div>
-        <div class="flex items-center gap-3">
+        <div class="flex shrink-0 items-center gap-3">
           <AppLink
             variant="action"
-            class="text-caption"
+            class="whitespace-nowrap text-caption"
             @click="backToToday"
           >
             回到今天
@@ -329,7 +329,7 @@ const MAX_CELL_ITEMS = 3;
             v-if="!readonly"
             type="button"
             data-test="edit-timetable-btn"
-            class="flex h-8 items-center gap-1.5 rounded-sm border border-hairline bg-pearl px-3 text-caption text-muted transition-colors hover:border-ink hover:text-ink"
+            class="flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-sm border border-hairline bg-pearl px-3 text-caption text-muted transition-colors hover:border-ink hover:text-ink"
             @click="emit('edit')"
           >
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -493,7 +493,7 @@ const MAX_CELL_ITEMS = 3;
             <span class="flex min-w-0 items-baseline gap-1.5">
               <span class="tnum shrink-0 text-caption text-weak">第{{ c.period }}节</span>
               <span
-                class="rounded-pill border px-1.5 py-px text-fine leading-4"
+                class="min-w-0 truncate rounded-pill border px-1.5 py-px text-fine leading-4"
                 :class="[subjectChipClass(c.subject), c.state === 'cancelled' ? 'line-through opacity-60' : '']"
               >
                 {{ c.subject }}
@@ -551,8 +551,8 @@ const MAX_CELL_ITEMS = 3;
                 v-for="s in SUBJECT_PRESETS"
                 :key="s"
                 type="button"
-                class="rounded-pill border px-2 py-0.5 text-fine transition-colors"
-                :class="swapSubject === s ? 'border-ink bg-ink font-medium text-canvas' : 'border-hairline text-muted hover:border-ink'"
+                class="whitespace-nowrap rounded-pill border px-2 py-0.5 text-fine transition-colors"
+                :class="swapSubject === s ? 'grad-border-soft text-primary font-medium' : 'border-hairline text-muted hover:border-ink'"
                 @click="swapSubject = s"
               >
                 {{ s }}
@@ -598,8 +598,8 @@ const MAX_CELL_ITEMS = 3;
                 v-for="s in SUBJECT_PRESETS"
                 :key="s"
                 type="button"
-                class="rounded-pill border px-2 py-0.5 text-fine transition-colors"
-                :class="addSubject === s ? 'border-ink bg-ink font-medium text-canvas' : 'border-hairline text-muted hover:border-ink'"
+                class="whitespace-nowrap rounded-pill border px-2 py-0.5 text-fine transition-colors"
+                :class="addSubject === s ? 'grad-border-soft text-primary font-medium' : 'border-hairline text-muted hover:border-ink'"
                 @click="addSubject = s"
               >
                 {{ s }}
@@ -683,7 +683,7 @@ const MAX_CELL_ITEMS = 3;
               type="button"
               data-test="event-type-pill"
               class="flex items-center gap-1 rounded-pill border px-2 py-0.5 text-fine transition-colors"
-              :class="newEventType === t ? 'border-ink bg-ink font-medium text-canvas' : 'border-hairline text-muted hover:border-ink'"
+              :class="newEventType === t ? 'grad-border-soft text-primary font-medium' : 'border-hairline text-muted hover:border-ink'"
               @click="newEventType = t"
             >
               <span class="h-1.5 w-1.5 rounded-full" :class="CALENDAR_EVENT_META[t].dot" />

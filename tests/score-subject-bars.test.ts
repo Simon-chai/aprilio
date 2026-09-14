@@ -12,6 +12,7 @@ import {
   listStudents,
   upsertExamScore,
 } from "../src/lib/db";
+import { resetScoreLevelConfig, saveScoreLevelConfig } from "../src/lib/score-config";
 
 const CLASS_NAME = "成绩柱状图测试班";
 const SINGLE_CLASS_NAME = "成绩柱状图测试班单场";
@@ -188,6 +189,45 @@ describe("SubjectScoreBars 可复用柱状图", () => {
     });
     expect(wrapper.find("[data-test='subject-bars-legend']").exists()).toBe(false);
     expect(wrapper.findAll("[data-test='score-bar']")).toHaveLength(1);
+  });
+
+  it("等级模式：柱顶显示等级名，柱高按档位代表值（同等级等高）", () => {
+    saveScoreLevelConfig({
+      bands: [
+        { key: "excellent", label: "优秀", min: 90 },
+        { key: "good", label: "良好", min: 80 },
+        { key: "pass", label: "及格", min: 60 },
+        { key: "fail", label: "待提高", min: 0 },
+      ],
+      showLevelOnly: true,
+    });
+    try {
+      const wrapper = mount(SubjectScoreBars, {
+        props: {
+          groups: [
+            {
+              label: "期中考试",
+              items: [
+                { subject: "语文", score: 95 },
+                { subject: "数学", score: 92 },
+                { subject: "英语", score: 42 },
+              ],
+            },
+          ],
+        },
+      });
+
+      // 柱顶文本为等级名，不出现具体分数
+      const values = wrapper.findAll("[data-test='score-bar-value']").map((v) => v.text());
+      expect(values).toEqual(["优秀", "优秀", "待提高"]);
+      // 同等级取同一代表值（该档最低分）：两根优秀柱等高，待提高只剩最小可见高度
+      expect(barScores(wrapper)).toEqual(["90", "90", "0"]);
+      const bars = wrapper.findAll("[data-test='score-bar']");
+      expect(bars[0]!.attributes("style")).toContain("height: 101px"); // 112 × 0.9
+      expect(bars[2]!.attributes("style")).toContain("height: 4px");
+    } finally {
+      resetScoreLevelConfig();
+    }
   });
 });
 

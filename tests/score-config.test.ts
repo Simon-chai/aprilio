@@ -3,12 +3,23 @@ import { inferExamType } from "../src/lib/score-analysis";
 import {
   levelNameOfScore,
   levelOf,
+  levelRankOf,
+  levelStepText,
+  levelValueOf,
   normalizeScoreLevelConfig,
   representativeScoreOf,
   resetScoreLevelConfig,
   saveScoreLevelConfig,
   scoreLines,
+  showLevelOnly,
 } from "../src/lib/score-config";
+
+const DEFAULT_BANDS = [
+  { key: "excellent" as const, label: "优秀", min: 90 },
+  { key: "good" as const, label: "良好", min: 80 },
+  { key: "pass" as const, label: "及格", min: 60 },
+  { key: "fail" as const, label: "待提高", min: 0 },
+];
 
 describe("等级映射配置（score-config）", () => {
   beforeEach(() => resetScoreLevelConfig());
@@ -65,5 +76,34 @@ describe("等级映射配置（score-config）", () => {
     expect(inferExamType("期末考试")).toBe("major");
     expect(inferExamType("第一单元测验")).toBe("minor");
     expect(inferExamType("第一次月考")).toBe("minor");
+  });
+
+  it("等级模式：开关随配置持久化，档位代表值与档位序正确", () => {
+    // 规范化：未传视为关闭，传 true 保留
+    expect(normalizeScoreLevelConfig({ bands: [] }).showLevelOnly).toBe(false);
+    expect(normalizeScoreLevelConfig({ bands: [], showLevelOnly: true }).showLevelOnly).toBe(true);
+
+    saveScoreLevelConfig({ bands: [...DEFAULT_BANDS], showLevelOnly: true });
+    expect(showLevelOnly.value).toBe(true);
+    // 只保存分数线的调用视为关闭（开关与档位编辑同走一条保存通道）
+    saveScoreLevelConfig({ bands: [...DEFAULT_BANDS] });
+    expect(showLevelOnly.value).toBe(false);
+
+    saveScoreLevelConfig({ bands: [...DEFAULT_BANDS], showLevelOnly: true });
+    // 档位代表值：同等级取同一数值（该档最低分），等级模式的柱高 / 折线纵坐标都用它
+    expect(levelValueOf(95)).toBe(90);
+    expect(levelValueOf(92)).toBe(90);
+    expect(levelValueOf(85)).toBe(80);
+    expect(levelValueOf(59)).toBe(0);
+    expect(levelValueOf(null)).toBeNull();
+
+    // 档位序：0 = 最低档，档位间进退比较用
+    expect(levelRankOf(95)).toBe(3);
+    expect(levelRankOf(85)).toBe(2);
+    expect(levelRankOf(59)).toBe(0);
+    expect(levelRankOf(null)).toBeNull();
+    expect(levelStepText(2)).toBe("↑ 2 档");
+    expect(levelStepText(-1)).toBe("↓ 1 档");
+    expect(levelStepText(0)).toBe("持平");
   });
 });

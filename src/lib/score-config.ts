@@ -6,7 +6,7 @@
  *
  * 持久化：本机 localStorage（与 AI 配置同一套，纯本地、不同步云端）。
  */
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import {
   DEFAULT_SCORE_LEVEL_BANDS,
   levelLabelOf,
@@ -23,6 +23,7 @@ const LEVEL_ORDER: ScoreLevel[] = ["excellent", "good", "pass", "fail"];
 
 export const DEFAULT_SCORE_LEVEL_CONFIG: ScoreLevelConfig = {
   bands: DEFAULT_SCORE_LEVEL_BANDS.map((b) => ({ ...b })),
+  showLevelOnly: false,
 };
 
 /** 规范化：补齐四档、阈值夹在 0~100、按 min 降序、标签去空白兜底 */
@@ -42,7 +43,7 @@ export function normalizeScoreLevelConfig(input: unknown): ScoreLevelConfig {
   const bands = LEVEL_ORDER.map(
     (key) => byKey.get(key) ?? { ...DEFAULT_SCORE_LEVEL_CONFIG.bands.find((b) => b.key === key)! }
   ).sort((a, b) => b.min - a.min);
-  return { bands };
+  return { bands, showLevelOnly: raw.showLevelOnly === true };
 }
 
 function load(): ScoreLevelConfig {
@@ -96,6 +97,39 @@ export function levelNameOfScore(score: number | null | undefined): string {
 /** 统计口径的及格线 / 优秀线 */
 export function scoreLines(): ScoreLines {
   return scoreLinesOf(scoreLevelConfig.value.bands);
+}
+
+/* ------------------------------------------------------------------ */
+/* 等级模式（只显示等级、不显示具体分数）                                  */
+/* ------------------------------------------------------------------ */
+
+/** 等级模式是否开启（响应式；界面据此把数字分换成等级名展示） */
+export const showLevelOnly = computed(() => scoreLevelConfig.value.showLevelOnly === true);
+
+/**
+ * 分数 → 档位代表值：同等级视为同一数值（取该档最低分），等级模式的图表用。
+ * 柱高、折线纵坐标都按它画——同档等高 / 同档水平，不同档拉开距离。
+ */
+export function levelValueOf(score: number | null | undefined): number | null {
+  const level = levelOf(score);
+  if (!level) return null;
+  return scoreLevelConfig.value.bands.find((b) => b.key === level)?.min ?? null;
+}
+
+/** 分数 → 档位序（0 = 最低档，档位间进退比较用；非数字分返回 null） */
+export function levelRankOf(score: number | null | undefined): number | null {
+  const level = levelOf(score);
+  if (!level) return null;
+  const bands = scoreLevelConfig.value.bands;
+  const index = bands.findIndex((b) => b.key === level);
+  return index < 0 ? null : bands.length - 1 - index;
+}
+
+/** 档位差 → 展示文本：正数为提升、负数为下滑、0 为持平 */
+export function levelStepText(delta: number): string {
+  if (delta > 0) return `↑ ${delta} 档`;
+  if (delta < 0) return `↓ ${-delta} 档`;
+  return "持平";
 }
 
 /** 常见等级写法 → 档位 key（用于等级制成绩单反推代表分） */

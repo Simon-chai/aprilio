@@ -220,11 +220,11 @@ function goBack() {
 </script>
 
 <template>
-  <!-- 顶栏 -->
+  <!-- 顶栏：窄窗口时保持单行，横向滚动查看全部操作，不压缩换行 -->
   <header
-    class="flex h-[52px] shrink-0 items-center justify-between border-b border-hairline bg-parchment px-8"
+    class="scrollbar-none flex h-[52px] shrink-0 items-center justify-between gap-4 overflow-x-auto border-b border-hairline bg-parchment px-8"
   >
-    <div class="flex items-center gap-2.5">
+    <div class="flex shrink-0 items-center gap-2.5">
       <button class="text-ink" title="返回列表" @click="goBack">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
           <path
@@ -236,10 +236,10 @@ function goBack() {
           />
         </svg>
       </button>
-      <h1 class="text-tagline font-semibold text-ink">学生详情</h1>
+      <h1 class="whitespace-nowrap text-tagline font-semibold text-ink">学生详情</h1>
     </div>
-    <div class="flex items-center gap-3">
-      <label class="flex items-center gap-1.5 text-caption text-weak">
+    <div class="flex shrink-0 items-center gap-3">
+      <label class="flex shrink-0 items-center gap-1.5 whitespace-nowrap text-caption text-weak">
         学期
         <select
           v-model="activeSemester"
@@ -267,8 +267,9 @@ function goBack() {
     </div>
   </header>
 
-  <!-- 内容 -->
-  <div class="scroll-thin flex-1 overflow-y-auto p-8">
+  <!-- 内容：窄窗口不出竖排，整页内容按最小宽度横向滚动 -->
+  <div class="scroll-thin flex-1 overflow-auto p-8">
+    <div class="min-w-[1000px]">
     <p v-if="error" class="mb-6 rounded-md bg-[#fdeef0] p-3 text-caption text-danger">
       {{ error }}
     </p>
@@ -284,21 +285,27 @@ function goBack() {
         </div>
         <div class="min-w-0 flex-1 space-y-2.5">
           <div class="flex items-center gap-3">
-            <h2 class="text-display font-semibold text-ink">{{ student.name }}</h2>
+            <h2 class="min-w-0 truncate text-display font-semibold text-ink">{{ student.name }}</h2>
             <StatusChip>{{ STATUS_LABEL[student.status] ?? student.status }}</StatusChip>
           </div>
-          <div class="flex items-center gap-2 text-caption text-weak">
-            <span>学号 {{ student.student_no }}</span>
-            <span class="h-[3px] w-[3px] rounded-full bg-faint" />
-            <span>{{ student.grade_class || "未分班" }}</span>
-            <span class="h-[3px] w-[3px] rounded-full bg-faint" />
-            <span>{{ student.gender || "性别未填" }}</span>
+          <div class="flex min-w-0 items-center gap-2 text-caption text-weak">
+            <span class="whitespace-nowrap">学号 {{ student.student_no }}</span>
+            <span class="h-[3px] w-[3px] shrink-0 rounded-full bg-faint" />
+            <span class="whitespace-nowrap">{{ student.grade_class || "未分班" }}</span>
+            <span class="h-[3px] w-[3px] shrink-0 rounded-full bg-faint" />
+            <span class="whitespace-nowrap">{{ student.gender || "性别未填" }}</span>
           </div>
           <p class="text-caption text-muted">
             最近更新 {{ formatShort(student.updated_at) }} · 共 {{ photos.length }} 张图片 · 共 {{ behaviors.length }} 条表现记录
           </p>
         </div>
-        <AppButton variant="danger" @click="onDeleteStudent">删除学生</AppButton>
+        <AppButton variant="danger" @click="onDeleteStudent">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+            <path d="M10 11v6M14 11v6" />
+          </svg>
+          删除学生
+        </AppButton>
       </div>
 
       <!-- 主体 -->
@@ -369,13 +376,13 @@ function goBack() {
 
         <!-- 右侧卡片：Tab 主体 -->
         <AppCard fill class="flex flex-col gap-4">
-          <div class="flex items-center justify-between border-b border-hairline pb-3">
-            <div class="flex items-center gap-2">
+          <div class="flex items-center justify-between gap-3 border-b border-hairline">
+            <div class="scrollbar-none flex min-w-0 items-center gap-2 overflow-x-auto">
               <button
                 type="button"
                 data-test="tab-behaviors"
-                class="rounded-sm px-3.5 py-1.5 text-caption font-medium transition-colors"
-                :class="activeTab === 'behaviors' ? 'bg-ink text-canvas' : 'text-weak hover:text-ink hover:bg-pearl'"
+                class="relative whitespace-nowrap px-3.5 py-2 text-caption font-medium transition-colors"
+                :class="activeTab === 'behaviors' ? 'text-primary font-semibold tab-energy' : 'text-weak hover:text-ink'"
                 @click="activeTab = 'behaviors'"
               >
                 日常表现 ({{ semesterBehaviors.length }})
@@ -383,8 +390,8 @@ function goBack() {
               <button
                 type="button"
                 data-test="tab-photos"
-                class="rounded-sm px-3.5 py-1.5 text-caption font-medium transition-colors"
-                :class="activeTab === 'photos' ? 'bg-ink text-canvas' : 'text-weak hover:text-ink hover:bg-pearl'"
+                class="relative whitespace-nowrap px-3.5 py-2 text-caption font-medium transition-colors"
+                :class="activeTab === 'photos' ? 'text-primary font-semibold tab-energy' : 'text-weak hover:text-ink'"
                 @click="activeTab = 'photos'"
               >
                 图片记录 ({{ photos.length }})
@@ -392,8 +399,8 @@ function goBack() {
               <button
                 type="button"
                 data-test="tab-scores"
-                class="rounded-sm px-3.5 py-1.5 text-caption font-medium transition-colors"
-                :class="activeTab === 'scores' ? 'bg-ink text-canvas' : 'text-weak hover:text-ink hover:bg-pearl'"
+                class="relative whitespace-nowrap px-3.5 py-2 text-caption font-medium transition-colors"
+                :class="activeTab === 'scores' ? 'text-primary font-semibold tab-energy' : 'text-weak hover:text-ink'"
                 @click="activeTab = 'scores'"
               >
                 成绩 ({{ examCount }})
@@ -401,8 +408,8 @@ function goBack() {
               <button
                 type="button"
                 data-test="tab-comment"
-                class="rounded-sm px-3.5 py-1.5 text-caption font-medium transition-colors"
-                :class="activeTab === 'comment' ? 'bg-ink text-canvas' : 'text-weak hover:text-ink hover:bg-pearl'"
+                class="relative whitespace-nowrap px-3.5 py-2 text-caption font-medium transition-colors"
+                :class="activeTab === 'comment' ? 'text-primary font-semibold tab-energy' : 'text-weak hover:text-ink'"
                 @click="activeTab = 'comment'"
               >
                 学期评语
@@ -410,8 +417,8 @@ function goBack() {
               <button
                 type="button"
                 data-test="tab-homework"
-                class="rounded-sm px-3.5 py-1.5 text-caption font-medium transition-colors"
-                :class="activeTab === 'homework' ? 'bg-ink text-canvas' : 'text-weak hover:text-ink hover:bg-pearl'"
+                class="relative whitespace-nowrap px-3.5 py-2 text-caption font-medium transition-colors"
+                :class="activeTab === 'homework' ? 'text-primary font-semibold tab-energy' : 'text-weak hover:text-ink'"
                 @click="activeTab = 'homework'"
               >
                 作业
@@ -419,8 +426,8 @@ function goBack() {
               <button
                 type="button"
                 data-test="tab-report"
-                class="rounded-sm px-3.5 py-1.5 text-caption font-medium transition-colors"
-                :class="activeTab === 'report' ? 'bg-ink text-canvas' : 'text-weak hover:text-ink hover:bg-pearl'"
+                class="relative whitespace-nowrap px-3.5 py-2 text-caption font-medium transition-colors"
+                :class="activeTab === 'report' ? 'text-primary font-semibold tab-energy' : 'text-weak hover:text-ink'"
                 @click="activeTab = 'report'"
               >
                 评价报告
@@ -514,6 +521,7 @@ function goBack() {
 
     <p v-else-if="loading" class="py-20 text-center text-caption text-weak">加载中…</p>
     <p v-else class="py-20 text-center text-caption text-weak">找不到这个学生</p>
+    </div>
   </div>
 
   <StudentFormDialog

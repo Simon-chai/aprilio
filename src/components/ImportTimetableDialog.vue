@@ -387,9 +387,9 @@ defineExpose({ loadText, loadTable });
       </div>
 
       <div class="scroll-thin relative min-h-0 flex-1 overflow-y-auto pr-1">
-        <!-- 目标班级 + 文件 -->
-        <div class="flex flex-wrap items-center gap-3">
-          <label class="flex items-center gap-2 text-caption text-ink">
+        <!-- 目标班级 + 文件：与导入花名册同款单行布局，控件不换行，文件名放不下时截断 -->
+        <div class="flex items-center gap-3">
+          <label class="flex shrink-0 items-center gap-2 whitespace-nowrap text-caption text-ink">
             目标班级
             <select
               v-model="selectedClass"
@@ -561,10 +561,10 @@ defineExpose({ loadText, loadTable });
                 type="button"
                 data-test="mark-subject-chip"
                 :disabled="markingSaving"
-                class="rounded-pill border px-3 py-1 text-fine transition-colors disabled:opacity-40"
+                class="whitespace-nowrap rounded-pill border px-3 py-1 text-fine transition-colors disabled:opacity-40"
                 :class="
                   markedDraft.includes(s)
-                    ? 'border-ink bg-ink text-canvas font-medium'
+                    ? 'grad-border-soft text-primary font-medium'
                     : 'border-hairline bg-canvas text-muted hover:border-ink'
                 "
                 @click="toggleMarked(s)"

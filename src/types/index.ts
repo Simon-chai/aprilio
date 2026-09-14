@@ -339,6 +339,8 @@ export interface ScoreLevelBand {
 export interface ScoreLevelConfig {
   /** 固定四档，按 min 从高到低排列 */
   bands: ScoreLevelBand[];
+  /** 等级模式：开启后成绩只显示等级、不显示具体分数，图表按档位分档（同等级同值） */
+  showLevelOnly?: boolean;
 }
 
 /** 单科统计（仅数字分口径，满分按 100 计） */

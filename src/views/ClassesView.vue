@@ -144,7 +144,15 @@ function reportContext(): void {
 }
 watch(classTab, () => reportContext());
 
+onMounted(() => {
+  document.addEventListener("mousedown", onCardMenuMouseDown);
+  document.addEventListener("keydown", onCardMenuKeydown);
+  void refresh();
+});
+
 onBeforeUnmount(() => {
+  document.removeEventListener("mousedown", onCardMenuMouseDown);
+  document.removeEventListener("keydown", onCardMenuKeydown);
   offCreateStudentAction();
   offImportRosterAction();
   clearPageContext("classes");
@@ -176,8 +184,6 @@ async function refresh() {
   reportContext();
 }
 
-onMounted(refresh);
-
 async function handleCreateClass(value: ClassFormValue) {
   await createClass(value.name);
   showCreateDialog.value = false;
@@ -187,6 +193,28 @@ async function handleCreateClass(value: ClassFormValue) {
 function openRenameDialog(name: string) {
   renamingClassName.value = name;
   renameDialogOpen.value = true;
+}
+
+/** 卡片右上角「⋯」菜单：归档 / 删除这类一个班生命周期基本只用一次的低频操作 */
+const cardMenuFor = ref<string | null>(null);
+
+function toggleCardMenu(name: string) {
+  cardMenuFor.value = cardMenuFor.value === name ? null : name;
+}
+
+function closeCardMenu() {
+  cardMenuFor.value = null;
+}
+
+/** 点菜单（及其触发器）以外的地方收起；菜单内容点击由自身 handler 收起 */
+function onCardMenuMouseDown(e: MouseEvent) {
+  if (!cardMenuFor.value) return;
+  const root = (e.target as HTMLElement).closest?.("[data-card-menu-root]");
+  if (!root) cardMenuFor.value = null;
+}
+
+function onCardMenuKeydown(e: KeyboardEvent) {
+  if (e.key === "Escape") cardMenuFor.value = null;
 }
 
 async function handleRenameClass(value: ClassFormValue) {
@@ -265,8 +293,8 @@ async function handleDeleteClass(recreate: boolean) {
       </RouterLink>
     </header>
 
-    <!-- 内容 -->
-    <div class="scroll-thin min-h-0 flex-1 overflow-y-auto px-20 py-10">
+    <!-- 内容：窄窗口整页可横向滚动，固定宽卡片不裁切 -->
+    <div class="scroll-thin min-h-0 flex-1 overflow-auto px-20 py-10">
       <h1 class="text-display font-semibold text-ink">班级管理</h1>
       <p class="mt-2 text-caption text-weak">
         {{ activeClasses.length }} 个在用班级 · {{ totalStudents }} 名学生 · 本月新增 {{ monthNew }}<span v-if="archivedClasses.length"> · 历史带过的班 {{ archivedClasses.length }} 个</span>
@@ -281,8 +309,8 @@ async function handleDeleteClass(recreate: boolean) {
           <button
             type="button"
             data-test="class-tab-active"
-            class="inline-flex items-center justify-center rounded-pill px-4 py-1.5 text-caption font-medium transition-colors"
-            :class="classTab === 'active' ? 'bg-ink text-canvas' : 'text-weak hover:text-ink'"
+            class="inline-flex items-center justify-center whitespace-nowrap rounded-pill px-4 py-1.5 text-caption font-medium transition-[color,box-shadow]"
+            :class="classTab === 'active' ? 'grad-border-soft text-primary' : 'text-weak hover:text-ink'"
             @click="classTab = 'active'"
           >
             在用班级
@@ -290,20 +318,19 @@ async function handleDeleteClass(recreate: boolean) {
           <button
             type="button"
             data-test="class-tab-archived"
-            class="inline-flex items-center justify-center rounded-pill px-4 py-1.5 text-caption font-medium transition-colors"
-            :class="classTab === 'archived' ? 'bg-ink text-canvas' : 'text-weak hover:text-ink'"
+            class="inline-flex items-center justify-center whitespace-nowrap rounded-pill px-4 py-1.5 text-caption font-medium transition-[color,box-shadow]"
+            :class="classTab === 'archived' ? 'grad-border-soft text-primary' : 'text-weak hover:text-ink'"
             @click="classTab = 'archived'"
           >
             历史带过的班
           </button>
         </div>
 
-        <!-- 快捷操作：语义图标按钮（白→淡绿渐变底，悬浮显示说明文案） -->
+        <!-- 快捷操作：渐变描边图标按钮，可点性常显 -->
         <div class="flex items-center gap-2" data-test="class-quick-actions">
           <AppIconButton
             label="导入花名册"
             data-test="import-roster-btn"
-            class="bg-gradient-to-b from-white to-mint hover:from-mint"
             @click="openImportDialog('smart')"
           >
             <!-- 花名册：大号 2×3 格表格在左下，加号在右上角外侧、与表格留白分离 -->
@@ -317,7 +344,6 @@ async function handleDeleteClass(recreate: boolean) {
           <AppIconButton
             label="新建班级"
             data-test="add-class-btn"
-            class="bg-gradient-to-b from-white to-mint hover:from-mint"
             @click="showCreateDialog = true"
           >
             <!-- 加号 + 尖顶房子 -->
@@ -353,67 +379,90 @@ async function handleDeleteClass(recreate: boolean) {
                   />
                 </svg>
               </div>
+              <!-- 班级名 + 简略信息独占一列，名称本身即改名入口（低频操作不占版面） -->
               <div class="min-w-0 flex-1">
                 <div class="flex items-center gap-1.5">
-                  <span class="truncate text-tagline font-semibold -tracking-[0.3px] text-ink">
-                    {{ g.name }}
-                  </span>
+                  <button
+                    type="button"
+                    data-test="rename-class-btn"
+                    class="group/name relative inline-flex min-w-0 items-center gap-1.5 text-left"
+                    :aria-label="`编辑班级名称：${g.name}`"
+                    @click.stop.prevent="openRenameDialog(g.name)"
+                  >
+                    <span class="truncate text-tagline font-semibold -tracking-[0.3px] text-ink transition-colors group-hover/name:text-primary">
+                      {{ g.name }}
+                    </span>
+                    <svg
+                      class="shrink-0 text-faint opacity-0 transition-opacity duration-150 group-hover/name:opacity-100"
+                      width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"
+                    >
+                      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                    </svg>
+                    <!-- 悬浮说明：WebView 原生 title 不可靠，自绘 tooltip -->
+                    <span
+                      role="tooltip"
+                      class="pointer-events-none absolute -top-1 left-0 z-10 -translate-y-full whitespace-nowrap rounded-sm bg-tile px-2 py-0.5 text-fine text-white opacity-0 shadow-md transition-opacity duration-150 group-hover/name:opacity-100 group-focus-visible/name:opacity-100"
+                    >
+                      点击编辑班级名称
+                    </span>
+                  </button>
                   <span
                     v-if="g.archived_at"
                     class="shrink-0 rounded-pill bg-parchment px-2 py-0.5 text-[11px] text-weak"
                   >
                     已归档
                   </span>
-                  <button
-                    type="button"
-                    class="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-weak opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100 hover:bg-parchment hover:text-ink"
-                    title="修改班级名称"
-                    @click.stop.prevent="openRenameDialog(g.name)"
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                    </svg>
-                  </button>
-                  <button
-                    v-if="!g.archived_at"
-                    type="button"
-                    data-test="archive-class-btn"
-                    class="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-weak opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100 hover:bg-parchment hover:text-ink"
-                    title="归档班级（移入历史带过的班）"
-                    @click.stop.prevent="openArchiveDialog(g.name)"
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                      <rect x="3" y="4" width="18" height="4" rx="1" />
-                      <path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4" />
-                    </svg>
-                  </button>
-                  <button
-                    type="button"
-                    data-test="delete-class-btn"
-                    class="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-weak opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100 hover:bg-[#fdeef0] hover:text-danger"
-                    title="删除班级"
-                    @click.stop.prevent="openDeleteDialog(g.name)"
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                      <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                      <path d="M10 11v6M14 11v6" />
-                    </svg>
-                  </button>
                 </div>
                 <p class="mt-0.5 text-caption text-weak">
                   {{ g.studentCount }} 名学生 ({{ g.maleCount }} 男 · {{ g.femaleCount }} 女)
                 </p>
               </div>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path
-                  d="M9 5l7 7-7 7"
-                  stroke="#7a7a7a"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                />
-              </svg>
+              <!-- 低频操作收进「⋯」菜单：归档 / 删除，一个班生命周期基本只用一次 -->
+              <div class="relative shrink-0" data-card-menu-root data-test="class-card-menu" @click.stop>
+                <AppIconButton
+                  label="更多操作"
+                  data-test="card-menu-btn"
+                  @click.stop.prevent="toggleCardMenu(g.name)"
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                    <circle cx="5" cy="12" r="1.7" />
+                    <circle cx="12" cy="12" r="1.7" />
+                    <circle cx="19" cy="12" r="1.7" />
+                  </svg>
+                </AppIconButton>
+                <div
+                  v-if="cardMenuFor === g.name"
+                  data-test="card-menu"
+                  class="absolute right-0 top-full z-30 mt-1.5 w-36 rounded-lg border border-hairline bg-canvas p-1.5 shadow-lg"
+                >
+                  <button
+                    v-if="!g.archived_at"
+                    type="button"
+                    data-test="card-menu-archive"
+                    class="inline-flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-caption text-muted transition-colors hover:bg-pearl hover:text-ink"
+                    @click.stop.prevent="closeCardMenu(); openArchiveDialog(g.name)"
+                  >
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <rect x="3" y="4" width="18" height="4" rx="1" />
+                      <path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4" />
+                    </svg>
+                    归档班级
+                  </button>
+                  <button
+                    type="button"
+                    data-test="card-menu-delete"
+                    class="inline-flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-caption text-danger transition-colors hover:bg-danger-soft"
+                    @click.stop.prevent="closeCardMenu(); openDeleteDialog(g.name)"
+                  >
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                      <path d="M10 11v6M14 11v6" />
+                    </svg>
+                    删除班级
+                  </button>
+                </div>
+              </div>
             </div>
 
             <div class="h-px w-full bg-hairline" />
@@ -465,8 +514,9 @@ async function handleDeleteClass(recreate: boolean) {
           <RouterLink to="/photos" class="text-caption text-primary">查看全部</RouterLink>
         </div>
 
-        <div class="mt-4 flex gap-6">
-          <div v-for="r in recent" :key="r.id" class="w-[302px]">
+        <!-- 最近记录：窄窗口时横向滚动查看，不折行不隐藏 -->
+        <div class="scrollbar-none mt-4 flex gap-6 overflow-x-auto pb-1">
+          <div v-for="r in recent" :key="r.id" class="w-[302px] shrink-0">
             <img
               v-if="r.url"
               :src="r.url"

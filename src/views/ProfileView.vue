@@ -379,10 +379,11 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
+  <!-- 顶栏：窄窗口保持单行，横向滚动查看全部操作，不压缩换行 -->
   <header
-    class="flex h-[52px] shrink-0 items-center justify-between border-b border-hairline bg-parchment px-8"
+    class="scrollbar-none flex h-[52px] shrink-0 items-center justify-between gap-4 overflow-x-auto border-b border-hairline bg-parchment px-8"
   >
-    <div class="flex items-center gap-2.5">
+    <div class="flex shrink-0 items-center gap-2.5">
       <button
         type="button"
         class="text-ink transition-colors hover:text-primary focus-visible:outline-2 focus-visible:outline-primary"
@@ -399,11 +400,11 @@ onBeforeUnmount(() => {
           />
         </svg>
       </button>
-      <h1 class="text-tagline font-semibold text-ink">
+      <h1 class="whitespace-nowrap text-tagline font-semibold text-ink">
         &#x4E2A;&#x4EBA;&#x8D44;&#x6599;
       </h1>
     </div>
-    <div class="flex items-center gap-3">
+    <div class="flex shrink-0 items-center gap-3">
       <p
         v-if="error"
         class="max-w-[360px] rounded-md border border-danger/30 bg-danger-soft px-3 py-1.5 text-right text-fine leading-5 text-danger"
@@ -412,7 +413,7 @@ onBeforeUnmount(() => {
       >
         {{ error }}
       </p>
-      <span v-if="saveStatus" class="text-caption text-weak" aria-live="polite">
+      <span v-if="saveStatus" class="whitespace-nowrap text-caption text-weak" aria-live="polite">
         {{ saveStatus }}
       </span>
       <AppButton
@@ -652,10 +653,10 @@ onBeforeUnmount(() => {
               type="button"
               data-test="subject-chip"
               :disabled="loading || saving || leaving || imageBusy"
-              class="rounded-pill border px-3 py-1 text-fine transition-colors disabled:opacity-40"
+              class="whitespace-nowrap rounded-pill border px-3 py-1 text-fine transition-colors disabled:opacity-40"
               :class="
                 isSelected(s)
-                  ? 'border-ink bg-ink text-canvas font-medium'
+                  ? 'grad-border-soft text-primary font-medium'
                   : 'border-hairline bg-canvas text-muted hover:border-ink'
               "
               @click="toggleSubject(s)"

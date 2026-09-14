@@ -22,7 +22,14 @@ import {
   round1,
   scoreRatio,
 } from "../lib/score-analysis";
-import { levelNameOfScore, levelOf } from "../lib/score-config";
+import {
+  levelNameOfScore,
+  levelOf,
+  levelRankOf,
+  levelStepText,
+  levelValueOf,
+  showLevelOnly,
+} from "../lib/score-config";
 import type {
   ExamType,
   StudentExamReport,
@@ -96,13 +103,36 @@ const bestTotal = computed(() =>
   numericTotals.value.length ? Math.max(...numericTotals.value) : null
 );
 
+/** 等级模式：总分判档需按科目数折算成单科口径（平均总分按平均科目数折算） */
+const avgSubjectCount = computed(() => {
+  const exams = (filteredReport.value?.exams ?? []).filter((e) => e.total !== null);
+  if (!exams.length) return 1;
+  return exams.reduce((a, e) => a + Math.max(1, e.subjects.length), 0) / exams.length;
+});
+
+/** 等级模式：最好总分对应场次的科目数 */
+const bestSubjectCount = computed(() => {
+  const exams = (filteredReport.value?.exams ?? []).filter(
+    (e) => e.total !== null && e.total === bestTotal.value
+  );
+  return exams[0]?.subjects.length ?? 1;
+});
+
+/** 总分判档：按科目数折算成单科口径（等级模式展示用） */
+function totalLevelText(total: number | null | undefined, subjectCount: number): string {
+  if (total === null || total === undefined) return "—";
+  return levelNameOfScore(total / Math.max(1, subjectCount));
+}
+
 /** 最近一次有名次的考试排名 */
 const latestRank = computed(
   () => filteredReport.value?.exams.find((e) => e.class_total_rank !== null)?.class_total_rank ?? null
 );
 
 function displayScore(s: StudentExamSubject): string {
-  if (s.score !== null) return String(s.score);
+  if (s.score !== null) {
+    return showLevelOnly.value ? levelNameOfScore(s.score) : String(s.score);
+  }
   return s.grade ?? "—";
 }
 
@@ -125,6 +155,17 @@ function barWidth(score: number | null | undefined): string {
   return `${Math.round(scoreRatio(score) * 100)}%`;
 }
 
+/** 进度条宽度：等级模式按档位代表值（同等级等宽） */
+function barWidthFor(score: number | null | undefined): string {
+  return barWidth(showLevelOnly.value ? levelValueOf(score) : score);
+}
+
+/** 班级均分文本：等级模式显示等级名（单科均分本身是 0~100 口径） */
+function avgText(value: number | null): string {
+  if (value === null) return "—";
+  return showLevelOnly.value ? levelNameOfScore(value) : formatNumber(value);
+}
+
 function deltaText(delta: number | null): string {
   if (delta === null) return "";
   if (delta > 0) return `↑ ${formatNumber(delta)}`;
@@ -140,8 +181,10 @@ function deltaClass(delta: number | null): string {
 }
 
 function totalText(exam: StudentExamReport): string {
-  if (exam.total !== null) return formatNumber(exam.total);
-  return exam.total_grade ?? "—";
+  if (exam.total === null) return exam.total_grade ?? "—";
+  return showLevelOnly.value
+    ? totalLevelText(exam.total, exam.subjects.length)
+    : formatNumber(exam.total);
 }
 
 /** 历次考试按时间正序（旧 → 新）；用于判断是否需要展示走势图 */
@@ -183,10 +226,23 @@ const activeBarMeta = computed(() => {
   const exam = activeBarExam.value;
   if (!exam) return [];
   const parts: string[] = [exam.exam_date.slice(0, 10), exam.exam_type === "major" ? "大考" : "小考"];
-  if (exam.total !== null) parts.push(`总分 ${formatNumber(exam.total)}`);
-  else if (exam.total_grade) parts.push(`等级 ${exam.total_grade}`);
+  if (exam.total !== null) {
+    parts.push(
+      showLevelOnly.value
+        ? `总分 ${totalLevelText(exam.total, exam.subjects.length)}`
+        : `总分 ${formatNumber(exam.total)}`
+    );
+  } else if (exam.total_grade) {
+    parts.push(`等级 ${exam.total_grade}`);
+  }
   if (exam.class_total_rank !== null) parts.push(`班级第 ${exam.class_total_rank}`);
-  if (exam.class_total_average !== null) parts.push(`班均 ${formatNumber(exam.class_total_average)}`);
+  if (exam.class_total_average !== null) {
+    parts.push(
+      showLevelOnly.value
+        ? `班均 ${totalLevelText(exam.class_total_average, exam.subjects.length)}`
+        : `班均 ${formatNumber(exam.class_total_average)}`
+    );
+  }
   return parts;
 });
 
@@ -245,7 +301,11 @@ const chartGroups = computed<ScoreChartGroup[]>(() => {
       })),
       series: subjectNames.map((name) => ({
         name,
-        values: list.map((e) => e.subjects.find((s) => s.subject === name)?.score ?? null),
+        values: list.map((e) => {
+          const score = e.subjects.find((s) => s.subject === name)?.score ?? null;
+          // 等级模式：纵坐标按档位代表值画，同等级同一水平线
+          return showLevelOnly.value ? levelValueOf(score) : score;
+        }),
       })),
     };
   };
@@ -288,6 +348,23 @@ function onPointClick(group: ScoreChartGroup | null, payload: { index: number })
   if (!exam) return;
   selectedExamId.value = selectedExamId.value === exam.exam_id ? null : exam.exam_id;
 }
+
+/** 详情卡「较上次」数值：等级模式按档位差（正数提升），否则按分差 */
+const selectedDelta = computed<number | null>(() => {
+  if (!selectedExam.value) return null;
+  if (showLevelOnly.value) {
+    const exams = filteredReport.value?.exams ?? [];
+    const index = exams.findIndex((e) => e.exam_id === selectedExam.value!.exam_id);
+    if (index < 0 || index + 1 >= exams.length) return null;
+    const cur = exams[index]!;
+    const prev = exams[index + 1]!;
+    if (cur.total === null || prev.total === null) return null;
+    const a = levelRankOf(cur.total / Math.max(1, cur.subjects.length));
+    const b = levelRankOf(prev.total / Math.max(1, prev.subjects.length));
+    return a !== null && b !== null ? a - b : null;
+  }
+  return selectedExam.value.total_delta;
+});
 </script>
 
 <template>
@@ -309,12 +386,16 @@ function onPointClick(group: ScoreChartGroup | null, payload: { index: number })
           <p class="mt-1 text-stat font-semibold text-ink">{{ filteredReport.exams.length }}</p>
         </div>
         <div class="bg-canvas px-4 py-3">
-          <p class="text-fine text-weak">平均总分</p>
-          <p class="mt-1 text-stat font-semibold text-ink">{{ formatNumber(averageTotal) }}</p>
+          <p class="text-fine text-weak">{{ showLevelOnly ? "平均等级" : "平均总分" }}</p>
+          <p class="mt-1 text-stat font-semibold text-ink">
+            {{ showLevelOnly ? totalLevelText(averageTotal, avgSubjectCount) : formatNumber(averageTotal) }}
+          </p>
         </div>
         <div class="bg-canvas px-4 py-3">
-          <p class="text-fine text-weak">最好总分</p>
-          <p class="mt-1 text-stat font-semibold text-primary">{{ formatNumber(bestTotal) }}</p>
+          <p class="text-fine text-weak">{{ showLevelOnly ? "最好等级" : "最好总分" }}</p>
+          <p class="mt-1 text-stat font-semibold text-primary">
+            {{ showLevelOnly ? totalLevelText(bestTotal, bestSubjectCount) : formatNumber(bestTotal) }}
+          </p>
         </div>
         <div class="bg-canvas px-4 py-3">
           <p class="text-fine text-weak">最近排名</p>
@@ -336,16 +417,16 @@ function onPointClick(group: ScoreChartGroup | null, payload: { index: number })
         </div>
 
         <!-- 场次入口：一次考试一个芯片，默认选中最近一场 -->
-        <div class="scroll-thin mt-3 flex flex-wrap items-center gap-2" data-test="subject-bars-exams">
+        <div class="scroll-thin mt-3 flex items-center gap-2 overflow-x-auto" data-test="subject-bars-exams">
           <button
             v-for="exam in filteredReport.exams"
             :key="exam.exam_id"
             type="button"
             :data-test="`subject-bars-exam-${exam.exam_id}`"
-            class="rounded-pill px-3 py-1.5 text-caption transition-colors"
+            class="whitespace-nowrap rounded-pill px-3 py-1.5 text-caption transition-colors"
             :class="
               exam.exam_id === activeBarExam.exam_id
-                ? 'bg-ink font-medium text-canvas'
+                ? 'grad-border-soft text-primary font-medium'
                 : 'border border-hairline bg-canvas text-weak hover:border-ink hover:text-ink'
             "
             @click="barExamId = exam.exam_id"
@@ -373,12 +454,13 @@ function onPointClick(group: ScoreChartGroup | null, payload: { index: number })
           class="rounded-lg border border-hairline bg-canvas p-4"
           :data-test="`line-chart-${activeGroup.type}`"
         >
-          <div class="flex flex-wrap items-center justify-between gap-2">
-            <p class="text-caption font-medium text-ink">
+          <!-- 走势节头：窄容器保持单行横向滚动，Tab 组不换行竖排 -->
+          <div class="scrollbar-none flex items-center justify-between gap-2 overflow-x-auto">
+            <p class="shrink-0 whitespace-nowrap text-caption font-medium text-ink">
               {{ activeGroup.title }}{{ activeSubject ? `·${activeSubject}` : "" }}成绩走势
             </p>
-            <div class="flex items-center gap-2">
-              <p class="text-fine text-weak">
+            <div class="flex shrink-0 items-center gap-2">
+              <p class="whitespace-nowrap text-fine text-weak">
                 {{ activeGroup.labels.length }} 次 · 悬浮看分数 · 点击看该次考试
               </p>
               <div
@@ -406,14 +488,14 @@ function onPointClick(group: ScoreChartGroup | null, payload: { index: number })
           </div>
 
           <!-- 科目维度：全部 = 每科一条线；选单科进入单科透视 -->
-          <div class="scroll-thin mt-3 flex flex-wrap items-center gap-2" data-test="subject-trend-chips">
+          <div class="scroll-thin mt-3 flex items-center gap-2 overflow-x-auto" data-test="subject-trend-chips">
             <button
               type="button"
               data-test="subject-chip-all"
-              class="rounded-pill px-3 py-1.5 text-caption transition-colors"
+              class="whitespace-nowrap rounded-pill px-3 py-1.5 text-caption transition-colors"
               :class="
                 activeSubject === null
-                  ? 'bg-ink font-medium text-canvas'
+                  ? 'grad-border-soft text-primary font-medium'
                   : 'border border-hairline bg-canvas text-weak hover:border-ink hover:text-ink'
               "
               @click="activeSubject = null"
@@ -425,10 +507,10 @@ function onPointClick(group: ScoreChartGroup | null, payload: { index: number })
               :key="subject"
               type="button"
               :data-test="`subject-chip-${subject}`"
-              class="inline-flex items-center gap-1.5 rounded-pill px-3 py-1.5 text-caption transition-colors"
+              class="inline-flex items-center gap-1.5 whitespace-nowrap rounded-pill px-3 py-1.5 text-caption transition-colors"
               :class="
                 activeSubject === subject
-                  ? 'bg-ink font-medium text-canvas'
+                  ? 'grad-border-soft text-primary font-medium'
                   : 'border border-hairline bg-canvas text-weak hover:border-ink hover:text-ink'
               "
               @click="activeSubject = subject"
@@ -456,6 +538,7 @@ function onPointClick(group: ScoreChartGroup | null, payload: { index: number })
               :series="activeGroup.series"
               :ids="activeGroup.exams.map((e) => e.exam_id)"
               :selected-index="selectedIndexOf(activeGroup)"
+              :value-formatter="showLevelOnly ? levelNameOfScore : undefined"
               @point-click="(payload) => onPointClick(activeGroup, payload)"
             />
           </div>
@@ -475,10 +558,10 @@ function onPointClick(group: ScoreChartGroup | null, payload: { index: number })
             class="mt-3 overflow-hidden rounded-lg border border-hairline"
           >
             <div
-              class="flex flex-wrap items-center justify-between gap-2 border-b border-hairline px-4 py-3"
+              class="scrollbar-none flex items-center justify-between gap-2 overflow-x-auto border-b border-hairline px-4 py-3"
             >
-              <div class="min-w-0">
-                <p class="text-caption font-semibold text-ink">
+              <div class="shrink-0">
+                <p class="whitespace-nowrap text-caption font-semibold text-ink">
                   {{ selectedExam.exam_name }}
                   <span class="ml-2 font-normal text-weak">
                     {{ selectedExam.exam_date.slice(0, 10) }}
@@ -487,24 +570,30 @@ function onPointClick(group: ScoreChartGroup | null, payload: { index: number })
                     {{ selectedExam.exam_type === "major" ? "大考" : "小考" }}
                   </span>
                 </p>
-                <p class="mt-0.5 text-fine text-weak">
+                <p class="mt-0.5 whitespace-nowrap text-fine text-weak">
                   <template v-if="selectedExam.class_total_rank !== null">
                     班级第 {{ selectedExam.class_total_rank }} / {{ selectedExam.class_student_count }} 名
                   </template>
                   <template v-else>等级制考试</template>
                   <template v-if="selectedExam.class_total_average !== null">
-                    · 班均总分 {{ formatNumber(selectedExam.class_total_average) }}
+                    ·
+                    {{ showLevelOnly ? "班均等级" : "班均总分" }}
+                    {{
+                      showLevelOnly
+                        ? totalLevelText(selectedExam.class_total_average, selectedExam.subjects.length)
+                        : formatNumber(selectedExam.class_total_average)
+                    }}
                   </template>
                 </p>
               </div>
-              <div class="flex items-center gap-2">
+              <div class="flex shrink-0 items-center gap-2">
                 <span
-                  v-if="selectedExam.total_delta !== null"
-                  class="text-fine font-medium"
-                  :class="deltaClass(selectedExam.total_delta)"
+                  v-if="selectedDelta !== null"
+                  class="whitespace-nowrap text-fine font-medium"
+                  :class="deltaClass(selectedDelta)"
                   data-test="score-delta"
                 >
-                  {{ deltaText(selectedExam.total_delta) }}
+                  {{ showLevelOnly ? levelStepText(selectedDelta) : deltaText(selectedDelta) }}
                 </span>
                 <span
                   class="rounded-pill bg-primary-soft px-2.5 py-0.5 text-caption font-semibold"
@@ -513,8 +602,9 @@ function onPointClick(group: ScoreChartGroup | null, payload: { index: number })
                 >
                   {{ totalText(selectedExam) }}
                 </span>
+                <!-- 等级模式下总分徽标已是等级名，单科口径的等级徽标省去避免重复 -->
                 <span
-                  v-if="avgSingleOf(selectedExam) !== null"
+                  v-if="!showLevelOnly && avgSingleOf(selectedExam) !== null"
                   class="text-fine"
                   :class="levelText(avgSingleOf(selectedExam))"
                   data-test="score-level"
@@ -549,12 +639,12 @@ function onPointClick(group: ScoreChartGroup | null, payload: { index: number })
                   <span
                     class="block h-full rounded-pill"
                     :class="barClass(s.score)"
-                    :style="{ width: barWidth(s.score) }"
+                    :style="{ width: barWidthFor(s.score) }"
                   />
                 </span>
                 <span class="shrink-0 whitespace-nowrap text-fine text-weak">
                   <template v-if="s.class_average !== null">
-                    班均 {{ formatNumber(s.class_average) }}
+                    班均 {{ avgText(s.class_average) }}
                     <template v-if="s.class_rank !== null"> · 第 {{ s.class_rank }}</template>
                   </template>
                   <template v-else>—</template>

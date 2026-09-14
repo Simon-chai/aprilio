@@ -493,8 +493,10 @@ onBeforeUnmount(() => {
       </AppButton>
     </div>
 
+    <!-- 网格整体：窄容器不出竖排、不裁列，横向滚动查看全部 5 天 -->
+    <div class="scroll-thin space-y-3 overflow-x-auto">
     <!-- 星期表头：兼任该班全天备忘入口（点列头速记，备忘挂本周对应日期） -->
-    <div class="grid grid-cols-[64px_repeat(5,minmax(0,1fr))] gap-px">
+    <div class="grid min-w-[700px] grid-cols-[64px_repeat(5,minmax(0,1fr))] gap-px">
       <div class="flex min-h-8 items-center justify-center text-fine text-weak">节次</div>
       <div
         v-for="(label, i) in WEEKDAY_LABELS"
@@ -622,7 +624,7 @@ onBeforeUnmount(() => {
         <span class="h-px flex-1 bg-divider" />
       </div>
       <div
-        class="grid gap-px"
+        class="grid min-w-[700px] gap-px"
         :style="{
           gridTemplateColumns: '64px repeat(5, minmax(0, 1fr))',
           gridTemplateRows: `repeat(${group.periods.length}, 3.5rem)`,
@@ -681,7 +683,7 @@ onBeforeUnmount(() => {
                 @contextmenu="onCellContextMenu($event, day, b.startPeriod, b.span)"
               >
                 <template v-if="b.cell">
-                  <span class="flex items-center gap-1 text-caption font-medium">
+                  <span class="flex items-center gap-1 whitespace-nowrap text-caption font-medium">
                     {{ b.cell.subject }}
                     <span
                       v-if="isMine(b.cell.subject)"
@@ -737,10 +739,10 @@ onBeforeUnmount(() => {
                     v-for="s in SUBJECT_PRESETS"
                     :key="s"
                     type="button"
-                    class="rounded-pill px-2.5 py-1 text-fine transition-colors border"
+                    class="whitespace-nowrap rounded-pill px-2.5 py-1 text-fine transition-colors border"
                     :class="
                       editSubject === s
-                        ? 'border-ink bg-ink text-canvas font-medium'
+                        ? 'grad-border-soft text-primary font-medium'
                         : 'border-hairline bg-canvas text-muted hover:border-ink'
                     "
                     @click="editSubject = s"
@@ -900,6 +902,7 @@ onBeforeUnmount(() => {
         </template>
       </div>
     </template>
+    </div>
 
     <!-- 节次设置弹窗 -->
     <div
@@ -909,7 +912,7 @@ onBeforeUnmount(() => {
     >
       <div
         data-test="period-editor"
-        class="w-[440px] max-h-[80vh] overflow-y-auto scroll-thin rounded-lg border border-hairline bg-canvas p-5 shadow-lg"
+        class="w-[440px] max-w-full max-h-[80vh] overflow-y-auto scroll-thin rounded-lg border border-hairline bg-canvas p-5 shadow-lg"
       >
         <h3 class="text-body font-semibold text-ink">节次设置</h3>
         <p class="mt-1 text-fine text-weak">

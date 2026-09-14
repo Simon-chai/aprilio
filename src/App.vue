@@ -17,9 +17,10 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="app-no-select flex h-full w-full overflow-hidden bg-canvas text-ink">
-    <AppSidebar v-if="!fullBleed" />
-    <main class="flex min-w-0 flex-1 flex-col overflow-hidden">
+  <!-- 小屏兜底：主内容保底 880px，窗口不够宽时整体左右滚动，任何页面不再压缩换行或隐藏字段 -->
+  <div class="app-no-select scroll-thin flex h-full w-full overflow-x-auto overflow-y-hidden bg-canvas text-ink">
+    <AppSidebar v-if="!fullBleed" class="sticky left-0 top-0 z-20 self-stretch" />
+    <main class="flex min-w-[880px] flex-1 flex-col overflow-hidden">
       <RouterView />
     </main>
     <!-- AI 助手全局浮层：任何页面都可唤起，由自主 Agent 框架驱动 -->

@@ -45,10 +45,11 @@ const activeName = computed(() => {
         v-for="item in items"
         :key="item.name"
         :to="{ name: item.name }"
-        class="flex h-10 items-center gap-2.5 rounded-sm px-3 text-caption transition-colors"
+        class="flex h-10 items-center gap-2.5 rounded-sm px-3 text-caption transition-[color,background-color,transform,box-shadow] duration-200"
         :class="
           activeName === item.name
-            ? 'bg-canvas font-semibold text-ink'
+            ? /* 提起感：整行轻微放大并向左上偏移，像被从导航里拎起来，浅影托底 */
+              'bg-canvas font-semibold text-ink origin-left scale-[1.04] -translate-x-0.5 -translate-y-0.5 shadow-[0_4px_12px_rgba(29,29,31,0.10)]'
             : 'text-muted hover:bg-canvas/60'
         "
       >

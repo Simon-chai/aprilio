@@ -146,12 +146,13 @@ async function onDelete() {
   <div class="space-y-4" data-test="term-comment-panel">
     <!-- 本学期评语编辑 -->
     <div class="rounded-lg border border-hairline bg-canvas p-4">
-      <div class="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <p class="text-caption font-semibold text-ink">学期评语 · {{ semesterLabel(semester) }}</p>
-          <p class="mt-0.5 text-fine text-weak">每生每学期一条期末评语，重复保存覆盖</p>
+      <!-- 面板头：窄容器保持单行横向滚动，按钮不换行竖排 -->
+      <div class="scrollbar-none flex items-center justify-between gap-2 overflow-x-auto">
+        <div class="shrink-0">
+          <p class="whitespace-nowrap text-caption font-semibold text-ink">学期评语 · {{ semesterLabel(semester) }}</p>
+          <p class="mt-0.5 whitespace-nowrap text-fine text-weak">每生每学期一条期末评语，重复保存覆盖</p>
         </div>
-        <div class="flex items-center gap-2">
+        <div class="flex shrink-0 items-center gap-2">
           <AppButton
             v-if="aiReady"
             variant="secondary"

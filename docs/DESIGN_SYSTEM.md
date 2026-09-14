@@ -4,7 +4,7 @@ aprilio 的视觉规范与 token 约定。**唯一事实源是 `src/style.css` �
 
 ## 一句话原则
 
-单一强调色 Action Blue，层级靠底色分层与 1px 发丝线表达，不靠阴影和重色块。
+单一强调色 Action Blue，层级靠底色分层与 1px 发丝线表达，不靠阴影和重色块。可操作语义用**渐变能量线**常显（见下节），不依赖悬浮。
 
 ## 校园气质（氛围色）
 
@@ -57,6 +57,20 @@ aprilio 的视觉规范与 token 约定。**唯一事实源是 `src/style.css` �
 
 监护人风格标签（情感倾向，判定逻辑见 `src/lib/guardian-tags.ts`）：`tag-positive` / `tag-positive-soft`、`tag-negative` / `tag-negative-soft`。
 
+### 渐变能量线（可操作语义层）
+
+方案 C（详见 [docs/interaction-style-proposal.html](interaction-style-proposal.html)，2026-09 采纳）：主色沿自身色系提亮做微渐变，让「能点」在静止状态下就被识别。**不引入第二强调色**。
+
+| Token | 值 | 用途 |
+| --- | --- | --- |
+| `--grad-primary` | `linear-gradient(135deg,#0066cc,#0091ff)` | 主按钮渐变实底（叠在 `bg-primary` 之上）、Tab 能量线 |
+| `--grad-border-primary` | `rgba(0,102,204,.65) → rgba(0,145,255,.45)` | 渐变描边：次级按钮 / 图标按钮 / 跳转胶囊 |
+| `--grad-border-danger` | `rgba(215,0,21,.55) → rgba(255,90,60,.4)` | 危险操作渐变描边 |
+
+工具类（`src/style.css` @layer utilities）：`grad-border`（白底填充）、`grad-border-soft`（`primary-soft` 填充，组内选中态）、`grad-border-danger`、`btn-grad`（主按钮渐变）、`tab-energy`（Tab 底部渐变指示线，按钮需 `-mb-px` 贴住容器 `border-b`）、`metric-energy`（概览卡顶部渐变细线）。
+
+选中态语言：**Tab 用能量线，分段/筛选胶囊用 `grad-border-soft`，一律不再用 `bg-ink` 黑底**。侧边导航例外：选中项用「提起感」（见组件规范）。
+
 ## 字体
 
 字体族 `font-sans`：Inter → system-ui → PingFang SC / Microsoft YaHei。字号 token 自带行高与字距，**负字距是这套视觉的灵魂**，不要手动覆盖。
@@ -84,14 +98,25 @@ aprilio 的视觉规范与 token 约定。**唯一事实源是 `src/style.css` �
 
 ## 阴影
 
-**全站只有两处投影**，卡片、按钮、文字一律不加：
+全站投影分三类，卡片、文字一律不加：
 
 | Token | 值 | 用途 |
 | --- | --- | --- |
 | `shadow-photo` | `3px 5px 30px rgba(0,0,0,.22)` | 图片 |
 | `shadow-window` | `0 24px 60px -12px rgba(0,0,0,.18)` | 窗口 / 浮层 |
+| `shadow-glow` / `shadow-halo(-danger)` | 渐变按钮光晕 / 描边元素光环 | **仅 hover 反馈**（方案 C），不做层级表达 |
 
 层级靠底色切换（`canvas` / `parchment` / `tile`）与 1px 发丝线表达，而不是阴影。
+
+## 窄窗口策略（小屏不竖排、不隐藏）
+
+窗口变窄时**一律横向滚动，不压缩、不换行、不隐藏**——字段和操作按钮永远要能查看与点击。参考实现：`StudentTable.vue`（表格）、`StudentDetailView.vue`（页头 + 内容兜底）。
+
+- **外壳兜底**：`App.vue` 主内容保底 `min-w-[880px]`，根容器 `overflow-x-auto`，侧栏 `sticky left-0` 常驻
+- **表格/矩阵**：单元格 `whitespace-nowrap`，容器 `overflow-x-auto`（需要时加 `min-w-[...]` 撑出列宽），禁止 `overflow-hidden` 裁切、禁止小屏隐藏列
+- **结构性行**（页头、工具栏、卡片头、筛选条、统计条）：容器 `flex items-center ... overflow-x-auto`（配 `scrollbar-none`），子项 `shrink-0 whitespace-nowrap`，**不用 `flex-wrap`**
+- **标签云 / 图例 / 表单字段组**（弹窗内、卡片内容里）：允许换行，不属于本条约束
+- 断点类（`sm:` `lg:`）只允许整卡重排（如指标卡 1→2→4 列），不允许隐藏字段或操作
 
 ## 组件规范
 
@@ -99,13 +124,17 @@ aprilio 的视觉规范与 token 约定。**唯一事实源是 `src/style.css` �
 
 | 组件 | 变体 / 要点 |
 | --- | --- |
-| `AppButton` | `primary`（实底主操作）/ `secondary`（描边）/ `pearl` / `dark` / `danger` / `link` |
-| `AppLink` | `variant="chip"` = 跳转胶囊（默认）；`variant="action"` = 原地动作轻文字；`tone` 处理深色底与危险色 |
+| `AppButton` | `primary`（渐变实底 + hover 光晕上浮）/ `secondary`（渐变描边胶囊）/ `pearl`（渐变描边方角）/ `dark` / `danger`（红渐变描边）/ `link` |
+| `AppLink` | `variant="chip"` = 跳转胶囊（默认；primary/danger 为渐变描边）；`variant="action"` = 原地动作轻文字；`tone` 处理深色底与危险色 |
 | `AppInput` | `variant="search"`（胶囊）/ `variant="field"`（方角） |
 | `AppCard` | 18px 圆角 + 发丝线，不加阴影 |
-| `AppIconButton` | 图标按钮，自带 tooltip |
+| `AppIconButton` | 渐变描边图标按钮；`show-label` 升级为「图标+文字」胶囊；`tone="danger"`；`size="sm"` 卡片行内小号。极低频操作（一个对象生命周期约一次，如班级归档/删除）优先收进「⋯」溢出菜单，不与标题争空间 |
 | `StatusChip` | `info` / `neutral` / `success` 状态胶囊 |
 | `EmptyState` | 空态占位 |
+
+### 侧边导航「提起感」（专属例外）
+
+`AppSidebar` 选中项不使用方案 C 皮肤：整行 `origin-left scale-[1.04] -translate-x-0.5 -translate-y-0.5` + `shadow-[0_4px_12px_rgba(29,29,31,0.10)]`，像被从导航里轻轻拎起；浅影只属于这个提起瞬间。
 
 ## 动效
 
@@ -115,7 +144,8 @@ aprilio 的视觉规范与 token 约定。**唯一事实源是 `src/style.css` �
 
 ## 维护约定
 
-- 新增颜色 / 字号 / 圆角 / 阴影 **只加到 `src/style.css` 的 `@theme`**，并同步更新本表
+- 新增颜色 / 字号 / 圆角 / 阴影 / 渐变 **只加到 `src/style.css` 的 `@theme`**，并同步更新本表
 - 不新增第二强调色；确需语义色时优先复用 `success` / `danger` 或新增带语义命名的 token
-- 不给卡片、按钮、文字加阴影
+- 不给卡片、按钮、文字加静态阴影；`shadow-glow` / `shadow-halo` 仅限 hover 反馈
 - 深浅底切换用 token，不写死 `#fff` / `#000`
+- 可操作元素必须常显可点信号（渐变描边 / 图标+文字），**「悬浮才出现」只允许作为熟练用户的快捷路径补充**

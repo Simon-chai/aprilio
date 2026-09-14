@@ -15,7 +15,7 @@ const cls = computed(() => {
 
 <template>
   <span
-    class="inline-flex items-center rounded-pill px-2.5 py-[5px] text-fine font-semibold"
+    class="inline-flex items-center whitespace-nowrap rounded-pill px-2.5 py-[5px] text-fine font-semibold"
     :class="cls"
   >
     <slot />

@@ -1,0 +1,1402 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>aprilio · 交互可发现性样式提案（现状 vs 方案 A / B / C）</title>
+<style>
+/* ================================================================
+   提案文档本身
+   ================================================================ */
+:root{
+  /* —— 复刻 src/style.css @theme —— */
+  --primary:#0066cc; --primary-focus:#0071e3; --primary-on-dark:#2997ff; --primary-soft:#eaf3fc;
+  --ink:#1d1d1f; --muted:#333333; --weak:#7a7a7a; --faint:#cccccc;
+  --canvas:#ffffff; --parchment:#f5f5f7; --pearl:#fafafc; --mint:#e8f5ec;
+  --hairline:#e0e0e0; --divider:#f0f0f0; --tile:#272729;
+  --danger:#d70015; --danger-soft:#fdeef0; --success:#248a3d;
+  /* —— 方案 C 新增提案 token —— */
+  --grad-primary:linear-gradient(135deg,#0066cc,#0091ff);
+  --grad-danger:linear-gradient(135deg,#d70015,#ff5a3c);
+  --glow-primary:0 6px 18px rgba(0,102,204,.35);
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0;color:var(--ink);
+  font-family:Inter,system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+  -webkit-font-smoothing:antialiased;
+  background:#f4f6f9;
+  background-image:radial-gradient(circle,#e3e7ee 1px,transparent 1px);
+  background-size:26px 26px;
+}
+button{font-family:inherit}
+.wrap{max-width:1400px;margin:0 auto;padding:44px 40px 110px}
+
+/* 顶部 */
+.hero{background:var(--canvas);border:1px solid var(--hairline);border-radius:18px;padding:36px 40px 30px}
+.hero .kicker{font-size:12px;font-weight:600;letter-spacing:2.5px;color:var(--primary);text-transform:uppercase}
+.hero h1{margin:10px 0 0;font-size:34px;line-height:1.25;letter-spacing:-.5px;font-weight:700}
+.hero .sub{margin:12px 0 0;max-width:860px;font-size:14px;line-height:1.75;color:var(--muted)}
+.hero .sub b{color:var(--ink)}
+.problems{display:flex;flex-wrap:wrap;gap:10px;margin-top:22px}
+.problem{display:flex;align-items:flex-start;gap:8px;background:var(--parchment);border:1px solid var(--hairline);border-radius:12px;padding:10px 14px;font-size:12.5px;line-height:1.6;color:var(--muted);max-width:400px}
+.problem .dot{flex:none;width:7px;height:7px;border-radius:99px;background:var(--danger);margin-top:6px}
+.problem b{color:var(--ink)}
+
+/* 目录 */
+.toc{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}
+.toc a{font-size:12.5px;color:var(--muted);text-decoration:none;background:var(--canvas);border:1px solid var(--hairline);border-radius:999px;padding:6px 14px;transition:all .15s}
+.toc a:hover{border-color:var(--primary);color:var(--primary);background:var(--primary-soft)}
+
+/* 方案定义卡 */
+.plan-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;margin-top:26px}
+.plan-card{background:var(--canvas);border:1px solid var(--hairline);border-radius:16px;padding:22px 24px;position:relative;overflow:hidden}
+.plan-card::before{content:"";position:absolute;inset:0 0 auto 0;height:3px}
+.plan-card.pa::before{background:var(--primary)}
+.plan-card.pb::before{background:var(--primary-soft);border-bottom:1px solid rgba(0,102,204,.25)}
+.plan-card.pc::before{background:var(--grad-primary)}
+.plan-card .tag{display:inline-block;font-size:11px;font-weight:700;letter-spacing:1.5px;padding:3px 10px;border-radius:99px}
+.plan-card.pa .tag{border:1px solid var(--primary);color:var(--primary)}
+.plan-card.pb .tag{background:var(--primary-soft);color:var(--primary)}
+.plan-card.pc .tag{background:var(--grad-primary);color:#fff}
+.plan-card h3{margin:12px 0 2px;font-size:19px;letter-spacing:-.3px}
+.plan-card .en{font-size:11px;letter-spacing:1.8px;color:var(--weak);text-transform:uppercase}
+.plan-card p{margin:12px 0 0;font-size:12.5px;line-height:1.75;color:var(--muted)}
+.plan-card .meta{margin-top:14px;display:grid;gap:5px;font-size:12px;color:var(--muted)}
+.plan-card .meta span b{color:var(--ink);font-weight:600}
+.stars{color:var(--primary);letter-spacing:2px}
+
+/* 对比矩阵 */
+.matrix-wrap{background:var(--canvas);border:1px solid var(--hairline);border-radius:16px;margin-top:26px;overflow-x:auto}
+table.matrix{width:100%;border-collapse:collapse;min-width:980px}
+table.matrix th,table.matrix td{padding:14px 18px;border-bottom:1px solid var(--divider);text-align:left;vertical-align:middle;font-size:13px}
+table.matrix tr:last-child td{border-bottom:0}
+table.matrix th{font-size:11.5px;letter-spacing:1px;color:var(--weak);font-weight:600;background:var(--pearl)}
+table.matrix td:first-child{color:var(--muted);font-weight:600;white-space:nowrap;font-size:12.5px}
+.col-cur{color:var(--weak)} .col-a{color:var(--primary)} .col-b{color:var(--primary)} .col-c{color:var(--primary);font-weight:700}
+
+/* 页面章节 */
+.page-section{margin-top:64px;scroll-margin-top:20px}
+.sec-head{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+.sec-no{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;color:var(--primary);letter-spacing:1.5px;font-weight:600}
+.sec-head h2{margin:0;font-size:25px;letter-spacing:-.4px;font-weight:700}
+.sec-head .file{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:11px;color:var(--weak);background:var(--canvas);border:1px solid var(--hairline);border-radius:6px;padding:2px 8px}
+.diag{margin:14px 0 20px;display:flex;flex-direction:column;gap:7px}
+.diag-line{display:flex;align-items:flex-start;gap:9px;font-size:13px;line-height:1.65;color:var(--muted)}
+.diag-line .dot{flex:none;width:6px;height:6px;border-radius:99px;margin-top:7px;background:var(--danger)}
+.diag-line.good .dot{background:var(--success)}
+.diag-line b{color:var(--ink)}
+.diag-line code{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;background:var(--parchment);border:1px solid var(--hairline);border-radius:5px;padding:1px 5px;color:var(--ink)}
+
+/* 面板栅格 */
+.panels{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px}
+.panel{background:var(--canvas);border:1px solid var(--hairline);border-radius:16px;overflow:hidden;display:flex;flex-direction:column}
+.panel.wide{grid-column:1/-1}
+.panel-head{display:flex;align-items:center;gap:10px;padding:12px 18px;border-bottom:1px solid var(--divider)}
+.panel-tag{flex:none;font-size:11px;font-weight:700;letter-spacing:1.2px;padding:3px 10px;border-radius:99px}
+.panel-tag.cur{background:var(--parchment);color:var(--weak);border:1px solid var(--hairline)}
+.panel-tag.a{border:1px solid var(--primary);color:var(--primary)}
+.panel-tag.b{background:var(--primary-soft);color:var(--primary)}
+.panel-tag.c{background:var(--grad-primary);color:#fff}
+.panel-title{font-size:14px;font-weight:600;letter-spacing:-.2px}
+.try{margin-left:auto;font-size:11px;color:var(--primary);background:var(--primary-soft);border-radius:99px;padding:3px 10px;white-space:nowrap}
+.try.dim{background:var(--parchment);color:var(--weak)}
+.panel-desc{padding:11px 18px 0;font-size:12.5px;line-height:1.7;color:var(--muted)}
+.panel-desc b{color:var(--primary);font-weight:600}
+.panel-desc .k{color:var(--ink);font-weight:600}
+
+/* 画布：模拟应用页面底 */
+.screen{margin:14px 18px 18px;border:1px solid var(--hairline);border-radius:12px;background:var(--parchment);padding:18px;overflow:hidden}
+.screen.cvb{background:var(--canvas)}
+.hover-note{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:#a25e00;background:#faf1e0;border:1px dashed rgba(162,94,0,.4);border-radius:6px;padding:2px 8px;white-space:nowrap}
+.hover-note.slim{border-style:dashed}
+
+/* 页面标题行 */
+.mock-h1{font-size:24px;font-weight:700;letter-spacing:-.4px;margin:0}
+.mock-stats{font-size:12.5px;color:var(--weak);margin-top:5px;letter-spacing:-.2px}
+.mock-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.mock-note{font-size:12px;color:var(--weak)}
+.spacer{flex:1}
+
+/* ================================================================
+   mock 共用 reset
+   ================================================================ */
+.m{border:0;background:none;padding:0;margin:0;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap;color:inherit;transition:all .15s ease;user-select:none}
+.m:active{transform:scale(.97)}
+.m svg{flex:none}
+
+/* ================================================================
+   现状（cur）—— 严格复刻当前实现
+   ================================================================ */
+.cur-primary{height:36px;padding:0 18px;border-radius:999px;background:var(--primary);color:#fff;font-size:14px;letter-spacing:-.2px}
+.cur-primary:hover{background:var(--primary-focus)}
+.cur-secondary{height:36px;padding:0 18px;border-radius:999px;border:1px solid var(--primary);color:var(--primary);font-size:14px;background:transparent}
+.cur-secondary:hover{background:var(--primary-soft)}
+.cur-pearl{height:32px;padding:0 14px;border-radius:8px;border:1px solid var(--hairline);background:var(--pearl);color:var(--muted);font-size:14px}
+.cur-pearl:hover{background:var(--parchment)}
+.cur-danger{height:36px;padding:0 18px;border-radius:999px;border:1px solid var(--danger);color:var(--danger);font-size:14px;background:transparent}
+.cur-danger:hover{background:var(--danger-soft)}
+.cur-icon{width:32px;height:32px;border-radius:11px;border:1px solid var(--hairline);background:var(--canvas);color:var(--weak)}
+.cur-icon:hover{border-color:var(--ink);color:var(--ink)}
+.cur-icon.mint{background:linear-gradient(180deg,#fff,var(--mint))}
+.cur-icon.mint:hover{background:var(--mint)}
+.cur-ghost{width:28px;height:28px;border-radius:8px;color:var(--weak)}
+.cur-ghost:hover{background:var(--pearl);color:var(--ink)}
+.cur-ghost.dgr:hover{background:var(--danger-soft);color:var(--danger)}
+.cur-chip{height:28px;padding:0 10px;border-radius:999px;border:1px solid var(--hairline);background:var(--canvas);color:var(--weak);font-size:14px}
+.cur-chip:hover{border-color:var(--faint);background:var(--pearl);color:var(--ink)}
+.cur-select{height:32px;border:1px solid var(--hairline);border-radius:8px;background:var(--canvas);padding:0 10px;font-size:13px;color:var(--ink);cursor:pointer}
+.cur-tab{padding:8px 16px;border-radius:8px;font-size:14px;color:var(--weak);letter-spacing:-.2px}
+.cur-tab:hover{color:var(--ink);background:var(--pearl)}
+.cur-tab.is-active{background:var(--ink);color:var(--canvas);font-weight:500}
+.cur-seg{display:inline-flex;padding:4px;border-radius:11px;border:1px solid var(--hairline);background:var(--parchment)}
+.cur-seg button{padding:6px 12px;border-radius:6px;font-size:14px;color:var(--weak)}
+.cur-seg button:hover{color:var(--ink)}
+.cur-seg button.is-active{background:var(--canvas);color:var(--primary);font-weight:500}
+.cur-pillgroup{display:inline-flex;padding:2px;border-radius:999px;border:1px solid var(--hairline);background:var(--canvas)}
+.cur-pillgroup button{padding:6px 16px;border-radius:999px;font-size:14px;color:var(--weak)}
+.cur-pillgroup button.is-active{background:var(--ink);color:var(--canvas);font-weight:500}
+.cur-typepill{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:999px;border:1px solid var(--hairline);font-size:12px;color:var(--weak);background:transparent}
+.cur-typepill:hover{border-color:var(--ink);color:var(--ink)}
+.cur-typepill.is-active{background:var(--ink);border-color:var(--ink);color:#fff;font-weight:500}
+.cur-search{height:36px;width:300px;max-width:100%;border:1px solid var(--hairline);border-radius:999px;background:var(--canvas);display:flex;align-items:center;gap:8px;padding:0 14px;font-size:13px;color:var(--weak)}
+.cur-metric{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:18px 22px;border:1px solid var(--hairline);border-radius:18px;background:var(--canvas);text-align:left;cursor:pointer;transition:all .15s;width:230px}
+.cur-metric:hover{border-color:var(--primary)}
+.cur-metric .lab{font-size:13px;color:var(--weak);display:flex;align-items:center;gap:8px;width:100%}
+.cur-metric .lab .arr{margin-left:auto;color:var(--faint);display:inline-flex}
+.cur-metric:hover .arr{color:var(--primary);transform:translateX(2px)}
+.cur-metric .num{font-size:24px;font-weight:600;letter-spacing:-.3px;margin-top:4px}
+.cur-metric .sub{font-size:12px;color:var(--muted);margin-top:2px}
+.cur-navitem{width:100%;height:40px;padding:0 12px;border-radius:8px;display:flex;align-items:center;gap:10px;font-size:14px;color:var(--muted);cursor:pointer;transition:all .15s;position:relative}
+.cur-navitem:hover{background:rgba(255,255,255,.6)}
+.cur-navitem.is-active{background:var(--canvas);color:var(--ink);font-weight:600}
+.cur-subject{padding:4px 12px;border-radius:999px;background:var(--ink);color:var(--canvas);font-size:12px;font-weight:500;cursor:default}
+.cur-semchip{padding:4px 10px;border-radius:999px;background:var(--primary-soft);color:var(--primary);font-size:12px;cursor:default}
+.cur-quickpill{padding:4px 12px;border-radius:999px;background:var(--primary-soft);color:var(--primary);font-size:12px;font-weight:500}
+.cur-quickpill:hover{background:var(--primary);color:#fff}
+.cur-viewlink{color:var(--weak);font-size:13px;cursor:pointer;transition:color .15s}
+.cur-viewlink:hover{color:var(--ink)}
+
+/* ================================================================
+   方案 A —— 线框强化 Quiet Outline：主色描边说「可点」
+   ================================================================ */
+.pa-pearl{height:32px;padding:0 14px;border-radius:8px;border:1px solid var(--hairline);background:var(--canvas);color:var(--muted);font-size:14px}
+.pa-pearl:hover{border-color:var(--primary);color:var(--primary);background:var(--primary-soft)}
+.pa-icon{width:32px;height:32px;border-radius:11px;border:1px solid var(--hairline);background:var(--canvas);color:var(--muted)}
+.pa-icon:hover{border-color:var(--primary);color:var(--primary);background:#f0f7fd}
+.pa-labeled{height:28px;padding:0 11px;border-radius:8px;border:1px solid var(--hairline);background:var(--canvas);color:var(--muted);font-size:12px;font-weight:500}
+.pa-labeled:hover{border-color:var(--primary);color:var(--primary);background:var(--primary-soft)}
+.pa-labeled.dgr{border-color:rgba(215,0,21,.45);color:var(--danger)}
+.pa-labeled.dgr:hover{border-color:var(--danger);background:var(--danger-soft);color:var(--danger)}
+.pa-chip{height:28px;padding:0 10px;border-radius:999px;border:1px solid var(--hairline);background:var(--canvas);color:var(--muted);font-size:14px}
+.pa-chip:hover{border-color:var(--primary);color:var(--primary);background:var(--primary-soft)}
+.pa-tab{padding:8px 16px;border-radius:8px;font-size:14px;color:var(--weak);border:1px solid transparent;letter-spacing:-.2px}
+.pa-tab:hover{color:var(--ink);background:var(--pearl)}
+.pa-tab.is-active{background:var(--canvas);border-color:var(--primary);color:var(--primary);font-weight:600}
+.pa-seg{display:inline-flex;padding:4px;border-radius:11px;border:1px solid var(--hairline);background:var(--parchment)}
+.pa-seg button{padding:6px 12px;border-radius:6px;font-size:14px;color:var(--weak);border:1px solid transparent}
+.pa-seg button:hover{color:var(--ink)}
+.pa-seg button.is-active{background:var(--canvas);border-color:var(--primary);color:var(--primary);font-weight:500;padding:5px 11px}
+.pa-pillgroup{display:inline-flex;padding:2px;border-radius:999px;border:1px solid var(--hairline);background:var(--canvas)}
+.pa-pillgroup button{padding:6px 16px;border-radius:999px;font-size:14px;color:var(--weak);border:1px solid transparent}
+.pa-pillgroup button.is-active{background:var(--canvas);border-color:var(--primary);color:var(--primary);font-weight:600;padding:5px 15px}
+.pa-typepill{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:999px;border:1px solid var(--hairline);font-size:12px;color:var(--weak);background:transparent}
+.pa-typepill:hover{border-color:var(--faint);color:var(--ink)}
+.pa-typepill.is-active{border-color:var(--primary);color:var(--primary);font-weight:500;background:var(--canvas)}
+.pa-metric{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:18px 22px;border:1px solid var(--hairline);border-radius:18px;background:var(--canvas);text-align:left;cursor:pointer;transition:all .15s;width:230px}
+.pa-metric:hover{border-color:var(--primary);box-shadow:0 0 0 3px rgba(0,102,204,.08)}
+.pa-metric .lab{font-size:13px;color:var(--weak);display:flex;align-items:center;gap:8px;width:100%}
+.pa-metric .lab .arr{margin-left:auto;color:var(--faint);display:inline-flex}
+.pa-metric:hover .arr{color:var(--primary);transform:translateX(2px)}
+.pa-metric .num{font-size:24px;font-weight:600;letter-spacing:-.3px;margin-top:4px}
+.pa-metric .sub{font-size:12px;color:var(--muted);margin-top:2px}
+.pa-navitem{width:100%;height:40px;padding:0 12px;border-radius:8px;display:flex;align-items:center;gap:10px;font-size:14px;color:var(--muted);cursor:pointer;transition:all .15s;position:relative}
+.pa-navitem:hover{background:rgba(255,255,255,.6);color:var(--ink)}
+.pa-navitem.is-active{background:var(--canvas);color:var(--primary);font-weight:600}
+.pa-navitem.is-active::before{content:"";position:absolute;left:0;top:9px;bottom:9px;width:3px;border-radius:99px;background:var(--primary)}
+.pa-viewlink{color:var(--muted);font-size:13px;cursor:pointer;display:inline-flex;align-items:center;gap:3px;transition:all .15s;border-radius:6px;padding:2px 4px}
+.pa-viewlink:hover{color:var(--primary);background:var(--primary-soft)}
+
+/* ================================================================
+   方案 B —— 蓝色信标 Blue Signal：操作层常驻蓝底
+   ================================================================ */
+.pb-pearl{height:32px;padding:0 14px;border-radius:8px;background:var(--primary-soft);color:var(--primary);font-size:14px;font-weight:500}
+.pb-pearl:hover{background:var(--primary);color:#fff}
+.pb-icon{width:32px;height:32px;border-radius:11px;background:var(--primary-soft);color:var(--primary)}
+.pb-icon:hover{background:var(--primary);color:#fff}
+.pb-icon.dgr{background:var(--danger-soft);color:var(--danger)}
+.pb-icon.dgr:hover{background:var(--danger);color:#fff}
+.pb-labeled{height:28px;padding:0 12px;border-radius:999px;background:var(--primary-soft);color:var(--primary);font-size:12px;font-weight:500}
+.pb-labeled:hover{background:var(--primary);color:#fff}
+.pb-labeled.dgr{background:var(--danger-soft);color:var(--danger)}
+.pb-labeled.dgr:hover{background:var(--danger);color:#fff}
+.pb-chip{height:28px;padding:0 12px;border-radius:999px;background:var(--primary-soft);color:var(--primary);font-size:13.5px;font-weight:500}
+.pb-chip:hover{background:var(--primary);color:#fff}
+.pb-tab{padding:8px 16px;border-radius:8px;font-size:14px;color:var(--weak);letter-spacing:-.2px}
+.pb-tab:hover{color:var(--ink);background:var(--parchment)}
+.pb-tab.is-active{background:var(--primary-soft);color:var(--primary);font-weight:600}
+.pb-seg{display:inline-flex;padding:4px;border-radius:11px;border:1px solid var(--hairline);background:var(--parchment)}
+.pb-seg button{padding:6px 12px;border-radius:6px;font-size:14px;color:var(--weak)}
+.pb-seg button:hover{color:var(--ink)}
+.pb-seg button.is-active{background:var(--primary-soft);color:var(--primary);font-weight:500;box-shadow:inset 0 0 0 1px rgba(0,102,204,.28)}
+.pb-pillgroup{display:inline-flex;padding:2px;border-radius:999px;border:1px solid var(--hairline);background:var(--canvas)}
+.pb-pillgroup button{padding:6px 16px;border-radius:999px;font-size:14px;color:var(--weak)}
+.pb-pillgroup button.is-active{background:var(--primary-soft);color:var(--primary);font-weight:600;box-shadow:inset 0 0 0 1px rgba(0,102,204,.28)}
+.pb-typepill{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:999px;border:1px solid var(--hairline);font-size:12px;color:var(--weak);background:transparent}
+.pb-typepill:hover{border-color:var(--faint);color:var(--ink)}
+.pb-typepill.is-active{background:var(--primary-soft);border-color:rgba(0,102,204,.35);color:var(--primary);font-weight:500}
+.pb-metric{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:18px 22px;border:1px solid rgba(0,102,204,.22);border-radius:18px;background:var(--canvas);text-align:left;cursor:pointer;transition:all .15s;width:230px}
+.pb-metric:hover{border-color:var(--primary);box-shadow:0 0 0 3px rgba(0,102,204,.1)}
+.pb-metric .lab{font-size:13px;color:var(--weak);display:flex;align-items:center;gap:8px;width:100%}
+.pb-metric .lab .arr{margin-left:auto;color:var(--primary);display:inline-flex}
+.pb-metric:hover .arr{transform:translateX(2px)}
+.pb-metric .num{font-size:24px;font-weight:600;letter-spacing:-.3px;margin-top:4px;color:var(--ink)}
+.pb-metric .sub{font-size:12px;color:var(--muted);margin-top:2px}
+.pb-navitem{width:100%;height:40px;padding:0 12px;border-radius:8px;display:flex;align-items:center;gap:10px;font-size:14px;color:var(--muted);cursor:pointer;transition:all .15s}
+.pb-navitem:hover{background:rgba(255,255,255,.6);color:var(--ink)}
+.pb-navitem.is-active{background:var(--primary-soft);color:var(--primary);font-weight:600}
+.pb-viewlink{padding:4px 11px;border-radius:999px;background:var(--primary-soft);color:var(--primary);font-size:12px;font-weight:500;cursor:pointer;display:inline-flex;align-items:center;gap:3px;transition:all .15s}
+.pb-viewlink:hover{background:var(--primary);color:#fff}
+.pb-subject{padding:4px 12px;border-radius:999px;background:var(--ink);color:var(--canvas);font-size:12px;font-weight:500;cursor:default}
+
+/* ================================================================
+   方案 C —— 渐变能量线 Energy Line：渐变描边 + 光晕
+   ================================================================ */
+.pc-gb{border:1px solid transparent;
+  background:linear-gradient(#fff,#fff) padding-box,linear-gradient(135deg,rgba(0,102,204,.65),rgba(0,145,255,.45)) border-box}
+.pc-primary{height:36px;padding:0 18px;border-radius:999px;background:var(--grad-primary);color:#fff;font-size:14px;letter-spacing:-.2px;box-shadow:inset 0 1px 0 rgba(255,255,255,.25)}
+.pc-primary:hover{box-shadow:inset 0 1px 0 rgba(255,255,255,.25),var(--glow-primary);transform:translateY(-1px)}
+.pc-pearl{height:32px;padding:0 14px;border-radius:8px;color:var(--primary);font-size:14px}
+.pc-pearl:hover{box-shadow:0 0 0 4px rgba(0,102,204,.1)}
+.pc-icon{width:32px;height:32px;border-radius:11px;color:var(--primary)}
+.pc-icon:hover{box-shadow:0 0 0 4px rgba(0,102,204,.1)}
+.pc-labeled{height:28px;padding:0 12px;border-radius:999px;color:var(--primary);font-size:12px;font-weight:500}
+.pc-labeled:hover{box-shadow:0 0 0 4px rgba(0,102,204,.1)}
+.pc-labeled.dgr{border:1px solid transparent;
+  background:linear-gradient(#fff,#fff) padding-box,linear-gradient(135deg,rgba(215,0,21,.55),rgba(255,90,60,.4)) border-box;color:var(--danger)}
+.pc-labeled.dgr:hover{box-shadow:0 0 0 4px rgba(215,0,21,.08)}
+.pc-chip{height:28px;padding:0 12px;border-radius:999px;color:var(--primary);font-size:13.5px;font-weight:500}
+.pc-chip:hover{box-shadow:0 0 0 4px rgba(0,102,204,.1)}
+.pc-tabrow{display:flex;gap:10px;border-bottom:1px solid var(--hairline)}
+.pc-tab{padding:8px 14px;font-size:14px;color:var(--weak);position:relative;letter-spacing:-.2px}
+.pc-tab:hover{color:var(--ink)}
+.pc-tab.is-active{color:var(--primary);font-weight:600}
+.pc-tab.is-active::after{content:"";position:absolute;left:12px;right:12px;bottom:-1px;height:3px;border-radius:99px;background:linear-gradient(90deg,#0066cc,#0091ff)}
+.pc-seg{display:inline-flex;padding:4px;border-radius:11px;border:1px solid var(--hairline);background:var(--parchment)}
+.pc-seg button{padding:6px 12px;border-radius:6px;font-size:14px;color:var(--weak);border:1px solid transparent}
+.pc-seg button:hover{color:var(--ink)}
+.pc-seg button.is-active{padding:5px 11px;color:var(--primary);font-weight:500;border:1px solid transparent;
+  background:linear-gradient(var(--primary-soft),var(--primary-soft)) padding-box,linear-gradient(135deg,rgba(0,102,204,.6),rgba(0,145,255,.4)) border-box}
+.pc-pillgroup{display:inline-flex;padding:2px;border-radius:999px;border:1px solid var(--hairline);background:var(--canvas)}
+.pc-pillgroup button{padding:6px 16px;border-radius:999px;font-size:14px;color:var(--weak);border:1px solid transparent}
+.pc-pillgroup button.is-active{padding:5px 15px;color:var(--primary);font-weight:600;border:1px solid transparent;
+  background:linear-gradient(#fff,#fff) padding-box,linear-gradient(135deg,rgba(0,102,204,.6),rgba(0,145,255,.4)) border-box}
+.pc-typepill{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:999px;font-size:12px;color:var(--weak);border:1px solid transparent;
+  background:linear-gradient(#fff,#fff) padding-box,linear-gradient(135deg,rgba(0,102,204,.35),rgba(0,145,255,.25)) border-box;color:var(--muted)}
+.pc-typepill:hover{color:var(--ink)}
+.pc-typepill.is-active{color:var(--primary);font-weight:500;
+  background:linear-gradient(var(--primary-soft),var(--primary-soft)) padding-box,linear-gradient(135deg,rgba(0,102,204,.65),rgba(0,145,255,.45)) border-box}
+.pc-metric{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:18px 22px;border:1px solid var(--hairline);border-radius:18px;background:var(--canvas);text-align:left;cursor:pointer;transition:all .15s;width:230px;position:relative;overflow:hidden}
+.pc-metric::before{content:"";position:absolute;left:0;top:0;right:0;height:2px;background:linear-gradient(90deg,rgba(0,102,204,.5),rgba(0,145,255,.25));opacity:.7}
+.pc-metric:hover{box-shadow:0 6px 18px rgba(0,102,204,.1)}
+.pc-metric .lab{font-size:13px;color:var(--weak);display:flex;align-items:center;gap:8px;width:100%}
+.pc-metric .lab .arr{margin-left:auto;color:var(--primary);display:inline-flex}
+.pc-metric:hover .arr{transform:translateX(2px)}
+.pc-metric .num{font-size:24px;font-weight:600;letter-spacing:-.3px;margin-top:4px}
+.pc-metric .sub{font-size:12px;color:var(--muted);margin-top:2px}
+.pc-navitem{width:100%;height:40px;padding:0 12px;border-radius:8px;display:flex;align-items:center;gap:10px;font-size:14px;color:var(--muted);cursor:pointer;transition:all .15s;position:relative}
+.pc-navitem:hover{background:rgba(255,255,255,.6);color:var(--ink)}
+.pc-navitem.is-active{background:var(--canvas);color:var(--primary);font-weight:600}
+.pc-navitem.is-active::before{content:"";position:absolute;left:0;top:9px;bottom:9px;width:3px;border-radius:99px;background:linear-gradient(180deg,#0066cc,#0091ff)}
+.pc-navitem.is-active .go{margin-left:auto;color:var(--primary);display:inline-flex;opacity:.85}
+.pc-viewlink{height:26px;padding:0 11px;border-radius:999px;color:var(--primary);font-size:12px;font-weight:500;cursor:pointer;display:inline-flex;align-items:center;gap:3px;transition:all .15s;
+  border:1px solid transparent;background:linear-gradient(#fff,#fff) padding-box,linear-gradient(135deg,rgba(0,102,204,.5),rgba(0,145,255,.35)) border-box}
+.pc-viewlink:hover{box-shadow:0 0 0 4px rgba(0,102,204,.1)}
+.pc-subject{padding:4px 12px;border-radius:999px;background:var(--ink);color:var(--canvas);font-size:12px;font-weight:500;cursor:default}
+
+/* ================================================================
+   学生表格 mock
+   ================================================================ */
+.stable{border:1px solid var(--hairline);border-radius:14px;background:var(--canvas);overflow:hidden}
+.stable .srow{display:grid;grid-template-columns:110px 100px 100px 150px 80px 100px 1fr;align-items:center;padding:0 18px}
+.stable .srow.head{height:42px;background:var(--pearl);border-bottom:1px solid var(--hairline);font-size:12px;color:var(--weak)}
+.stable .srow.data{height:52px;border-bottom:1px solid var(--divider);font-size:13px;color:var(--muted);cursor:pointer;transition:background .15s}
+.stable .srow.data:last-child{border-bottom:0}
+.stable .srow.data:hover{background:var(--parchment)}
+.stable .name{font-weight:600;color:var(--ink);font-size:13.5px}
+
+/* 落地建议 */
+.rollout{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;margin-top:22px}
+.ro-card{background:var(--canvas);border:1px solid var(--hairline);border-radius:14px;padding:20px 22px}
+.ro-card h4{margin:0 0 4px;font-size:14.5px;letter-spacing:-.2px}
+.ro-card .ph{font-size:11px;font-weight:700;letter-spacing:1.5px;color:var(--primary)}
+.ro-card ul{margin:10px 0 0;padding-left:16px;font-size:12.5px;line-height:1.8;color:var(--muted)}
+.ro-card li b{color:var(--ink)}
+.ro-wide{grid-column:1/-1}
+.code-tok{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;background:var(--parchment);border:1px solid var(--hairline);border-radius:5px;padding:1px 5px}
+
+footer{margin-top:70px;text-align:center;font-size:12px;color:var(--weak)}
+@media (max-width:1100px){
+  .panels,.plan-cards,.rollout{grid-template-columns:1fr}
+  .panel.wide{grid-column:auto}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- ══════════════════ HERO ══════════════════ -->
+  <header class="hero">
+    <span class="kicker">APRILIO UI PROPOSAL · 2026-09</span>
+    <h1>交互可发现性样式提案</h1>
+    <p class="sub">
+      目标只有一个：<b>让按钮、Tab、胶囊这些「可操作语义」在不悬浮鼠标的情况下也被一眼识别</b>。
+      现状的设计语言（单一 Action Blue + 发丝线 + 克制动效）非常好，问题不在颜色本身，
+      而在<b>「可点」与「静态」的视觉权重几乎相同</b>。以下逐页对比「现状 → 方案 A / B / C」，
+      三个方案共享一套渐进谱系：<b>A 用描边、B 用蓝底、C 用渐变能量线</b>，
+      都不引入第二强调色，风格保持科技感、简洁、轻盈。所有示例可直接悬浮体验。
+    </p>
+    <div class="problems">
+      <div class="problem" style="border-color:rgba(0,102,204,.35);background:var(--primary-soft)"><span class="dot" style="background:var(--primary)"></span><div><b>✓ 决议（2026-09）：</b>采纳<b>方案 C「渐变能量线」</b>并已落地；侧边栏不照搬方案 C，改用专属的<b>「提起感」选中效果</b>（字体轻微放大 + 向左上偏移 + 浅影托底），见 <a href="#s1" style="color:var(--primary)">01 侧边导航</a>。<b>修订：</b>班级卡片上「图标+文字」胶囊会挤压班级名，已改为——班级名独占标题列、<b>点击名称直接改名</b>（悬浮给说明），归档/删除收进卡片右上角「⋯」菜单。</div></div>
+      <div class="problem"><span class="dot"></span><div><b>图标即操作。</b>编辑 / 归档 / 删除 / 导入 / 新建全部是无文字的 28~32px 灰图标，说明只存在于 title 悬浮提示——用户不知道它们存在，更不知道它们能点。</div></div>
+      <div class="problem"><span class="dot"></span><div><b>选中态黑白。</b>Tab 与分段控件的选中态用 <b>bg-ink 黑底白字</b>，与「蓝 = 可交互」的语言脱节；黑块沉重，也与轻盈的方向相悖。</div></div>
+      <div class="problem"><span class="dot"></span><div><b>次级按钮像禁用。</b>pearl 灰底 + hairline 描边按钮与静态信息卡片几乎同权重，「历史备忘」「等级映射」这类真实操作淹没在页面里。</div></div>
+    </div>
+    <nav class="toc">
+      <a href="#overview">三方案定义</a><a href="#matrix">控件矩阵</a>
+      <a href="#s1">① 侧边导航</a><a href="#s2">② 班级管理</a><a href="#s3">③ 班级详情 ★</a>
+      <a href="#s4">④ 学生详情</a><a href="#s5">⑤ 我的课表</a><a href="#s6">⑥ 考试成绩</a><a href="#s7">⑦ 学生列表</a>
+      <a href="#rollout">落地建议</a>
+    </nav>
+
+    <!-- 方案定义 -->
+    <div class="plan-cards" id="overview">
+      <div class="plan-card pa">
+        <span class="tag">方案 A</span>
+        <h3>线框强化</h3><span class="en">Quiet Outline</span>
+        <p>不动颜色体系，用 <b>1px 主色描边</b>与<b>图标补文字</b>把可点性说清楚：图标按钮升级为带描边的常显控件，关键低频操作（编辑/归档/删除）改为「图标 + 文字」描边胶囊，组内选中 = 主色描边。</p>
+        <div class="meta">
+          <span>可发现性提升 <b class="stars">★★☆</b></span>
+          <span>实现成本 <b>最低</b>（纯 class 调整）</span>
+          <span>规范冲突 <b>无</b>，零新增 token</span>
+          <span>适合 <b>作为基线快速落地</b></span>
+        </div>
+      </div>
+      <div class="plan-card pb">
+        <span class="tag">方案 B</span>
+        <h3>蓝色信标</h3><span class="en">Blue Signal</span>
+        <p>把「操作层」整体染成蓝信号：可点元素<b>常驻 primary-soft 蓝底</b>、hover 翻转为实底。信息黑白灰、操作全蓝，界面即刻分层，扫一眼就能圈出所有能点的地方。</p>
+        <div class="meta">
+          <span>可发现性提升 <b class="stars">★★★</b></span>
+          <span>实现成本 <b>低</b>（换底色即可）</span>
+          <span>规范冲突 <b>无</b>，需约定蓝底面积 ≤ 20%</span>
+          <span>适合 <b>操作密度高的工具型页面</b></span>
+        </div>
+      </div>
+      <div class="plan-card pc">
+        <span class="tag">方案 C · ✓ 已采纳</span>
+        <h3>渐变能量线</h3><span class="en">Energy Line</span>
+        <p>科技感最强的一档：主路径操作用 <b>primary → 亮蓝微渐变</b>、渐变描边、hover 光晕与渐变指示线。仍然只有一个蓝，但用「渐变 + 光」让它看起来在发光。</p>
+        <div class="meta">
+          <span>可发现性提升 <b class="stars">★★★</b></span>
+          <span>实现成本 <b>中</b>（渐变边框 trick）</span>
+          <span>规范冲突 <b>需放宽</b>「仅两处阴影」为「交互光晕」</span>
+          <span>适合 <b>对外展示 / 品牌升级期</b></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 控件矩阵 -->
+    <div class="matrix-wrap" id="matrix">
+      <table class="matrix">
+        <tr>
+          <th style="width:150px">控件</th>
+          <th class="col-cur">现状</th>
+          <th class="col-a">方案 A · 描边</th>
+          <th class="col-b">方案 B · 蓝底</th>
+          <th class="col-c">方案 C · 渐变</th>
+        </tr>
+        <tr>
+          <td>主按钮</td>
+          <td><button class="m cur-primary">+ 记表现</button></td>
+          <td><button class="m cur-primary">+ 记表现</button></td>
+          <td><button class="m cur-primary">+ 记表现</button></td>
+          <td><button class="m pc-primary">+ 记表现</button></td>
+        </tr>
+        <tr>
+          <td>次级按钮</td>
+          <td><button class="m cur-pearl">编辑档案</button></td>
+          <td><button class="m pa-pearl">编辑档案</button></td>
+          <td><button class="m pb-pearl">编辑档案</button></td>
+          <td><button class="m pc-pearl pc-gb">编辑档案</button></td>
+        </tr>
+        <tr>
+          <td>图标按钮</td>
+          <td>
+            <button class="m cur-icon" title="导入花名册"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.8" y="11.4" width="17.6" height="9.6" rx="2.4"/><path d="M2.8 16.2h17.6M8.67 11.4V21M14.53 11.4V21"/><path d="M19.2 3v5.4M16.5 5.7h5.4"/></svg></button>
+            <button class="m cur-ghost" title="归档班级"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4"/></svg></button>
+          </td>
+          <td>
+            <button class="m pa-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.8" y="11.4" width="17.6" height="9.6" rx="2.4"/><path d="M2.8 16.2h17.6M8.67 11.4V21M14.53 11.4V21"/><path d="M19.2 3v5.4M16.5 5.7h5.4"/></svg></button>
+            <button class="m pa-labeled dgr"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6M14 11v6"/></svg>删除</button>
+          </td>
+          <td>
+            <button class="m pb-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.8" y="11.4" width="17.6" height="9.6" rx="2.4"/><path d="M2.8 16.2h17.6M8.67 11.4V21M14.53 11.4V21"/><path d="M19.2 3v5.4M16.5 5.7h5.4"/></svg></button>
+            <button class="m pb-labeled dgr"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6M14 11v6"/></svg>删除</button>
+          </td>
+          <td>
+            <button class="m pc-icon pc-gb"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.8" y="11.4" width="17.6" height="9.6" rx="2.4"/><path d="M2.8 16.2h17.6M8.67 11.4V21M14.53 11.4V21"/><path d="M19.2 3v5.4M16.5 5.7h5.4"/></svg></button>
+            <button class="m pc-labeled dgr"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6M14 11v6"/></svg>删除</button>
+          </td>
+        </tr>
+        <tr>
+          <td>组内选中（Tab）</td>
+          <td><button class="m cur-tab is-active">学生条目 (45)</button></td>
+          <td><button class="m pa-tab is-active">学生条目 (45)</button></td>
+          <td><button class="m pb-tab is-active">学生条目 (45)</button></td>
+          <td><button class="m pc-tab is-active">学生条目 (45)</button></td>
+        </tr>
+        <tr>
+          <td>跳转胶囊</td>
+          <td><button class="m cur-chip">查看全部<svg width="11" height="11" viewBox="0 0 16 16" fill="none"><path d="M6 3.5l4.5 4.5L6 12.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button></td>
+          <td><button class="m pa-chip">查看全部<svg width="11" height="11" viewBox="0 0 16 16" fill="none"><path d="M6 3.5l4.5 4.5L6 12.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button></td>
+          <td><button class="m pb-chip">查看全部<svg width="11" height="11" viewBox="0 0 16 16" fill="none"><path d="M6 3.5l4.5 4.5L6 12.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button></td>
+          <td><button class="m pc-chip pc-gb">查看全部<svg width="11" height="11" viewBox="0 0 16 16" fill="none"><path d="M6 3.5l4.5 4.5L6 12.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button></td>
+        </tr>
+      </table>
+    </div>
+  </header>
+
+  <!-- ══════════════════ ① 侧边导航 ══════════════════ -->
+  <section class="page-section" id="s1">
+    <div class="sec-head"><span class="sec-no">01 /</span><h2>侧边导航</h2><span class="file">src/components/AppSidebar.vue</span></div>
+    <div class="diag">
+      <div class="diag-line"><span class="dot"></span><div>「我当前在哪」是导航最重要的语义，现在只靠 <code>bg-canvas</code> 白底浮起表达——与 hover 态（白 60%）只差一档亮度，图标在 <code>#333 → #1d1d1f</code> 之间切换，几乎不可感知。</div></div>
+      <div class="diag-line good"><span class="dot"></span><div>parchment 侧栏 + 白色浮起的分层思路本身很好，三个方案都保留，只补主色信号。</div></div>
+    </div>
+
+    <div class="panels">
+      <!-- 现状 -->
+      <div class="panel wide">
+        <div class="panel-head"><span class="panel-tag cur">现状</span><span class="panel-title">选中 = 白底浮起，无主色信号</span><span class="try dim">可悬浮对比选中态差异</span></div>
+        <div class="panel-desc">选中项与悬浮项放在一起几乎无法区分；新用户需要靠「猜」确认当前位置。</div>
+        <div class="screen" style="display:flex;gap:22px">
+          <div style="width:250px;flex:none">
+            <div style="display:flex;align-items:center;gap:10px;padding:2px 4px 16px"><span style="width:28px;height:28px;border-radius:8px;background:var(--primary-soft);display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--primary)">ap</span><b style="font-size:17px;letter-spacing:-.3px">aprilio</b></div>
+            <div style="display:flex;flex-direction:column;gap:2px">
+              <button class="m cur-navitem"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2.2 7.2L8 2.4l5.8 4.8M3.6 6.4v6.8h8.8V6.4"/></svg>首页</button>
+              <button class="m cur-navitem is-active"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2.5" width="12" height="9" rx="1.5"/><path d="M5 13.5l1.5-2h3l1.5 2"/><path d="M5 6h4"/></svg>班级管理</button>
+              <button class="m cur-navitem"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="1.8" y="2.8" width="12.4" height="10.4" rx="2.2"/><circle cx="5.7" cy="6.3" r="1.15" fill="currentColor" stroke="none"/><path d="M2.3 11.7l3.4-3.2 2.6 2.4 2.4-2.2 3 2.9"/></svg>图片记录</button>
+              <button class="m cur-navitem"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 4.5h11M6.5 4.5V3h3v1.5M4 4.5l.7 8.2a1 1 0 0 0 1 .8h4.6a1 1 0 0 0 1-.8l.7-8.2"/><path d="M6.7 7.2v3.6M9.3 7.2v3.6"/></svg>回收站</button>
+              <button class="m cur-navitem"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.7v1.5M8 12.8v1.5M2.9 2.9l1.1 1.1M12 12l1.1 1.1M1.7 8h1.5M12.8 8h1.5M2.9 13.1l1.1-1.1M12 4l1.1-1.1"/></svg>数据与设置</button>
+            </div>
+            <div style="margin-top:18px;border:1px solid var(--hairline);border-radius:11px;background:var(--pearl);padding:10px 12px">
+              <p style="margin:0;font-size:11px;color:var(--weak)">本地数据库</p>
+              <p style="margin:4px 0 0;font-size:11px;color:var(--muted);display:flex;align-items:center;gap:6px"><span style="width:6px;height:6px;border-radius:99px;background:var(--success)"></span>SQLite · 已连接</p>
+            </div>
+          </div>
+          <div style="flex:1;border:1px dashed var(--hairline);border-radius:12px;background:var(--canvas);display:flex;align-items:center;justify-content:center;color:var(--faint);font-size:13px">内容区</div>
+        </div>
+      </div>
+
+      <!-- 采纳版：提起感 -->
+      <div class="panel wide">
+        <div class="panel-head"><span class="panel-tag c">采纳版</span><span class="panel-title">「提起感」选中：轻微放大 + 向左上偏移 + 浅影托底</span><span class="try">悬浮体验</span></div>
+        <div class="panel-desc">决议：侧边栏不照搬方案 C。选中项整体 <b>scale(1.04) + translate(-2px,-2px)</b>、<b>transform-origin 在左侧</b>，像被从导航里轻轻拎起来；浅影只属于这个「提起」瞬间，其余仍靠底色分层。字重加重承担"字体放大"，悬浮项保持白 60% 底不变。</div>
+        <div class="screen" style="display:flex;gap:22px">
+          <div style="width:250px;flex:none">
+            <div style="display:flex;flex-direction:column;gap:2px">
+              <button class="m cur-navitem"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2.2 7.2L8 2.4l5.8 4.8M3.6 6.4v6.8h8.8V6.4"/></svg>首页</button>
+              <button class="m cur-navitem mock-lift"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2.5" width="12" height="9" rx="1.5"/><path d="M5 13.5l1.5-2h3l1.5 2"/><path d="M5 6h4"/></svg>班级管理</button>
+              <button class="m cur-navitem"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="1.8" y="2.8" width="12.4" height="10.4" rx="2.2"/><circle cx="5.7" cy="6.3" r="1.15" fill="currentColor" stroke="none"/><path d="M2.3 11.7l3.4-3.2 2.6 2.4 2.4-2.2 3 2.9"/></svg>图片记录</button>
+              <button class="m cur-navitem"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 4.5h11M6.5 4.5V3h3v1.5M4 4.5l.7 8.2a1 1 0 0 0 1 .8h4.6a1 1 0 0 0 1-.8l.7-8.2"/><path d="M6.7 7.2v3.6M9.3 7.2v3.6"/></svg>回收站</button>
+              <button class="m cur-navitem"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.7v1.5M8 12.8v1.5M2.9 2.9l1.1 1.1M12 12l1.1 1.1M1.7 8h1.5M12.8 8h1.5M2.9 13.1l1.1-1.1M12 4l1.1-1.1"/></svg>数据与设置</button>
+            </div>
+            <div style="margin-top:18px;border:1px solid var(--hairline);border-radius:11px;background:var(--pearl);padding:10px 12px">
+              <p style="margin:0;font-size:11px;color:var(--weak)">本地数据库</p>
+              <p style="margin:4px 0 0;font-size:11px;color:var(--muted);display:flex;align-items:center;gap:6px"><span style="width:6px;height:6px;border-radius:99px;background:var(--success)"></span>SQLite · 已连接</p>
+            </div>
+          </div>
+          <div style="flex:1;border:1px dashed var(--hairline);border-radius:12px;background:var(--canvas);display:flex;align-items:center;justify-content:center;color:var(--faint);font-size:13px">内容区</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ ② 班级管理 ══════════════════ -->
+  <section class="page-section" id="s2">
+    <div class="sec-head"><span class="sec-no">02 /</span><h2>班级管理</h2><span class="file">src/views/ClassesView.vue</span></div>
+    <div class="diag">
+      <div class="diag-line"><span class="dot"></span><div><b>「导入花名册 / 新建班级」是全页价值最高的入口</b>，却是两个 32px 无字图标按钮——第一次进来的人无法知道那是按钮。</div></div>
+      <div class="diag-line"><span class="dot"></span><div>卡片上的改名 / 归档 / 删除是 <code>opacity-0</code>，悬浮卡片才出现；触屏与新手完全不可发现。</div></div>
+      <div class="diag-line"><span class="dot"></span><div>「在用 / 历史」分段选中 = 黑底，与主按钮的蓝色语言脱节。</div></div>
+    </div>
+
+    <div class="panels">
+      <!-- 现状 -->
+      <div class="panel wide">
+        <div class="panel-head"><span class="panel-tag cur">现状</span><span class="panel-title">图标即操作 + 悬浮才出现的卡片动作</span><span class="try dim">把鼠标放到卡片上试试</span></div>
+        <div class="panel-desc">图标按钮没有文字、没有强提示；卡片操作默认透明度 0（这里以半透明示意真实不可见）。</div>
+        <div class="screen">
+          <h3 class="mock-h1" style="font-size:22px">班级管理</h3>
+          <p class="mock-stats">3 个在用班级 · 87 名学生 · 本月新增 2 · 历史带过的班 1 个</p>
+          <div class="mock-row" style="margin-top:16px">
+            <div class="cur-pillgroup">
+              <button class="m is-active">在用班级</button>
+              <button class="m">历史带过的班</button>
+            </div>
+            <span class="spacer"></span>
+            <span class="hover-note">← 导入花名册（无文字图标）</span>
+            <button class="m cur-icon mint"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.8" y="11.4" width="17.6" height="9.6" rx="2.4"/><path d="M2.8 16.2h17.6M8.67 11.4V21M14.53 11.4V21"/><path d="M19.2 3v5.4M16.5 5.7h5.4"/></svg></button>
+            <button class="m cur-icon mint"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.8 11 12 4.3 20.2 11v9a1.8 1.8 0 0 1-1.8 1.8H5.6a1.8 1.8 0 0 1-1.8-1.8Z"/><path d="M12 12v5.6M9.2 14.8h5.6"/></svg></button>
+            <span class="hover-note">← 新建班级</span>
+          </div>
+          <div style="margin-top:18px;max-width:430px;border:1px solid var(--hairline);border-radius:18px;background:var(--canvas);padding:22px;transition:all .15s" onmouseover="this.style.background='var(--pearl)'" onmouseout="this.style.background='var(--canvas)'">
+            <div class="mock-row">
+              <span style="width:44px;height:44px;border-radius:11px;background:var(--parchment);display:inline-flex;align-items:center;justify-content:center"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><rect x="4" y="7" width="16" height="13" rx="2" stroke="#0066cc" stroke-width="1.8"/><path d="M12 7V4.5M12 4.5l7 2.5-7 2.5L5 7l7-2.5z" stroke="#0066cc" stroke-width="1.8" stroke-linejoin="round"/></svg></span>
+              <div style="flex:1">
+                <div class="mock-row" style="gap:6px">
+                  <b style="font-size:16.5px;letter-spacing:-.3px">初一二班</b>
+                  <span style="opacity:.55;display:inline-flex;gap:4px">
+                    <span class="m cur-ghost" style="width:24px;height:24px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></span>
+                    <span class="m cur-ghost" style="width:24px;height:24px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4"/></svg></span>
+                    <span class="m cur-ghost dgr" style="width:24px;height:24px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6M14 11v6"/></svg></span>
+                  </span>
+                  <span class="hover-note">悬浮卡片才出现：改名 / 归档 / 删除</span>
+                </div>
+                <p class="mock-stats" style="margin-top:3px">45 名学生 (24 男 · 21 女)</p>
+              </div>
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M9 5l7 7-7 7" stroke="#7a7a7a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+            <div style="height:1px;background:var(--hairline);margin:16px 0"></div>
+            <div class="mock-row" style="justify-content:space-between">
+              <span class="mock-note">照片 12 张 (公共 4 · 个人 8)</span>
+              <span style="font-size:13px;color:var(--primary);display:inline-flex;align-items:center;gap:3px">进入班级<svg width="11" height="11" viewBox="0 0 16 16" fill="none"><path d="M6 3.5l4.5 4.5L6 12.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- A -->
+      <div class="panel">
+        <div class="panel-head"><span class="panel-tag a">方案 A</span><span class="panel-title">描边 + 图标补文字</span><span class="try">悬浮体验</span></div>
+        <div class="panel-desc">快捷操作升级为<b>描边方形图标按钮</b>（hover 转主色）；卡片三个动作改为<b>常显「图标+文字」小胶囊</b>，不再依赖悬浮。</div>
+        <div class="screen">
+          <div class="mock-row">
+            <div class="pa-pillgroup">
+              <button class="m is-active">在用班级</button>
+              <button class="m">历史带过的班</button>
+            </div>
+            <span class="spacer"></span>
+            <button class="m pa-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.8" y="11.4" width="17.6" height="9.6" rx="2.4"/><path d="M2.8 16.2h17.6M8.67 11.4V21M14.53 11.4V21"/><path d="M19.2 3v5.4M16.5 5.7h5.4"/></svg></button>
+            <button class="m pa-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.8 11 12 4.3 20.2 11v9a1.8 1.8 0 0 1-1.8 1.8H5.6a1.8 1.8 0 0 1-1.8-1.8Z"/><path d="M12 12v5.6M9.2 14.8h5.6"/></svg></button>
+          </div>
+          <div style="margin-top:16px;border:1px solid var(--hairline);border-radius:18px;background:var(--canvas);padding:18px">
+            <div class="mock-row">
+              <span style="width:38px;height:38px;border-radius:11px;background:var(--primary-soft);display:inline-flex;align-items:center;justify-content:center"><svg width="19" height="19" viewBox="0 0 24 24" fill="none"><rect x="4" y="7" width="16" height="13" rx="2" stroke="#0066cc" stroke-width="1.8"/><path d="M12 7V4.5M12 4.5l7 2.5-7 2.5L5 7l7-2.5z" stroke="#0066cc" stroke-width="1.8" stroke-linejoin="round"/></svg></span>
+              <div style="flex:1;min-width:0">
+                <b style="font-size:15.5px;letter-spacing:-.3px">初一二班</b>
+                <p class="mock-stats" style="margin-top:2px">45 名学生 (24 男 · 21 女)</p>
+              </div>
+            </div>
+            <div class="mock-row" style="margin-top:14px;gap:6px">
+              <button class="m pa-labeled"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>编辑</button>
+              <button class="m pa-labeled"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4"/></svg>归档</button>
+              <button class="m pa-labeled dgr"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6M14 11v6"/></svg>删除</button>
+              <span class="spacer"></span>
+              <span style="font-size:12.5px;color:var(--primary);display:inline-flex;align-items:center;gap:3px">进入班级<svg width="10" height="10" viewBox="0 0 16 16" fill="none"><path d="M6 3.5l4.5 4.5L6 12.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- B -->
+      <div class="panel">
+        <div class="panel-head"><span class="panel-tag b">方案 B</span><span class="panel-title">蓝底信标 + soft 常显</span><span class="try">悬浮体验</span></div>
+        <div class="panel-desc">快捷操作 = <b>primary-soft 底 + 主色图标</b>，hover 翻转实底白图标；卡片动作 soft 蓝底常显，操作区自己「亮」起来。</div>
+        <div class="screen">
+          <div class="mock-row">
+            <div class="pb-pillgroup">
+              <button class="m is-active">在用班级</button>
+              <button class="m">历史带过的班</button>
+            </div>
+            <span class="spacer"></span>
+            <button class="m pb-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.8" y="11.4" width="17.6" height="9.6" rx="2.4"/><path d="M2.8 16.2h17.6M8.67 11.4V21M14.53 11.4V21"/><path d="M19.2 3v5.4M16.5 5.7h5.4"/></svg></button>
+            <button class="m pb-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.8 11 12 4.3 20.2 11v9a1.8 1.8 0 0 1-1.8 1.8H5.6a1.8 1.8 0 0 1-1.8-1.8Z"/><path d="M12 12v5.6M9.2 14.8h5.6"/></svg></button>
+          </div>
+          <div style="margin-top:16px;border:1px solid var(--hairline);border-radius:18px;background:var(--canvas);padding:18px">
+            <div class="mock-row">
+              <span style="width:38px;height:38px;border-radius:11px;background:var(--primary-soft);display:inline-flex;align-items:center;justify-content:center"><svg width="19" height="19" viewBox="0 0 24 24" fill="none"><rect x="4" y="7" width="16" height="13" rx="2" stroke="#0066cc" stroke-width="1.8"/><path d="M12 7V4.5M12 4.5l7 2.5-7 2.5L5 7l7-2.5z" stroke="#0066cc" stroke-width="1.8" stroke-linejoin="round"/></svg></span>
+              <div style="flex:1;min-width:0">
+                <b style="font-size:15.5px;letter-spacing:-.3px">初一二班</b>
+                <p class="mock-stats" style="margin-top:2px">45 名学生 (24 男 · 21 女)</p>
+              </div>
+            </div>
+            <div class="mock-row" style="margin-top:14px;gap:6px">
+              <button class="m pb-labeled"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>编辑</button>
+              <button class="m pb-labeled"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4"/></svg>归档</button>
+              <button class="m pb-labeled dgr"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6M14 11v6"/></svg>删除</button>
+              <span class="spacer"></span>
+              <span style="font-size:12.5px;color:var(--primary);display:inline-flex;align-items:center;gap:3px">进入班级<svg width="10" height="10" viewBox="0 0 16 16" fill="none"><path d="M6 3.5l4.5 4.5L6 12.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- C -->
+      <div class="panel">
+        <div class="panel-head"><span class="panel-tag c">方案 C</span><span class="panel-title">渐变描边 + 光晕</span><span class="try">悬浮体验</span></div>
+        <div class="panel-desc">快捷操作与卡片动作都用<b>渐变描边胶囊</b>，hover 泛起主色光晕；分段选中改渐变描边，页面有「通电」的感觉。</div>
+        <div class="screen">
+          <div class="mock-row">
+            <div class="pc-pillgroup">
+              <button class="m is-active">在用班级</button>
+              <button class="m">历史带过的班</button>
+            </div>
+            <span class="spacer"></span>
+            <button class="m pc-icon pc-gb"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.8" y="11.4" width="17.6" height="9.6" rx="2.4"/><path d="M2.8 16.2h17.6M8.67 11.4V21M14.53 11.4V21"/><path d="M19.2 3v5.4M16.5 5.7h5.4"/></svg></button>
+            <button class="m pc-icon pc-gb"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.8 11 12 4.3 20.2 11v9a1.8 1.8 0 0 1-1.8 1.8H5.6a1.8 1.8 0 0 1-1.8-1.8Z"/><path d="M12 12v5.6M9.2 14.8h5.6"/></svg></button>
+          </div>
+          <div style="margin-top:16px;border:1px solid var(--hairline);border-radius:18px;background:var(--canvas);padding:18px">
+            <div class="mock-row">
+              <span style="width:38px;height:38px;border-radius:11px;background:var(--primary-soft);display:inline-flex;align-items:center;justify-content:center"><svg width="19" height="19" viewBox="0 0 24 24" fill="none"><rect x="4" y="7" width="16" height="13" rx="2" stroke="#0066cc" stroke-width="1.8"/><path d="M12 7V4.5M12 4.5l7 2.5-7 2.5L5 7l7-2.5z" stroke="#0066cc" stroke-width="1.8" stroke-linejoin="round"/></svg></span>
+              <div style="flex:1;min-width:0">
+                <b style="font-size:15.5px;letter-spacing:-.3px">初一二班</b>
+                <p class="mock-stats" style="margin-top:2px">45 名学生 (24 男 · 21 女)</p>
+              </div>
+            </div>
+            <div class="mock-row" style="margin-top:12px;justify-content:space-between">
+              <span style="font-size:12px;color:var(--weak)">名称即改名入口（悬浮出说明）· 归档/删除收进右上角「⋯」菜单</span>
+              <span style="font-size:12.5px;color:var(--primary);display:inline-flex;align-items:center;gap:3px">进入班级<svg width="10" height="10" viewBox="0 0 16 16" fill="none"><path d="M6 3.5l4.5 4.5L6 12.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ ③ 班级详情（重点） ══════════════════ -->
+  <section class="page-section" id="s3">
+    <div class="sec-head"><span class="sec-no">03 /</span><h2>班级详情 ★ 重点页</h2><span class="file">src/views/ClassDetailView.vue</span></div>
+    <div class="diag">
+      <div class="diag-line"><span class="dot"></span><div><b>用户反馈的核心问题：</b>顶部的「编辑 / 归档 / 删除」是三个 28px 纯图标灰按钮（<code>text-weak</code> 无边无底），混在班级名与统计文字之间，可发现性≈0。删除还是破坏性操作，只靠 title 提示。</div></div>
+      <div class="diag-line"><span class="dot"></span><div>Tab 选中 = 黑底白字（<code>bg-ink</code>），重量大但语义偏「装饰」；与蓝色交互语言脱节。</div></div>
+      <div class="diag-line"><span class="dot"></span><div>「导入本班花名册 / 新建学生 / 添加照片」同样是 mint 渐变小图标，容易被视为装饰而非入口。</div></div>
+      <div class="diag-line good"><span class="dot"></span><div>概览指标卡 hover 已有主色描边（做得对），三个方案在此基础上统一强化。</div></div>
+    </div>
+
+    <div class="panels">
+      <!-- 现状 -->
+      <div class="panel wide">
+        <div class="panel-head"><span class="panel-tag cur">现状</span><span class="panel-title">编辑 / 归档 / 删除 = 三个隐形灰图标</span><span class="try dim">悬浮到班级名右侧试试</span></div>
+        <div class="panel-desc">三个按钮只有悬浮时才有 pearl 底反馈；截图中它们与文字几乎融为一体。</div>
+        <div class="screen cvb" style="padding:0">
+          <div style="border-bottom:1px solid var(--divider);padding:16px 24px">
+            <div class="mock-row">
+              <button class="m cur-chip" style="font-weight:500"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" style="transform:rotate(180deg)"><path d="M6 3.5l4.5 4.5L6 12.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>班级管理</button>
+              <span style="color:var(--hairline)">|</span>
+              <span style="display:inline-flex;align-items:center;gap:8px;border:1px solid var(--hairline);border-radius:11px;padding:5px 10px 5px 8px;background:var(--canvas)">
+                <span style="width:24px;height:24px;border-radius:8px;background:var(--primary-soft);color:var(--primary);font-size:11px;font-weight:600;display:inline-flex;align-items:center;justify-content:center">初</span>
+                <b style="font-size:19px;letter-spacing:-.2px">初一二班</b>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#cccccc" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+              </span>
+              <span class="m cur-ghost"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></span>
+              <span class="m cur-ghost"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4"/></svg></span>
+              <span class="m cur-ghost dgr"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6M14 11v6"/></svg></span>
+              <span class="hover-note">← 编辑 / 归档 / 删除（悬浮才有反馈）</span>
+              <span class="spacer"></span>
+              <span class="mock-note">45 名学生 (24 男 · 21 女) · 照片 12 张</span>
+            </div>
+          </div>
+          <div style="padding:20px 24px;display:flex;gap:16px;flex-wrap:wrap">
+            <div class="cur-metric">
+              <span class="lab">本班学生<span class="arr"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></span></span>
+              <span class="num">45 人</span>
+              <span class="sub">男 24 · 女 21</span>
+            </div>
+            <div class="cur-metric">
+              <span class="lab">考试成绩<span class="arr"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></span></span>
+              <span class="num">3 次考试</span>
+              <span class="sub">最近均分 82.5</span>
+            </div>
+          </div>
+          <div style="padding:2px 24px 18px">
+            <div class="mock-row" style="border-bottom:1px solid var(--hairline);padding-bottom:10px;gap:8px">
+              <button class="m cur-tab is-active">学生条目 (45)</button>
+              <button class="m cur-tab">班级相册 (12)</button>
+              <button class="m cur-tab">日常表现 (6)</button>
+              <button class="m cur-tab">考试成绩 (3)</button>
+            </div>
+            <div class="mock-row" style="margin-top:16px">
+              <div class="cur-search"><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="6.2" cy="6.2" r="4.4" stroke="#7a7a7a" stroke-width="1.5"/><path d="M9.6 9.6L12.4 12.4" stroke="#7a7a7a" stroke-width="1.5" stroke-linecap="round"/></svg>搜索本班学生姓名或学号</div>
+              <span class="hover-note">← 导入花名册 / 新建学生：图标无文字</span>
+              <button class="m cur-icon mint"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.8" y="11.4" width="17.6" height="9.6" rx="2.4"/><path d="M2.8 16.2h17.6M8.67 11.4V21M14.53 11.4V21"/><path d="M19.2 3v5.4M16.5 5.7h5.4"/></svg></button>
+              <button class="m cur-icon mint"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9.2" cy="7.4" r="3.6"/><path d="M3 20.6a6.2 6.2 0 0 1 12.4 0"/><path d="M18.6 8.4v6.2M15.5 11.5h6.2"/></svg></button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- A -->
+      <div class="panel">
+        <div class="panel-head"><span class="panel-tag a">方案 A</span><span class="panel-title">三按钮变「图标+文字」描边胶囊</span><span class="try">悬浮体验</span></div>
+        <div class="panel-desc">编辑 / 归档改为灰描边胶囊、删除改红描边——<b>有边框 = 可点，红色 = 危险</b>，无需悬浮即可发现；Tab 选中改主色描边。</div>
+        <div class="screen cvb" style="padding:0">
+          <div style="border-bottom:1px solid var(--divider);padding:14px 20px">
+            <div class="mock-row" style="gap:8px">
+              <span style="display:inline-flex;align-items:center;gap:7px;border:1px solid var(--hairline);border-radius:11px;padding:4px 9px 4px 7px;background:var(--canvas)">
+                <span style="width:22px;height:22px;border-radius:8px;background:var(--primary-soft);color:var(--primary);font-size:10.5px;font-weight:600;display:inline-flex;align-items:center;justify-content:center">初</span>
+                <b style="font-size:17px;letter-spacing:-.2px">初一二班</b>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#cccccc" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+              </span>
+              <button class="m pa-labeled"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>编辑</button>
+              <button class="m pa-labeled"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4"/></svg>归档</button>
+              <button class="m pa-labeled dgr"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6M14 11v6"/></svg>删除</button>
+              <span class="spacer"></span>
+              <span class="mock-note" style="font-size:11.5px">45 名学生 · 照片 12 张</span>
+            </div>
+          </div>
+          <div style="padding:14px 20px 4px;display:flex;gap:12px;flex-wrap:wrap">
+            <div class="pa-metric">
+              <span class="lab">本班学生<span class="arr"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></span></span>
+              <span class="num">45 人</span><span class="sub">男 24 · 女 21</span>
+            </div>
+            <div class="pa-metric">
+              <span class="lab">考试成绩<span class="arr"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></span></span>
+              <span class="num">3 次考试</span><span class="sub">最近均分 82.5</span>
+            </div>
+          </div>
+          <div style="padding:10px 20px 16px">
+            <div class="mock-row" style="border-bottom:1px solid var(--hairline);padding-bottom:10px;gap:8px">
+              <button class="m pa-tab is-active">学生条目 (45)</button>
+              <button class="m pa-tab">班级相册 (12)</button>
+              <button class="m pa-tab">日常表现 (6)</button>
+              <button class="m pa-tab">考试成绩 (3)</button>
+            </div>
+            <div class="mock-row" style="margin-top:14px">
+              <div class="cur-search"><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="6.2" cy="6.2" r="4.4" stroke="#7a7a7a" stroke-width="1.5"/><path d="M9.6 9.6L12.4 12.4" stroke="#7a7a7a" stroke-width="1.5" stroke-linecap="round"/></svg>搜索本班学生姓名或学号</div>
+              <button class="m pa-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.8" y="11.4" width="17.6" height="9.6" rx="2.4"/><path d="M2.8 16.2h17.6M8.67 11.4V21M14.53 11.4V21"/><path d="M19.2 3v5.4M16.5 5.7h5.4"/></svg></button>
+              <button class="m pa-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9.2" cy="7.4" r="3.6"/><path d="M3 20.6a6.2 6.2 0 0 1 12.4 0"/><path d="M18.6 8.4v6.2M15.5 11.5h6.2"/></svg></button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- B -->
+      <div class="panel">
+        <div class="panel-head"><span class="panel-tag b">方案 B</span><span class="panel-title">soft 蓝底常驻 · 危险红底</span><span class="try">悬浮体验</span></div>
+        <div class="panel-desc">编辑 / 归档 = primary-soft 蓝底、删除 = danger-soft 红底，<b>常驻底色把操作区从页面里托出来</b>；hover 翻转实底，状态切换干脆。Tab 选中 = 蓝底。</div>
+        <div class="screen cvb" style="padding:0">
+          <div style="border-bottom:1px solid var(--divider);padding:14px 20px">
+            <div class="mock-row" style="gap:8px">
+              <span style="display:inline-flex;align-items:center;gap:7px;border:1px solid var(--hairline);border-radius:11px;padding:4px 9px 4px 7px;background:var(--canvas)">
+                <span style="width:22px;height:22px;border-radius:8px;background:var(--primary-soft);color:var(--primary);font-size:10.5px;font-weight:600;display:inline-flex;align-items:center;justify-content:center">初</span>
+                <b style="font-size:17px;letter-spacing:-.2px">初一二班</b>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#cccccc" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+              </span>
+              <button class="m pb-labeled"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>编辑</button>
+              <button class="m pb-labeled"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4"/></svg>归档</button>
+              <button class="m pb-labeled dgr"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6M14 11v6"/></svg>删除</button>
+              <span class="spacer"></span>
+              <span class="mock-note" style="font-size:11.5px">45 名学生 · 照片 12 张</span>
+            </div>
+          </div>
+          <div style="padding:14px 20px 4px;display:flex;gap:12px;flex-wrap:wrap">
+            <div class="pb-metric">
+              <span class="lab">本班学生<span class="arr"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></span></span>
+              <span class="num">45 人</span><span class="sub">男 24 · 女 21</span>
+            </div>
+            <div class="pb-metric">
+              <span class="lab">考试成绩<span class="arr"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></span></span>
+              <span class="num">3 次考试</span><span class="sub">最近均分 82.5</span>
+            </div>
+          </div>
+          <div style="padding:10px 20px 16px">
+            <div class="mock-row" style="border-bottom:1px solid var(--hairline);padding-bottom:10px;gap:8px">
+              <button class="m pb-tab is-active">学生条目 (45)</button>
+              <button class="m pb-tab">班级相册 (12)</button>
+              <button class="m pb-tab">日常表现 (6)</button>
+              <button class="m pb-tab">考试成绩 (3)</button>
+            </div>
+            <div class="mock-row" style="margin-top:14px">
+              <div class="cur-search"><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="6.2" cy="6.2" r="4.4" stroke="#7a7a7a" stroke-width="1.5"/><path d="M9.6 9.6L12.4 12.4" stroke="#7a7a7a" stroke-width="1.5" stroke-linecap="round"/></svg>搜索本班学生姓名或学号</div>
+              <button class="m pb-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.8" y="11.4" width="17.6" height="9.6" rx="2.4"/><path d="M2.8 16.2h17.6M8.67 11.4V21M14.53 11.4V21"/><path d="M19.2 3v5.4M16.5 5.7h5.4"/></svg></button>
+              <button class="m pb-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9.2" cy="7.4" r="3.6"/><path d="M3 20.6a6.2 6.2 0 0 1 12.4 0"/><path d="M18.6 8.4v6.2M15.5 11.5h6.2"/></svg></button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- C -->
+      <div class="panel">
+        <div class="panel-head"><span class="panel-tag c">方案 C</span><span class="panel-title">渐变描边胶囊 + 渐变指示线</span><span class="try">悬浮体验</span></div>
+        <div class="panel-desc">三按钮 = <b>渐变描边胶囊</b>（删除红渐变），hover 泛光晕；Tab 选中 = <b>底部渐变能量线</b> + 主色文字，去黑块、页面更轻。</div>
+        <div class="screen cvb" style="padding:0">
+          <div style="border-bottom:1px solid var(--divider);padding:14px 20px">
+            <div class="mock-row" style="gap:8px">
+              <span style="display:inline-flex;align-items:center;gap:7px;border:1px solid var(--hairline);border-radius:11px;padding:4px 9px 4px 7px;background:var(--canvas)">
+                <span style="width:22px;height:22px;border-radius:8px;background:var(--primary-soft);color:var(--primary);font-size:10.5px;font-weight:600;display:inline-flex;align-items:center;justify-content:center">初</span>
+                <b style="font-size:17px;letter-spacing:-.2px">初一二班</b>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#cccccc" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+              </span>
+              <button class="m pc-labeled pc-gb"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>编辑</button>
+              <button class="m pc-labeled pc-gb"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4"/></svg>归档</button>
+              <button class="m pc-labeled dgr"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6M14 11v6"/></svg>删除</button>
+              <span class="spacer"></span>
+              <span class="mock-note" style="font-size:11.5px">45 名学生 · 照片 12 张</span>
+            </div>
+          </div>
+          <div style="padding:14px 20px 4px;display:flex;gap:12px;flex-wrap:wrap">
+            <div class="pc-metric">
+              <span class="lab">本班学生<span class="arr"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></span></span>
+              <span class="num">45 人</span><span class="sub">男 24 · 女 21</span>
+            </div>
+            <div class="pc-metric">
+              <span class="lab">考试成绩<span class="arr"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></span></span>
+              <span class="num">3 次考试</span><span class="sub">最近均分 82.5</span>
+            </div>
+          </div>
+          <div style="padding:10px 20px 16px">
+            <div class="pc-tabrow" style="gap:8px;padding-bottom:0">
+              <button class="m pc-tab is-active">学生条目 (45)</button>
+              <button class="m pc-tab">班级相册 (12)</button>
+              <button class="m pc-tab">日常表现 (6)</button>
+              <button class="m pc-tab">考试成绩 (3)</button>
+            </div>
+            <div class="mock-row" style="margin-top:14px">
+              <div class="cur-search"><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="6.2" cy="6.2" r="4.4" stroke="#7a7a7a" stroke-width="1.5"/><path d="M9.6 9.6L12.4 12.4" stroke="#7a7a7a" stroke-width="1.5" stroke-linecap="round"/></svg>搜索本班学生姓名或学号</div>
+              <button class="m pc-icon pc-gb"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.8" y="11.4" width="17.6" height="9.6" rx="2.4"/><path d="M2.8 16.2h17.6M8.67 11.4V21M14.53 11.4V21"/><path d="M19.2 3v5.4M16.5 5.7h5.4"/></svg></button>
+              <button class="m pc-icon pc-gb"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9.2" cy="7.4" r="3.6"/><path d="M3 20.6a6.2 6.2 0 0 1 12.4 0"/><path d="M18.6 8.4v6.2M15.5 11.5h6.2"/></svg></button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ ④ 学生详情 ══════════════════ -->
+  <section class="page-section" id="s4">
+    <div class="sec-head"><span class="sec-no">04 /</span><h2>学生详情</h2><span class="file">src/views/StudentDetailView.vue</span></div>
+    <div class="diag">
+      <div class="diag-line"><span class="dot"></span><div>顶栏三种按钮并排：<b>primary 蓝实底 / pearl 灰底 / danger 红描边</b>——pearl 灰底与 header 的 parchment 背景几乎同色，「编辑档案」「添加图片」看起来像禁用态。</div></div>
+      <div class="diag-line"><span class="dot"></span><div><b>「删除学生」比次级按钮还低调</b>：红描边但字重相同、藏在最右，破坏性操作的可感知层级不足。</div></div>
+      <div class="diag-line"><span class="dot"></span><div>卡片内 6 个 tab 黑胶囊，占宽大且沉重。</div></div>
+    </div>
+
+    <div class="panels">
+      <!-- 现状 -->
+      <div class="panel wide">
+        <div class="panel-head"><span class="panel-tag cur">现状</span><span class="panel-title">蓝实底 + 灰 pearl + 红描边混排</span><span class="try dim">对比次级按钮与背景的对比度</span></div>
+        <div class="screen cvb" style="padding:0">
+          <div style="border-bottom:1px solid var(--hairline);background:var(--parchment);padding:12px 22px;display:flex;align-items:center;gap:10px">
+            <span style="font-weight:600;font-size:15.5px">学生详情</span>
+            <span class="spacer"></span>
+            <span class="mock-note" style="display:inline-flex;align-items:center;gap:6px">学期
+              <span class="cur-select">2025~2026 第1学期</span>
+            </span>
+            <button class="m cur-primary">+ 记表现</button>
+            <button class="m cur-pearl">编辑档案</button>
+            <button class="m cur-pearl">添加图片</button>
+          </div>
+          <div style="padding:18px 22px 6px;display:flex;align-items:center;gap:18px">
+            <span style="width:64px;height:64px;border-radius:999px;background:var(--parchment);display:inline-flex;align-items:center;justify-content:center"><svg width="28" height="28" viewBox="0 0 40 40" fill="none"><circle cx="20" cy="14" r="7" fill="#cccccc"/><path d="M6 36c0-7.2 6.3-11 14-11s14 3.8 14 11" fill="#cccccc"/></svg></span>
+            <div style="flex:1">
+              <div class="mock-row" style="gap:8px"><b style="font-size:21px;letter-spacing:-.3px">张小明</b><span style="padding:3px 9px;border-radius:99px;background:var(--primary-soft);color:var(--primary);font-size:11px;font-weight:600">在读</span></div>
+              <p class="mock-stats">学号 20250103 · 初一(2)班 · 男</p>
+            </div>
+            <button class="m cur-danger">删除学生</button>
+          </div>
+          <div style="margin:14px 22px 18px;border:1px solid var(--hairline);border-radius:18px;background:var(--canvas);padding:16px 18px">
+            <div class="mock-row" style="gap:6px;border-bottom:1px solid var(--hairline);padding-bottom:10px">
+              <button class="m cur-tab is-active" style="padding:6px 13px">日常表现 (8)</button>
+              <button class="m cur-tab" style="padding:6px 13px">图片记录 (12)</button>
+              <button class="m cur-tab" style="padding:6px 13px">成绩 (3)</button>
+              <button class="m cur-tab" style="padding:6px 13px">学期评语</button>
+              <button class="m cur-tab" style="padding:6px 13px">作业</button>
+              <button class="m cur-tab" style="padding:6px 13px">评价报告</button>
+              <span class="spacer"></span>
+              <button class="m" style="font-size:13px;color:var(--primary)">+ 记表现</button>
+            </div>
+            <p class="mock-note" style="margin:12px 0 0;font-size:12.5px;color:var(--weak)">卡片区内容……</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- A -->
+      <div class="panel">
+        <div class="panel-head"><span class="panel-tag a">方案 A</span><span class="panel-title">pearl → 白底描边</span><span class="try">悬浮体验</span></div>
+        <div class="panel-desc">次级按钮换<b>白底描边</b>与 parchment 拉开层次；删除学生<b>加图标 + 保持红描边</b>，与编辑类按钮明确区分。</div>
+        <div class="screen cvb" style="padding:0">
+          <div style="border-bottom:1px solid var(--hairline);background:var(--parchment);padding:12px 18px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <span style="font-weight:600;font-size:14.5px">学生详情</span>
+            <span class="spacer"></span>
+            <button class="m cur-primary" style="height:32px;padding:0 14px;font-size:13px">+ 记表现</button>
+            <button class="m pa-pearl" style="height:30px;font-size:13px">编辑档案</button>
+            <button class="m pa-pearl" style="height:30px;font-size:13px">添加图片</button>
+          </div>
+          <div style="padding:14px 18px 4px;display:flex;align-items:center;gap:12px">
+            <span style="width:48px;height:48px;border-radius:999px;background:var(--parchment);display:inline-flex;align-items:center;justify-content:center"><svg width="22" height="22" viewBox="0 0 40 40" fill="none"><circle cx="20" cy="14" r="7" fill="#cccccc"/><path d="M6 36c0-7.2 6.3-11 14-11s14 3.8 14 11" fill="#cccccc"/></svg></span>
+            <div style="flex:1">
+              <div class="mock-row" style="gap:7px"><b style="font-size:17px">张小明</b><span style="padding:2px 8px;border-radius:99px;background:var(--primary-soft);color:var(--primary);font-size:10.5px;font-weight:600">在读</span></div>
+              <p class="mock-stats">学号 20250103 · 初一(2)班</p>
+            </div>
+            <button class="m pa-labeled dgr"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6M14 11v6"/></svg>删除学生</button>
+          </div>
+          <div style="margin:12px 18px 16px;border:1px solid var(--hairline);border-radius:14px;background:var(--canvas);padding:12px 14px">
+            <div class="mock-row" style="gap:5px;border-bottom:1px solid var(--hairline);padding-bottom:8px">
+              <button class="m pa-tab is-active" style="padding:6px 11px;font-size:13px">日常表现 (8)</button>
+              <button class="m pa-tab" style="padding:6px 11px;font-size:13px">图片记录 (12)</button>
+              <button class="m pa-tab" style="padding:6px 11px;font-size:13px">成绩 (3)</button>
+              <button class="m pa-tab" style="padding:6px 11px;font-size:13px">学期评语</button>
+              <button class="m pa-tab" style="padding:6px 11px;font-size:13px">作业</button>
+              <button class="m pa-tab" style="padding:6px 11px;font-size:13px">评价报告</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- B -->
+      <div class="panel">
+        <div class="panel-head"><span class="panel-tag b">方案 B</span><span class="panel-title">次级 soft 蓝 · 危险 soft 红</span><span class="try">悬浮体验</span></div>
+        <div class="panel-desc">次级按钮 = primary-soft 蓝底、删除学生 = danger-soft 红底，<b>蓝 = 可编辑、红 = 危险</b>，语义在色相层面就分开。</div>
+        <div class="screen cvb" style="padding:0">
+          <div style="border-bottom:1px solid var(--hairline);background:var(--parchment);padding:12px 18px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <span style="font-weight:600;font-size:14.5px">学生详情</span>
+            <span class="spacer"></span>
+            <button class="m cur-primary" style="height:32px;padding:0 14px;font-size:13px">+ 记表现</button>
+            <button class="m pb-pearl" style="height:30px;font-size:13px">编辑档案</button>
+            <button class="m pb-pearl" style="height:30px;font-size:13px">添加图片</button>
+          </div>
+          <div style="padding:14px 18px 4px;display:flex;align-items:center;gap:12px">
+            <span style="width:48px;height:48px;border-radius:999px;background:var(--parchment);display:inline-flex;align-items:center;justify-content:center"><svg width="22" height="22" viewBox="0 0 40 40" fill="none"><circle cx="20" cy="14" r="7" fill="#cccccc"/><path d="M6 36c0-7.2 6.3-11 14-11s14 3.8 14 11" fill="#cccccc"/></svg></span>
+            <div style="flex:1">
+              <div class="mock-row" style="gap:7px"><b style="font-size:17px">张小明</b><span style="padding:2px 8px;border-radius:99px;background:var(--primary-soft);color:var(--primary);font-size:10.5px;font-weight:600">在读</span></div>
+              <p class="mock-stats">学号 20250103 · 初一(2)班</p>
+            </div>
+            <button class="m pb-labeled dgr" style="height:30px;font-size:12.5px"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6M14 11v6"/></svg>删除学生</button>
+          </div>
+          <div style="margin:12px 18px 16px;border:1px solid var(--hairline);border-radius:14px;background:var(--canvas);padding:12px 14px">
+            <div class="mock-row" style="gap:5px;border-bottom:1px solid var(--hairline);padding-bottom:8px">
+              <button class="m pb-tab is-active" style="padding:6px 11px;font-size:13px">日常表现 (8)</button>
+              <button class="m pb-tab" style="padding:6px 11px;font-size:13px">图片记录 (12)</button>
+              <button class="m pb-tab" style="padding:6px 11px;font-size:13px">成绩 (3)</button>
+              <button class="m pb-tab" style="padding:6px 11px;font-size:13px">学期评语</button>
+              <button class="m pb-tab" style="padding:6px 11px;font-size:13px">作业</button>
+              <button class="m pb-tab" style="padding:6px 11px;font-size:13px">评价报告</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- C -->
+      <div class="panel">
+        <div class="panel-head"><span class="panel-tag c">方案 C</span><span class="panel-title">渐变主按钮 + 渐变下划线 tab</span><span class="try">悬浮体验</span></div>
+        <div class="panel-desc">主按钮 = 渐变实底、次级 = 渐变描边；tab 行去底色，选中 = <b>渐变能量线</b>，6 个 tab 变轻。</div>
+        <div class="screen cvb" style="padding:0">
+          <div style="border-bottom:1px solid var(--hairline);background:var(--parchment);padding:12px 18px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <span style="font-weight:600;font-size:14.5px">学生详情</span>
+            <span class="spacer"></span>
+            <button class="m pc-primary" style="height:32px;padding:0 14px;font-size:13px">+ 记表现</button>
+            <button class="m pc-pearl pc-gb" style="height:30px;font-size:13px">编辑档案</button>
+            <button class="m pc-pearl pc-gb" style="height:30px;font-size:13px">添加图片</button>
+          </div>
+          <div style="padding:14px 18px 4px;display:flex;align-items:center;gap:12px">
+            <span style="width:48px;height:48px;border-radius:999px;background:var(--parchment);display:inline-flex;align-items:center;justify-content:center"><svg width="22" height="22" viewBox="0 0 40 40" fill="none"><circle cx="20" cy="14" r="7" fill="#cccccc"/><path d="M6 36c0-7.2 6.3-11 14-11s14 3.8 14 11" fill="#cccccc"/></svg></span>
+            <div style="flex:1">
+              <div class="mock-row" style="gap:7px"><b style="font-size:17px">张小明</b><span style="padding:2px 8px;border-radius:99px;background:var(--primary-soft);color:var(--primary);font-size:10.5px;font-weight:600">在读</span></div>
+              <p class="mock-stats">学号 20250103 · 初一(2)班</p>
+            </div>
+            <button class="m pc-labeled dgr" style="height:30px;font-size:12.5px"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6M14 11v6"/></svg>删除学生</button>
+          </div>
+          <div style="margin:12px 18px 16px;border:1px solid var(--hairline);border-radius:14px;background:var(--canvas);padding:12px 14px 0">
+            <div class="pc-tabrow" style="gap:4px">
+              <button class="m pc-tab is-active" style="padding:6px 10px;font-size:13px">日常表现 (8)</button>
+              <button class="m pc-tab" style="padding:6px 10px;font-size:13px">图片记录 (12)</button>
+              <button class="m pc-tab" style="padding:6px 10px;font-size:13px">成绩 (3)</button>
+              <button class="m pc-tab" style="padding:6px 10px;font-size:13px">学期评语</button>
+              <button class="m pc-tab" style="padding:6px 10px;font-size:13px">作业</button>
+              <button class="m pc-tab" style="padding:6px 10px;font-size:13px">评价报告</button>
+            </div>
+            <div style="height:14px"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ ⑤ 我的课表 ══════════════════ -->
+  <section class="page-section" id="s5">
+    <div class="sec-head"><span class="sec-no">05 /</span><h2>我的课表</h2><span class="file">src/views/MyTimetableView.vue</span></div>
+    <div class="diag">
+      <div class="diag-line"><span class="dot"></span><div>「历史备忘 / 导入课表」pearl 按钮与 header 白底对比不足，像两块灰占位。</div></div>
+      <div class="diag-line"><span class="dot"></span><div><b>「周课表 / 按科目」的选中态 = pearl 底（<code>#fafafc</code>）</b>，是全站最弱的选中态，在白卡上几乎不可见。</div></div>
+      <div class="diag-line"><span class="dot"></span><div>日程类型筛选胶囊（备忘 / 待办 / 考试 / 作业）选中 = 黑底，色点语义被黑底吞掉。</div></div>
+    </div>
+
+    <div class="panels">
+      <!-- 现状 -->
+      <div class="panel wide">
+        <div class="panel-head"><span class="panel-tag cur">现状</span><span class="panel-title">pearl 选中态几乎不可见</span><span class="try dim">注意「周课表」的选中态</span></div>
+        <div class="screen cvb" style="padding:0">
+          <div style="border-bottom:1px solid var(--divider);padding:14px 22px" class="mock-row">
+            <button class="m cur-chip" style="font-weight:500"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" style="transform:rotate(180deg)"><path d="M6 3.5l4.5 4.5L6 12.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>首页</button>
+            <span style="color:var(--hairline)">|</span>
+            <b style="font-size:20px;letter-spacing:-.3px">我的课表</b>
+            <span class="cur-semchip">2025~2026学年 上学期</span>
+            <span class="spacer"></span>
+            <button class="m cur-pearl">历史备忘</button>
+            <button class="m cur-pearl">导入课表</button>
+          </div>
+          <div style="padding:16px 22px">
+            <div class="mock-row">
+              <div class="cur-seg">
+                <button class="m is-active">课表</button>
+                <button class="m">日历</button>
+              </div>
+              <div class="cur-pillgroup" style="background:var(--canvas)">
+                <button class="m is-active" style="padding:5px 13px;font-size:12.5px">周课表</button>
+                <button class="m" style="padding:5px 13px;font-size:12.5px">按科目</button>
+              </div>
+              <span class="spacer"></span>
+              <span class="mock-note">每周共 18 节 · 来自各班课表的自动聚合</span>
+            </div>
+            <div class="mock-row" style="margin-top:14px">
+              <span class="mock-note">任教学科</span>
+              <span class="cur-subject">数学</span>
+              <span class="cur-subject">信息技术</span>
+              <button class="m cur-chip" style="height:24px;font-size:12px">去个人资料调整</button>
+            </div>
+            <div class="mock-row" style="margin-top:12px">
+              <span class="mock-note">备忘筛选</span>
+              <button class="m cur-typepill"><span style="width:6px;height:6px;border-radius:99px;background:#a8a29e"></span>备忘</button>
+              <button class="m cur-typepill is-active"><span style="width:6px;height:6px;border-radius:99px;background:#fff"></span>待办</button>
+              <button class="m cur-typepill"><span style="width:6px;height:6px;border-radius:99px;background:var(--danger)"></span>考试</button>
+              <button class="m cur-typepill"><span style="width:6px;height:6px;border-radius:99px;background:#f59e0b"></span>作业</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- A -->
+      <div class="panel">
+        <div class="panel-head"><span class="panel-tag a">方案 A</span><span class="panel-title">主色描边选中</span><span class="try">悬浮体验</span></div>
+        <div class="panel-desc">pearl 按钮改白底描边；「周课表」选中改<b>主色描边胶囊</b>；类型胶囊选中 = 主色描边 + 保留彩色语义点。</div>
+        <div class="screen cvb" style="padding:0">
+          <div style="border-bottom:1px solid var(--divider);padding:12px 18px" class="mock-row">
+            <b style="font-size:17px">我的课表</b>
+            <span class="cur-semchip">2025~2026学年 上学期</span>
+            <span class="spacer"></span>
+            <button class="m pa-pearl" style="height:30px;font-size:13px">历史备忘</button>
+            <button class="m pa-pearl" style="height:30px;font-size:13px">导入课表</button>
+          </div>
+          <div style="padding:14px 18px 16px">
+            <div class="mock-row">
+              <div class="pa-seg">
+                <button class="m is-active">课表</button>
+                <button class="m">日历</button>
+              </div>
+              <div class="pa-pillgroup">
+                <button class="m is-active" style="padding:5px 13px;font-size:12.5px">周课表</button>
+                <button class="m" style="padding:5px 13px;font-size:12.5px">按科目</button>
+              </div>
+            </div>
+            <div class="mock-row" style="margin-top:12px">
+              <button class="m pa-typepill"><span style="width:6px;height:6px;border-radius:99px;background:#a8a29e"></span>备忘</button>
+              <button class="m pa-typepill is-active"><span style="width:6px;height:6px;border-radius:99px;background:var(--primary)"></span>待办</button>
+              <button class="m pa-typepill"><span style="width:6px;height:6px;border-radius:99px;background:var(--danger)"></span>考试</button>
+              <button class="m pa-typepill"><span style="width:6px;height:6px;border-radius:99px;background:#f59e0b"></span>作业</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- B -->
+      <div class="panel">
+        <div class="panel-head"><span class="panel-tag b">方案 B</span><span class="panel-title">soft 蓝底选中</span><span class="try">悬浮体验</span></div>
+        <div class="panel-desc">次级按钮 = soft 蓝底；组内选中统一 primary-soft + 内描边，<b>类型胶囊保留彩色点、底色变蓝</b>。</div>
+        <div class="screen cvb" style="padding:0">
+          <div style="border-bottom:1px solid var(--divider);padding:12px 18px" class="mock-row">
+            <b style="font-size:17px">我的课表</b>
+            <span class="cur-semchip">2025~2026学年 上学期</span>
+            <span class="spacer"></span>
+            <button class="m pb-pearl" style="height:30px;font-size:13px">历史备忘</button>
+            <button class="m pb-pearl" style="height:30px;font-size:13px">导入课表</button>
+          </div>
+          <div style="padding:14px 18px 16px">
+            <div class="mock-row">
+              <div class="pb-seg">
+                <button class="m is-active">课表</button>
+                <button class="m">日历</button>
+              </div>
+              <div class="pb-pillgroup">
+                <button class="m is-active" style="padding:5px 13px;font-size:12.5px">周课表</button>
+                <button class="m" style="padding:5px 13px;font-size:12.5px">按科目</button>
+              </div>
+            </div>
+            <div class="mock-row" style="margin-top:12px">
+              <button class="m pb-typepill"><span style="width:6px;height:6px;border-radius:99px;background:#a8a29e"></span>备忘</button>
+              <button class="m pb-typepill is-active"><span style="width:6px;height:6px;border-radius:99px;background:var(--primary)"></span>待办</button>
+              <button class="m pb-typepill"><span style="width:6px;height:6px;border-radius:99px;background:var(--danger)"></span>考试</button>
+              <button class="m pb-typepill"><span style="width:6px;height:6px;border-radius:99px;background:#f59e0b"></span>作业</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- C -->
+      <div class="panel">
+        <div class="panel-head"><span class="panel-tag c">方案 C</span><span class="panel-title">渐变描边选中</span><span class="try">悬浮体验</span></div>
+        <div class="panel-desc">次级按钮 = 渐变描边；组内选中 = 渐变描边胶囊 + soft 底，类型胶囊选中带渐变光晕。</div>
+        <div class="screen cvb" style="padding:0">
+          <div style="border-bottom:1px solid var(--divider);padding:12px 18px" class="mock-row">
+            <b style="font-size:17px">我的课表</b>
+            <span class="cur-semchip">2025~2026学年 上学期</span>
+            <span class="spacer"></span>
+            <button class="m pc-pearl pc-gb" style="height:30px;font-size:13px">历史备忘</button>
+            <button class="m pc-pearl pc-gb" style="height:30px;font-size:13px">导入课表</button>
+          </div>
+          <div style="padding:14px 18px 16px">
+            <div class="mock-row">
+              <div class="pc-seg">
+                <button class="m is-active">课表</button>
+                <button class="m">日历</button>
+              </div>
+              <div class="pc-pillgroup">
+                <button class="m is-active" style="padding:5px 13px;font-size:12.5px">周课表</button>
+                <button class="m" style="padding:5px 13px;font-size:12.5px">按科目</button>
+              </div>
+            </div>
+            <div class="mock-row" style="margin-top:12px">
+              <button class="m pc-typepill"><span style="width:6px;height:6px;border-radius:99px;background:#a8a29e"></span>备忘</button>
+              <button class="m pc-typepill is-active"><span style="width:6px;height:6px;border-radius:99px;background:var(--primary)"></span>待办</button>
+              <button class="m pc-typepill"><span style="width:6px;height:6px;border-radius:99px;background:var(--danger)"></span>考试</button>
+              <button class="m pc-typepill"><span style="width:6px;height:6px;border-radius:99px;background:#f59e0b"></span>作业</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ ⑥ 考试成绩 ══════════════════ -->
+  <section class="page-section" id="s6">
+    <div class="sec-head"><span class="sec-no">06 /</span><h2>考试成绩</h2><span class="file">src/components/ExamScorePanel.vue</span></div>
+    <div class="diag">
+      <div class="diag-line"><span class="dot"></span><div><b>「导入成绩」是本面板的核心动作</b>，却是一个 mint 渐变小图标——和旁边的装饰元素视觉权重相同，空态文案还得专门写一句「点击右侧的导入成绩图标」。</div></div>
+      <div class="diag-line"><span class="dot"></span><div>「等级映射」低频配置按钮 <code>text-weak</code>，可点性弱（低频 ≠ 不可发现）。</div></div>
+    </div>
+
+    <div class="panels">
+      <!-- 现状 -->
+      <div class="panel wide">
+        <div class="panel-head"><span class="panel-tag cur">现状</span><span class="panel-title">核心动作 = 一枚小图标</span><span class="try dim">对比图标与说明文字的权重</span></div>
+        <div class="screen cvb">
+          <div class="mock-row">
+            <div class="cur-seg">
+              <button class="m is-active">按考试</button>
+              <button class="m">按学生总览</button>
+              <button class="m">成绩趋势</button>
+            </div>
+            <button class="m cur-icon mint"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 15l2 2 4-4"/></svg></button>
+            <span class="hover-note">← 导入成绩（图标，无文字）</span>
+            <span class="spacer"></span>
+            <button class="m" style="height:30px;padding:0 12px;border-radius:8px;border:1px solid var(--hairline);font-size:13px;color:var(--weak)" onmouseover="this.style.borderColor='var(--ink)';this.style.color='var(--ink)'" onmouseout="this.style.borderColor='var(--hairline)';this.style.color='var(--weak)'">等级映射</button>
+          </div>
+          <p class="mock-note" style="margin:12px 0 0">每次考试一份成绩单批次 · 点击分数可改分纠错</p>
+        </div>
+      </div>
+
+      <!-- A -->
+      <div class="panel">
+        <div class="panel-head"><span class="panel-tag a">方案 A</span><span class="panel-title">导入成绩 = 主色描边胶囊</span><span class="try">悬浮体验</span></div>
+        <div class="panel-desc">图标升级为<b>「图标 + 导入成绩」主色描边胶囊</b>，与视角切换分段拉开一级；等级映射保留低调描边但文字加深。</div>
+        <div class="screen cvb">
+          <div class="mock-row">
+            <div class="pa-seg">
+              <button class="m is-active">按考试</button>
+              <button class="m">按学生总览</button>
+              <button class="m">成绩趋势</button>
+            </div>
+            <button class="m pa-labeled" style="height:30px;padding:0 13px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 15l2 2 4-4"/></svg>导入成绩</button>
+            <span class="spacer"></span>
+            <button class="m pa-labeled" style="height:30px;color:var(--muted)">等级映射</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- B -->
+      <div class="panel">
+        <div class="panel-head"><span class="panel-tag b">方案 B</span><span class="panel-title">导入成绩 = soft 蓝胶囊</span><span class="try">悬浮体验</span></div>
+        <div class="panel-desc">soft 蓝底胶囊 + hover 翻实底，<b>工具行里唯一的蓝色块就是导入入口</b>。</div>
+        <div class="screen cvb">
+          <div class="mock-row">
+            <div class="pb-seg">
+              <button class="m is-active">按考试</button>
+              <button class="m">按学生总览</button>
+              <button class="m">成绩趋势</button>
+            </div>
+            <button class="m pb-labeled" style="height:30px;padding:0 13px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 15l2 2 4-4"/></svg>导入成绩</button>
+            <span class="spacer"></span>
+            <button class="m pb-pearl" style="height:30px;font-size:13px">等级映射</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- C -->
+      <div class="panel">
+        <div class="panel-head"><span class="panel-tag c">方案 C</span><span class="panel-title">导入成绩 = 渐变实底</span><span class="try">悬浮体验</span></div>
+        <div class="panel-desc">核心动作给到<b>渐变实底胶囊</b>——页面唯一强色块，天然成为视觉焦点，与「视角切换」形成明确主次。</div>
+        <div class="screen cvb">
+          <div class="mock-row">
+            <div class="pc-seg">
+              <button class="m is-active">按考试</button>
+              <button class="m">按学生总览</button>
+              <button class="m">成绩趋势</button>
+            </div>
+            <button class="m pc-primary" style="height:30px;padding:0 13px;font-size:12.5px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 15l2 2 4-4"/></svg>导入成绩</button>
+            <span class="spacer"></span>
+            <button class="m pc-pearl pc-gb" style="height:30px;font-size:13px">等级映射</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ ⑦ 学生列表行内操作 ══════════════════ -->
+  <section class="page-section" id="s7">
+    <div class="sec-head"><span class="sec-no">07 /</span><h2>学生列表行内操作</h2><span class="file">src/components/StudentTable.vue</span></div>
+    <div class="diag">
+      <div class="diag-line"><span class="dot"></span><div>「查看」是纯灰文字（<code>text-weak</code>），没有箭头、没有底色——看起来像表尾注释而非动作；整行可点这件事也没有任何暗示。</div></div>
+      <div class="diag-line"><span class="dot"></span><div>「+ 记表现」胶囊本身状态尚可（soft 底 + hover 反转），保留并沿用三方案语言统一。</div></div>
+    </div>
+
+    <div class="panels">
+      <!-- 现状 -->
+      <div class="panel wide">
+        <div class="panel-head"><span class="panel-tag cur">现状</span><span class="panel-title">「查看」像注释文字</span><span class="try dim">悬浮行与「查看」对比</span></div>
+        <div class="screen cvb">
+          <div class="stable">
+            <div class="srow head"><span>姓名</span><span>学号</span><span>年级班级</span><span>联系电话</span><span>图片记录</span><span>更新时间</span><span>操作</span></div>
+            <div class="srow data">
+              <span class="name">张小明</span><span>20250103</span><span>初一(2)班</span><span>138****1234 (母亲)</span><span>12 张</span><span>2026-09-12</span>
+              <span class="mock-row" style="gap:12px">
+                <button class="m cur-quickpill">+ 记表现</button>
+                <span class="cur-viewlink">查看</span>
+              </span>
+            </div>
+            <div class="srow data">
+              <span class="name">李小红</span><span>20250104</span><span>初一(2)班</span><span>139****5678 (父亲)</span><span>5 张</span><span>2026-09-10</span>
+              <span class="mock-row" style="gap:12px">
+                <button class="m cur-quickpill">+ 记表现</button>
+                <span class="cur-viewlink">查看</span>
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- A -->
+      <div class="panel">
+        <div class="panel-head"><span class="panel-tag a">方案 A</span><span class="panel-title">查看 + 箭头，hover 主色</span><span class="try">悬浮体验</span></div>
+        <div class="panel-desc">「查看」加 <b>› 箭头</b>，hover 主色 + soft 底；行 hover 同步出现 pearl 底。成本最低的一档。</div>
+        <div class="screen cvb">
+          <div class="stable">
+            <div class="srow data" style="height:56px;grid-template-columns:130px 110px 110px 1fr">
+              <span class="name">张小明</span><span>20250103</span><span>初一(2)班</span>
+              <span class="mock-row" style="gap:10px;justify-content:flex-end">
+                <button class="m cur-quickpill">+ 记表现</button>
+                <span class="m pa-viewlink">查看<svg width="10" height="10" viewBox="0 0 16 16" fill="none"><path d="M6 3.5l4.5 4.5L6 12.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- B -->
+      <div class="panel">
+        <div class="panel-head"><span class="panel-tag b">方案 B</span><span class="panel-title">查看变 soft 胶囊</span><span class="try">悬浮体验</span></div>
+        <div class="panel-desc">「查看」升级为 primary-soft 胶囊，与「+ 记表现」构成<b>一主一辅两个蓝底动作</b>，行内操作一眼可辨。</div>
+        <div class="screen cvb">
+          <div class="stable">
+            <div class="srow data" style="height:56px;grid-template-columns:130px 110px 110px 1fr">
+              <span class="name">张小明</span><span>20250103</span><span>初一(2)班</span>
+              <span class="mock-row" style="gap:8px;justify-content:flex-end">
+                <button class="m cur-quickpill">+ 记表现</button>
+                <span class="m pb-viewlink">查看<svg width="10" height="10" viewBox="0 0 16 16" fill="none"><path d="M6 3.5l4.5 4.5L6 12.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- C -->
+      <div class="panel">
+        <div class="panel-head"><span class="panel-tag c">方案 C</span><span class="panel-title">查看 = 渐变描边胶囊</span><span class="try">悬浮体验</span></div>
+        <div class="panel-desc">「查看」= 渐变描边胶囊 + hover 光晕，行 hover 时整行带出极浅的蓝色氛围，科技感与轻盈兼得。</div>
+        <div class="screen cvb">
+          <div class="stable">
+            <div class="srow data" style="height:56px;grid-template-columns:130px 110px 110px 1fr">
+              <span class="name">张小明</span><span>20250103</span><span>初一(2)班</span>
+              <span class="mock-row" style="gap:8px;justify-content:flex-end">
+                <button class="m cur-quickpill">+ 记表现</button>
+                <span class="m pc-viewlink">查看<svg width="10" height="10" viewBox="0 0 16 16" fill="none"><path d="M6 3.5l4.5 4.5L6 12.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ 落地建议 ══════════════════ -->
+  <section class="page-section" id="rollout">
+    <div class="sec-head"><span class="sec-no">08 /</span><h2>落地建议</h2></div>
+    <div class="diag">
+      <div class="diag-line good"><span class="dot"></span><div>原则：<b>「常显但弱化」优于「悬浮才出现」</b>。hover-only 可以保留给熟练用户的快捷路径，但可发现性必须由常显态承担。三个方案不互斥——推荐 A 或 B 做基线，C 的渐变主按钮可以按页面逐个引入。</div></div>
+    </div>
+    <div class="rollout">
+      <div class="ro-card">
+        <span class="ph">P0 · 当天可完成</span>
+        <h4>解决「看不见」</h4>
+        <ul>
+          <li><b>班级详情头部</b>：编辑 / 归档 / 删除改「图标+文字」胶囊（A/B/C 任选皮肤）</li>
+          <li><b>导入类动作</b>：导入花名册 / 导入成绩 / 新建班级补文字标签</li>
+          <li><b>StudentTable</b>：「查看」加箭头与 hover 主色</li>
+        </ul>
+      </div>
+      <div class="ro-card">
+        <span class="ph">P1 · 一个迭代</span>
+        <h4>统一选中语言</h4>
+        <ul>
+          <li>抽取 <b>AppTabs</b> 组件，替换 4 处黑胶囊 tab（班级详情 / 学生详情 / 班级管理 / 相册筛选）</li>
+          <li>3 处分段控件统一选中态（我的课表 ×2 / 成绩面板）</li>
+          <li>pearl 次级按钮换新皮肤（A 描边 / B soft / C 渐变描边）</li>
+        </ul>
+      </div>
+      <div class="ro-card">
+        <span class="ph">P2 · 仅方案 C 需要</span>
+        <h4>token 增补</h4>
+        <ul>
+          <li><span class="code-tok">--grad-primary: linear-gradient(135deg,#0066cc,#0091ff)</span>（同色系提亮，非第二强调色）</li>
+          <li><span class="code-tok">--glow-primary: 0 6px 18px rgba(0,102,204,.35)</span>；阴影规范由「仅两处」放宽为「交互光晕」一类</li>
+          <li>主按钮 / 焦点态 / 指示线换渐变</li>
+        </ul>
+      </div>
+      <div class="ro-card ro-wide">
+        <span class="ph">组件改动清单 + 验收</span>
+        <h4>对应 src/components/ui/</h4>
+        <ul>
+          <li><b>AppIconButton</b>：新增 <span class="code-tok">showLabel</span>（图标+文字形态）与 <span class="code-tok">tone="danger"</span>；「导入 / 新建」类入口默认 showLabel</li>
+          <li><b>AppButton</b>：新增 <span class="code-tok">labeled</span> 变体（h-7 图标+文字胶囊，供卡片行内 / 头部低频操作使用）</li>
+          <li><b>AppLink chip</b>：导航类胶囊 hover 从「变灰加深」改为「主色描边」（A）或常驻 soft 底（B）</li>
+          <li><b>验收方法</b>：5 秒截图测试——把<b>不悬浮</b>的页面截图给没用过产品的人，5 秒内说出 3 个能点的东西；说不出来即不通过。逐页对照本文件的「现状」面板即可复测。</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <footer>aprilio · 交互可发现性样式提案 · 2026-09-13 生成 · 色值与字号复刻自 src/style.css @theme，交互元素取自各 View 当前实现</footer>
+</div>
+</body>
+</html>

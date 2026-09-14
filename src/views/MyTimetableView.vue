@@ -300,7 +300,7 @@ onBeforeUnmount(() => {
           <AppLink to="/home" icon="back" class="font-medium shrink-0">首页</AppLink>
           <span class="text-hairline shrink-0">|</span>
           <h1 class="text-display font-semibold text-ink truncate">我的课表</h1>
-          <span class="rounded-pill bg-primary-soft px-2.5 py-1 text-fine text-primary shrink-0">
+          <span class="whitespace-nowrap rounded-pill bg-primary-soft px-2.5 py-1 text-fine text-primary shrink-0">
             {{ semesterLabel(SEMESTER) }}
           </span>
         </div>
@@ -324,15 +324,15 @@ onBeforeUnmount(() => {
     </header>
 
     <div ref="scrollEl" class="scroll-thin min-h-0 flex-1 overflow-y-auto px-8 py-6 space-y-5">
-      <!-- 视图切换：课表 / 日历；课表内可再切 周课表 / 按科目 -->
-      <div class="flex flex-wrap items-center justify-between gap-3">
-        <div class="flex flex-wrap items-center gap-2.5">
+      <!-- 视图切换：课表 / 日历；课表内可再切 周课表 / 按科目；窄窗口保持单行横向滚动 -->
+      <div class="scrollbar-none flex items-center justify-between gap-3 overflow-x-auto">
+        <div class="flex shrink-0 items-center gap-2.5">
           <div class="inline-flex rounded-md border border-hairline bg-parchment p-1" data-test="view-switch">
             <button
               type="button"
               data-test="view-tab-table"
-              class="rounded-[6px] px-3 py-1.5 text-caption transition-colors"
-              :class="view === 'table' ? 'bg-canvas font-medium text-primary' : 'text-weak hover:text-ink'"
+              class="whitespace-nowrap rounded-[6px] px-3 py-1.5 text-caption transition-[color,box-shadow]"
+              :class="view === 'table' ? 'grad-border-soft font-medium text-primary' : 'text-weak hover:text-ink'"
               @click="view = 'table'"
             >
               课表
@@ -340,8 +340,8 @@ onBeforeUnmount(() => {
             <button
               type="button"
               data-test="view-tab-calendar"
-              class="rounded-[6px] px-3 py-1.5 text-caption transition-colors"
-              :class="view === 'calendar' ? 'bg-canvas font-medium text-primary' : 'text-weak hover:text-ink'"
+              class="whitespace-nowrap rounded-[6px] px-3 py-1.5 text-caption transition-[color,box-shadow]"
+              :class="view === 'calendar' ? 'grad-border-soft font-medium text-primary' : 'text-weak hover:text-ink'"
               @click="view = 'calendar'"
             >
               日历
@@ -356,8 +356,8 @@ onBeforeUnmount(() => {
             <button
               type="button"
               data-test="table-mode-week"
-              class="rounded-pill px-2.5 py-0.5 text-fine transition-colors"
-              :class="tableMode === 'week' ? 'bg-pearl font-medium text-ink' : 'text-weak hover:text-ink'"
+              class="whitespace-nowrap rounded-pill px-2.5 py-0.5 text-fine transition-[color,box-shadow]"
+              :class="tableMode === 'week' ? 'grad-border font-medium text-primary' : 'text-weak hover:text-ink'"
               @click="tableMode = 'week'"
             >
               周课表
@@ -365,15 +365,15 @@ onBeforeUnmount(() => {
             <button
               type="button"
               data-test="table-mode-blocks"
-              class="rounded-pill px-2.5 py-0.5 text-fine transition-colors"
-              :class="tableMode === 'blocks' ? 'bg-pearl font-medium text-ink' : 'text-weak hover:text-ink'"
+              class="whitespace-nowrap rounded-pill px-2.5 py-0.5 text-fine transition-[color,box-shadow]"
+              :class="tableMode === 'blocks' ? 'grad-border font-medium text-primary' : 'text-weak hover:text-ink'"
               @click="tableMode = 'blocks'"
             >
               按科目
             </button>
           </div>
         </div>
-        <span class="text-fine text-weak">
+        <span class="shrink-0 whitespace-nowrap text-fine text-weak">
           每周共 {{ schedule.weekly_total }} 节 · 来自各班课表的自动聚合
         </span>
       </div>
@@ -385,7 +385,7 @@ onBeforeUnmount(() => {
           <span
             v-for="s in mySubjects"
             :key="s"
-            class="rounded-pill bg-ink px-3 py-1 text-fine font-medium text-canvas"
+            class="whitespace-nowrap rounded-pill bg-ink px-3 py-1 text-fine font-medium text-canvas"
           >
             {{ s }}
           </span>
@@ -476,9 +476,10 @@ onBeforeUnmount(() => {
               <h2 class="text-body font-semibold text-ink">{{ block.subject }}</h2>
               <span class="text-fine text-weak">每周 {{ block.weekly_count }} 节</span>
             </div>
+            <div class="scroll-thin overflow-x-auto">
             <div
               data-test="subject-block-grid"
-              class="grid grid-cols-[56px_repeat(5,minmax(0,1fr))] gap-px"
+              class="grid min-w-[640px] grid-cols-[56px_repeat(5,minmax(0,1fr))] gap-px"
             >
               <div class="flex h-7 items-center justify-center text-fine text-weak">节次</div>
               <div
@@ -514,6 +515,7 @@ onBeforeUnmount(() => {
                 </div>
               </template>
             </div>
+            </div>
           </AppCard>
         </div>
       </template>
@@ -534,8 +536,8 @@ onBeforeUnmount(() => {
                 data-test="event-type-pill"
                 :title="`点按「${CALENDAR_EVENT_META[t].label}」筛选课表备忘，再点取消`"
                 :aria-pressed="typeFilter === t"
-                class="flex items-center gap-1 rounded-pill border px-2 py-0.5 text-fine transition-colors"
-                :class="typeFilter === t ? 'border-ink bg-ink font-medium text-canvas' : 'border-hairline text-weak hover:border-ink'"
+                class="flex items-center gap-1 whitespace-nowrap rounded-pill px-2 py-0.5 text-fine transition-[color,box-shadow]"
+                :class="typeFilter === t ? 'grad-border-soft font-medium text-primary' : 'border border-hairline text-weak hover:border-ink'"
                 @click="toggleTypeFilter(t)"
               >
                 <span class="h-1.5 w-1.5 rounded-full" :class="CALENDAR_EVENT_META[t].dot" />
@@ -543,7 +545,9 @@ onBeforeUnmount(() => {
               </button>
             </div>
           </div>
-          <div class="grid grid-cols-[56px_repeat(5,minmax(0,1fr))] gap-px">
+          <!-- 窄容器不出竖排、不裁列：整网保持最小列宽，横向滚动查看 -->
+          <div class="scroll-thin overflow-x-auto">
+          <div class="grid min-w-[640px] grid-cols-[56px_repeat(5,minmax(0,1fr))] gap-px">
             <div class="flex h-9 items-center justify-center text-fine text-weak">节次</div>
             <div
               v-for="(date, i) in weekDates"
@@ -560,7 +564,7 @@ onBeforeUnmount(() => {
               :title="`${dateHeader(date)} ${WEEKDAY_LABELS[i]} · 点击记全天日程`"
               @click="openEditor(date, null)"
             >
-              <span>{{ dateHeader(date) }} {{ WEEKDAY_LABELS[i] }}</span>
+              <span class="whitespace-nowrap">{{ dateHeader(date) }} {{ WEEKDAY_LABELS[i] }}</span>
               <!-- 全天 / 日报事件（不绑节次）：最多展示 2 条，溢出收数。
                    文字用 text-weak：text-faint（#ccc）在白底上几乎看不见 -->
               <span
@@ -832,6 +836,7 @@ onBeforeUnmount(() => {
                 </div>
               </div>
             </template>
+          </div>
           </div>
         </div>
       </div>

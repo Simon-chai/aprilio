@@ -81,9 +81,21 @@
   --radius-lg: 18px;
   --radius-pill: 9999px;
 
-  /* 投影：全站只有两处，图片与窗口，卡片按钮一律不加 */
+  /* 投影：图片、窗口 + 交互光晕（方案 C 引入的第三类，仅用于 hover 反馈，不做层级） */
   --shadow-photo: 3px 5px 30px rgba(0, 0, 0, 0.22);
   --shadow-window: 0 24px 60px -12px rgba(0, 0, 0, 0.18);
+  --shadow-glow: 0 6px 18px rgba(0, 102, 204, 0.35); /* 主按钮渐变实底的 hover 光晕 */
+  --shadow-halo: 0 0 0 4px rgba(0, 102, 204, 0.1); /* 渐变描边元素的 hover 光环 */
+  --shadow-halo-danger: 0 0 0 4px rgba(215, 0, 21, 0.08); /* 危险描边元素的 hover 光环 */
+
+  /* 渐变能量线（方案 C）：同色系提亮，不引入第二强调色 */
+  --grad-primary: linear-gradient(135deg, #0066cc, #0091ff);
+  --grad-border-primary: linear-gradient(
+    135deg,
+    rgba(0, 102, 204, 0.65),
+    rgba(0, 145, 255, 0.45)
+  );
+  --grad-border-danger: linear-gradient(135deg, rgba(215, 0, 21, 0.55), rgba(255, 90, 60, 0.4));
 }
 
 @layer base {
@@ -131,6 +143,64 @@
 
   .scrollbar-none::-webkit-scrollbar {
     display: none;
+  }
+
+  /* —— 方案 C「渐变能量线」工具类：可操作语义的常显信号 —— */
+
+  /* 渐变描边（白底填充）：次级按钮 / 图标按钮 / 跳转胶囊 */
+  .grad-border {
+    border: 1px solid transparent;
+    background: linear-gradient(var(--color-canvas), var(--color-canvas)) padding-box,
+      var(--grad-border-primary) border-box;
+  }
+
+  /* 渐变描边（浅蓝填充）：组内选中态（分段 / 筛选胶囊） */
+  .grad-border-soft {
+    border: 1px solid transparent;
+    background: linear-gradient(var(--color-primary-soft), var(--color-primary-soft)) padding-box,
+      var(--grad-border-primary) border-box;
+  }
+
+  /* 危险操作渐变描边 */
+  .grad-border-danger {
+    border: 1px solid transparent;
+    background: linear-gradient(var(--color-canvas), var(--color-canvas)) padding-box,
+      var(--grad-border-danger) border-box;
+  }
+
+  /* 主按钮渐变实底（叠在 bg-primary 之上，保证渐变未加载时仍有主色） */
+  .btn-grad {
+    background-image: var(--grad-primary);
+  }
+
+  /* Tab 选中：底部渐变能量线（贴合按钮底边，与容器的 border-b 发丝线相接；
+     容器为滚动容器时也不会被裁剪） */
+  .tab-energy {
+    position: relative;
+  }
+  .tab-energy::after {
+    content: "";
+    position: absolute;
+    left: 12px;
+    right: 12px;
+    bottom: 0;
+    height: 3px;
+    border-radius: 999px;
+    background: var(--grad-primary);
+  }
+
+  /* 概览指标卡：顶部渐变细线 + hover 主色描边，整卡即可点 */
+  .metric-energy {
+    position: relative;
+    overflow: hidden;
+  }
+  .metric-energy::before {
+    content: "";
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 2px;
+    background: linear-gradient(90deg, rgba(0, 102, 204, 0.5), rgba(0, 145, 255, 0.2));
+    opacity: 0.7;
   }
 
   .hero-ken {

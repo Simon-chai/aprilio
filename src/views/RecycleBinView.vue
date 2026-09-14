@@ -99,11 +99,11 @@ function classHint(item: RecycleItem): string {
 
 <template>
   <header
-    class="flex h-[52px] shrink-0 items-center justify-between border-b border-hairline bg-parchment px-8"
+    class="scrollbar-none flex h-[52px] shrink-0 items-center justify-between gap-4 overflow-x-auto border-b border-hairline bg-parchment px-8"
   >
-    <div class="flex items-baseline gap-3">
-      <h1 class="text-tagline font-semibold text-ink">回收站</h1>
-      <span class="text-fine text-weak">删除的班级与学生保留 {{ RECYCLE_RETENTION_DAYS }} 天，过期自动彻底删除</span>
+    <div class="flex shrink-0 items-baseline gap-3">
+      <h1 class="whitespace-nowrap text-tagline font-semibold text-ink">回收站</h1>
+      <span class="whitespace-nowrap text-fine text-weak">删除的班级与学生保留 {{ RECYCLE_RETENTION_DAYS }} 天，过期自动彻底删除</span>
     </div>
     <AppButton
       v-if="items.length"
@@ -122,17 +122,18 @@ function classHint(item: RecycleItem): string {
         {{ error }}
       </p>
 
-      <div class="flex gap-5">
-        <div class="flex-1 rounded-lg border border-hairline bg-canvas p-5">
-          <p class="text-fine text-weak">待恢复班级</p>
+      <!-- 统计条：窄窗口不压缩竖排，卡片保住最小宽度，超出横向滚动 -->
+      <div class="scrollbar-none flex gap-5 overflow-x-auto">
+        <div class="min-w-[176px] flex-1 rounded-lg border border-hairline bg-canvas p-5">
+          <p class="whitespace-nowrap text-fine text-weak">待恢复班级</p>
           <p class="mt-1.5 text-stat font-semibold text-ink">{{ classCount }}</p>
         </div>
-        <div class="flex-1 rounded-lg border border-hairline bg-canvas p-5">
-          <p class="text-fine text-weak">待恢复学生</p>
+        <div class="min-w-[176px] flex-1 rounded-lg border border-hairline bg-canvas p-5">
+          <p class="whitespace-nowrap text-fine text-weak">待恢复学生</p>
           <p class="mt-1.5 text-stat font-semibold text-ink">{{ studentCount }}</p>
         </div>
-        <div class="flex-1 rounded-lg border border-hairline bg-canvas p-5">
-          <p class="text-fine text-weak">保留期限</p>
+        <div class="min-w-[176px] flex-1 rounded-lg border border-hairline bg-canvas p-5">
+          <p class="whitespace-nowrap text-fine text-weak">保留期限</p>
           <p class="mt-1.5 text-stat font-semibold text-ink">{{ RECYCLE_RETENTION_DAYS }} 天</p>
         </div>
       </div>

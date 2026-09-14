@@ -9,11 +9,14 @@
  * 取值口径与成绩面板一致：柱高 = 分数 / 100，柱色按「科目」取共享配色
  * （跨场次同科同色，与折线图同色），分数文本按等级着色；
  * 等级制 / 缺考等无数字分的科目不画柱，只显示文字。
+ *
+ * 等级模式（成绩页「等级映射 → 显示等级」开启）：柱顶显示等级名、柱高按档位
+ * 代表值（该档最低分）画——同等级等高，不同档拉开距离。
  */
 import { computed } from "vue";
 import { chartColorOf } from "../lib/chart-palette";
 import { SCORE_LEVEL_TEXT, formatNumber, scoreRatio } from "../lib/score-analysis";
-import { levelOf } from "../lib/score-config";
+import { levelNameOfScore, levelOf, levelValueOf, showLevelOnly } from "../lib/score-config";
 import type { SubjectScoreBarGroup, SubjectScoreBarItem } from "../types";
 
 const props = withDefaults(
@@ -72,9 +75,16 @@ function hasScore(item: SubjectScoreBarItem): boolean {
   return item.score !== null && item.score !== undefined;
 }
 
-/** 柱顶文本：有数字分显示分数，否则显示「缺考」等文字 */
+/** 柱子实际按这个值画高度：等级模式下取档位代表值（同等级同值） */
+function plottedScore(item: SubjectScoreBarItem): number | null {
+  if (!hasScore(item)) return null;
+  return showLevelOnly.value ? levelValueOf(item.score) : (item.score ?? null);
+}
+
+/** 柱顶文本：有数字分显示分数（等级模式显示等级名），否则显示「缺考」等文字 */
 function valueText(item: SubjectScoreBarItem): string {
-  return hasScore(item) ? formatNumber(item.score) : (item.grade ?? "—");
+  if (!hasScore(item)) return item.grade ?? "—";
+  return showLevelOnly.value ? levelNameOfScore(item.score) : formatNumber(item.score);
 }
 
 function valueClass(item: SubjectScoreBarItem): string {
@@ -83,7 +93,11 @@ function valueClass(item: SubjectScoreBarItem): string {
 }
 
 function barTitle(item: SubjectScoreBarItem): string {
-  if (hasScore(item)) return `${item.subject} ${formatNumber(item.score)} 分`;
+  if (hasScore(item)) {
+    return showLevelOnly.value
+      ? `${item.subject} ${levelNameOfScore(item.score)}`
+      : `${item.subject} ${formatNumber(item.score)} 分`;
+  }
   return `${item.subject} ${item.grade ?? "无成绩"}`;
 }
 </script>
@@ -104,7 +118,9 @@ function barTitle(item: SubjectScoreBarItem): string {
         <span class="inline-block h-2 w-2 shrink-0 rounded-[2px]" :style="{ backgroundColor: chartColorOf(i) }" />
         {{ name }}
       </span>
-      <span class="ml-auto text-fine text-faint">柱高为该科分数 · 单科满分按 100 计</span>
+      <span class="ml-auto text-fine text-faint">
+        {{ showLevelOnly ? "柱高按等级分档 · 同等级等高" : "柱高为该科分数 · 单科满分按 100 计" }}
+      </span>
     </div>
 
     <div class="scroll-thin overflow-x-auto" :class="compact ? '' : 'mt-3'">
@@ -139,11 +155,11 @@ function barTitle(item: SubjectScoreBarItem): string {
                 v-if="hasScore(item)"
                 data-test="score-bar"
                 :data-subject="item.subject"
-                :data-score="item.score"
+                :data-score="plottedScore(item)"
                 class="mt-1 w-full rounded-t-[3px]"
                 :style="{
                   maxWidth: `${maxBarW}px`,
-                  height: barHeight(item.score ?? 0),
+                  height: barHeight(plottedScore(item) ?? 0),
                   backgroundColor: subjectColor(item.subject),
                 }"
               />

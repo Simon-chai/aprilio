@@ -76,15 +76,13 @@ describe("ClassDetailView.vue", () => {
     expect(createIconBtn.element.closest("header")).toBeNull();
     expect(createIconBtn.find("span[role='tooltip']").text()).toContain("新建学生");
 
-    // 同一行：搜索框 + 两个图标按钮，且图标按钮与班级管理页同款白→淡绿渐变底
+    // 同一行：搜索框 + 两个图标按钮，且图标按钮与班级管理页同款渐变描边皮肤
     const toolbar = importIconBtn.element.parentElement as HTMLElement;
     expect(toolbar.contains(createIconBtn.element)).toBe(true);
     expect(toolbar.querySelector("input")).not.toBeNull();
     [importIconBtn, createIconBtn].forEach((btn) => {
-      expect(btn.classes()).toContain("bg-gradient-to-b");
-      expect(btn.classes()).toContain("from-white");
-      expect(btn.classes()).toContain("to-mint");
-      expect(btn.classes()).toContain("hover:from-mint");
+      expect(btn.classes()).toContain("grad-border");
+      expect(btn.classes()).toContain("text-primary");
     });
 
     // 班级相册 tab 顶部：添加照片语义图标按钮紧贴筛选胶囊右侧

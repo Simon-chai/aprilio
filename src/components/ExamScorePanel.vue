@@ -42,10 +42,12 @@ import {
 import {
   levelNameOfScore,
   levelOf,
+  levelValueOf,
   resetScoreLevelConfig,
   saveScoreLevelConfig,
   scoreLevelConfig,
   scoreLines,
+  showLevelOnly,
 } from "../lib/score-config";
 import type {
   ClassExamTrendPoint,
@@ -176,7 +178,9 @@ const detailRows = computed(() => {
 
 function cellText(cell: ExamScoreRow | undefined): string {
   if (!cell) return "—";
-  if (cell.score !== null) return String(cell.score);
+  if (cell.score !== null) {
+    return showLevelOnly.value ? levelNameOfScore(cell.score) : String(cell.score);
+  }
   return cell.grade ?? "—";
 }
 
@@ -234,6 +238,33 @@ function levelName(score: number | null | undefined): string {
   return levelNameOfScore(score);
 }
 
+/** 等级模式下把分数折到档位代表值（同等级同宽/同高）；否则原值透传 */
+function plotValue(score: number | null | undefined): number | null | undefined {
+  return showLevelOnly.value ? levelValueOf(score) : score;
+}
+
+/** 总分按科目数折成单科口径再判档（与总览矩阵同一折算口径） */
+function totalLevelName(score: number | null | undefined): string {
+  if (score === null || score === undefined) return "";
+  return levelNameOfScore(score / Math.max(1, subjects.value.length));
+}
+
+/** 明细表总分列文本：等级模式显示等级名，不显示具体分数 */
+function totalDisplayText(score: number | null): string {
+  if (score === null) return "";
+  return showLevelOnly.value ? totalLevelName(score) : formatNumber(score);
+}
+
+/** 班级统计条的总分口径：按科目数折成单科口径再判等级 */
+function totalStatLevel(value: number): string {
+  return levelNameOfScore(value / Math.max(1, examStats.value.subjects.length));
+}
+
+/** 科目统计单元格：各科均分 / 极值本身是 0~100 口径，直接判档 */
+function subjectStatText(value: number): string {
+  return showLevelOnly.value ? levelNameOfScore(value) : formatNumber(value);
+}
+
 /** 总览矩阵是总分口径，先按科目数折成 0~100 再判档，避免总分恒为「优秀」 */
 function overviewLevelText(score: number | null | undefined, examId: number): string {
   if (score === null || score === undefined) return "";
@@ -241,8 +272,36 @@ function overviewLevelText(score: number | null | undefined, examId: number): st
   return levelText(score / Math.max(1, count));
 }
 
+/** 总览矩阵单元格文本：等级模式显示等级名，否则显示具体总分 */
+function overviewCellText(score: number | null | undefined, examId: number): string {
+  if (score === null || score === undefined) return "";
+  if (!showLevelOnly.value) return String(score);
+  const count = overview.value.exams.find((e) => e.id === examId)?.subject_count ?? 1;
+  return levelNameOfScore(score / Math.max(1, count));
+}
+
+/** 总览矩阵「班级平均」行文本：等级模式按该场科目数折算判档 */
+function overviewAvgText(examId: number): string {
+  const stats = overviewStats.value.get(examId);
+  if (!stats?.count) return "—";
+  if (!showLevelOnly.value) return formatNumber(stats.average);
+  const count = overview.value.exams.find((e) => e.id === examId)?.subject_count ?? 1;
+  return levelNameOfScore(stats.average / Math.max(1, count));
+}
+
 function barWidth(score: number | null | undefined): string {
   return `${Math.round(scoreRatio(score) * 100)}%`;
+}
+
+/** 迷你进度条宽度：等级模式按档位代表值（同等级等宽） */
+function barWidthFor(score: number | null | undefined): string {
+  return barWidth(plotValue(score));
+}
+
+/** 总分进度条宽度：先按科目数折算成单科口径再判档 */
+function totalBarWidth(score: number | null): string {
+  if (score === null) return "0%";
+  return barWidthFor(score / Math.max(1, subjects.value.length));
 }
 
 /* ---------------- 按学生总览：每次考试的班级均值 ---------------- */
@@ -324,11 +383,15 @@ const hoverBarGroups = computed(() => {
   ];
 });
 
-/** 卡片右上角的总分（纯等级考试显示等级文本） */
+/** 卡片右上角的总分（等级模式显示等级文本） */
 const hoverTotalText = computed(() => {
   if (!hoverRow.value) return "";
   const total = totalOf(hoverRow.value);
-  if (total.score !== null) return `总分 ${formatNumber(total.score)}`;
+  if (total.score !== null) {
+    return showLevelOnly.value
+      ? `总分 ${totalLevelName(total.score)}`
+      : `总分 ${formatNumber(total.score)}`;
+  }
   return total.grade ? `等级 ${total.grade}` : "";
 });
 
@@ -337,6 +400,18 @@ const hoverTotalText = computed(() => {
 /** 班级平均单科分（0~100，跨考试可比——不受科目数变化影响） */
 function classAvgOf(stats: ExamStatSummary): number {
   return averageOfSubjectAverages(stats);
+}
+
+/** 班级平均单科分文本：等级模式显示等级名 */
+function classAvgText(stats: ExamStatSummary): string {
+  const avg = classAvgOf(stats);
+  return showLevelOnly.value ? levelNameOfScore(avg) : formatNumber(avg);
+}
+
+/** 趋势柱高取值：等级模式按档位代表值（同等级等高） */
+function classAvgPlot(stats: ExamStatSummary): number | null {
+  const avg = classAvgOf(stats);
+  return showLevelOnly.value ? levelValueOf(avg) : avg;
 }
 
 /** 趋势矩阵科目：各次考试出现过的科目并集（按首次出现顺序） */
@@ -353,6 +428,13 @@ const trendSubjects = computed(() => {
 function subjectAvgOf(stats: ExamStatSummary, subject: string): number | null {
   const found = stats.subjects.find((s) => s.subject === subject);
   return found ? found.average : null;
+}
+
+/** 各科平均分趋势矩阵单元格：等级模式显示等级名 */
+function subjectAvgText(stats: ExamStatSummary, subject: string): string {
+  const value = subjectAvgOf(stats, subject);
+  if (value === null) return "—";
+  return showLevelOnly.value ? levelNameOfScore(value) : formatNumber(value);
 }
 
 function trendBarHeight(score: number | null): string {
@@ -443,13 +525,17 @@ async function clearCorrect() {
 
 /* ---------------- 等级映射配置 ---------------- */
 
+/** 「显示等级」开关草稿：随弹窗打开时同步当前配置，点保存后生效 */
+const draftShowLevel = ref(false);
+
 function openLevelConfig() {
   levelDraft.value = scoreLevelConfig.value.bands.map((b) => ({ ...b }));
+  draftShowLevel.value = scoreLevelConfig.value.showLevelOnly === true;
   levelOpen.value = true;
 }
 
 function saveLevelConfig() {
-  saveScoreLevelConfig({ bands: levelDraft.value });
+  saveScoreLevelConfig({ bands: levelDraft.value, showLevelOnly: draftShowLevel.value });
   levelOpen.value = false;
 }
 
@@ -479,14 +565,14 @@ function fmtDate(d: string): string {
 <template>
   <div class="space-y-4" data-test="exam-score-panel">
     <!-- 工具行：视角切换 → 「导入成绩」紧挨其右 → 说明文字；「等级映射」单独右对齐 -->
-    <div class="flex flex-wrap items-center gap-3" data-test="score-toolbar">
-      <div class="flex flex-wrap items-center gap-2" data-test="score-toolbar-actions">
+    <div class="scrollbar-none flex items-center gap-3 overflow-x-auto" data-test="score-toolbar">
+      <div class="flex shrink-0 flex-wrap items-center gap-2" data-test="score-toolbar-actions">
         <div class="inline-flex rounded-md border border-hairline bg-parchment p-1">
           <button
             type="button"
             data-test="view-exams-btn"
-            class="rounded-[6px] px-3 py-1.5 text-caption transition-colors"
-            :class="view === 'exams' ? 'bg-canvas font-medium text-primary' : 'text-weak hover:text-ink'"
+            class="whitespace-nowrap rounded-[6px] px-3 py-1.5 text-caption transition-[color,box-shadow]"
+            :class="view === 'exams' ? 'grad-border-soft font-medium text-primary' : 'text-weak hover:text-ink'"
             @click="view = 'exams'"
           >
             按考试
@@ -494,8 +580,8 @@ function fmtDate(d: string): string {
           <button
             type="button"
             data-test="view-overview-btn"
-            class="rounded-[6px] px-3 py-1.5 text-caption transition-colors"
-            :class="view === 'overview' ? 'bg-canvas font-medium text-primary' : 'text-weak hover:text-ink'"
+            class="whitespace-nowrap rounded-[6px] px-3 py-1.5 text-caption transition-[color,box-shadow]"
+            :class="view === 'overview' ? 'grad-border-soft font-medium text-primary' : 'text-weak hover:text-ink'"
             @click="view = 'overview'"
           >
             按学生总览
@@ -503,8 +589,8 @@ function fmtDate(d: string): string {
           <button
             type="button"
             data-test="view-trend-btn"
-            class="rounded-[6px] px-3 py-1.5 text-caption transition-colors"
-            :class="view === 'trend' ? 'bg-canvas font-medium text-primary' : 'text-weak hover:text-ink'"
+            class="whitespace-nowrap rounded-[6px] px-3 py-1.5 text-caption transition-[color,box-shadow]"
+            :class="view === 'trend' ? 'grad-border-soft font-medium text-primary' : 'text-weak hover:text-ink'"
             @click="view = 'trend'"
           >
             成绩趋势
@@ -514,7 +600,6 @@ function fmtDate(d: string): string {
         <AppIconButton
           label="导入成绩"
           data-test="import-score-btn"
-          class="bg-gradient-to-b from-white to-mint hover:from-mint"
           @click="importOpen = true"
         >
           <!-- 语义图标：文件上有对勾勾线，表示成绩单批量导入 -->
@@ -526,7 +611,7 @@ function fmtDate(d: string): string {
         </AppIconButton>
       </div>
 
-      <span class="text-fine text-weak">
+      <span class="shrink-0 whitespace-nowrap text-fine text-weak">
         {{
           view === "exams"
             ? "每次考试一份成绩单批次 · 点击分数可改分纠错"
@@ -540,7 +625,7 @@ function fmtDate(d: string): string {
       <button
         type="button"
         data-test="level-config-btn"
-        class="ml-auto rounded-md border border-hairline px-3 py-1.5 text-caption text-weak transition-colors hover:border-ink hover:text-ink"
+        class="ml-auto shrink-0 whitespace-nowrap grad-border rounded-md px-3 py-1.5 text-caption text-primary transition-[box-shadow] hover:shadow-[var(--shadow-halo)]"
         @click="openLevelConfig"
       >
         等级映射
@@ -585,16 +670,16 @@ function fmtDate(d: string): string {
             </span>
           </button>
 
-          <div v-if="expandedTypes[group.type]" class="flex flex-wrap items-center gap-2 border-t border-hairline px-3 py-2.5">
+          <div v-if="expandedTypes[group.type]" class="scrollbar-none flex items-center gap-2 overflow-x-auto border-t border-hairline px-3 py-2.5">
             <button
               v-for="exam in group.exams"
               :key="exam.id"
               type="button"
               :data-test="`exam-chip-${exam.id}`"
-              class="rounded-pill px-3 py-1.5 text-caption transition-colors"
+              class="whitespace-nowrap rounded-pill px-3 py-1.5 text-caption transition-colors"
               :class="
                 exam.id === selectedExamId
-                  ? 'bg-ink text-canvas font-medium'
+                  ? 'grad-border-soft text-primary font-medium'
                   : 'bg-canvas border border-hairline text-weak hover:text-ink hover:border-ink'
               "
               @click="selectedExamId = exam.id"
@@ -613,18 +698,22 @@ function fmtDate(d: string): string {
           data-test="exam-stat-strip"
         >
           <div class="bg-canvas px-4 py-3">
-            <p class="text-fine text-weak">平均分</p>
+            <p class="text-fine text-weak">{{ showLevelOnly ? "平均等级" : "平均分" }}</p>
             <p class="mt-1 text-stat font-semibold text-ink" data-test="stat-average">
-              {{ formatNumber(examStats.total_average) }}
+              {{ showLevelOnly ? totalStatLevel(examStats.total_average) : formatNumber(examStats.total_average) }}
             </p>
           </div>
           <div class="bg-canvas px-4 py-3">
-            <p class="text-fine text-weak">最高分</p>
-            <p class="mt-1 text-stat font-semibold text-primary">{{ formatNumber(examStats.total_max) }}</p>
+            <p class="text-fine text-weak">{{ showLevelOnly ? "最高等级" : "最高分" }}</p>
+            <p class="mt-1 text-stat font-semibold text-primary">
+              {{ showLevelOnly ? totalStatLevel(examStats.total_max) : formatNumber(examStats.total_max) }}
+            </p>
           </div>
           <div class="bg-canvas px-4 py-3">
-            <p class="text-fine text-weak">最低分</p>
-            <p class="mt-1 text-stat font-semibold text-ink">{{ formatNumber(examStats.total_min) }}</p>
+            <p class="text-fine text-weak">{{ showLevelOnly ? "最低等级" : "最低分" }}</p>
+            <p class="mt-1 text-stat font-semibold text-ink">
+              {{ showLevelOnly ? totalStatLevel(examStats.total_min) : formatNumber(examStats.total_min) }}
+            </p>
           </div>
           <div class="bg-canvas px-4 py-3">
             <p class="text-fine text-weak">及格率</p>
@@ -644,19 +733,27 @@ function fmtDate(d: string): string {
 
         <div
           v-if="examStats.subjects.length"
-          class="overflow-hidden rounded-lg border border-hairline bg-canvas"
+          class="rounded-lg border border-hairline bg-canvas"
         >
           <div class="flex items-center justify-between border-b border-hairline px-4 py-2.5">
             <p class="text-caption font-medium text-ink">科目统计</p>
             <p class="text-fine text-weak">单科满分按 100 计</p>
           </div>
-          <table class="w-full text-caption" data-test="subject-stat-table">
+          <!-- 与其他成绩表一致：列保持单行，窄容器横向滚动，不裁列 -->
+          <div class="scroll-thin overflow-x-auto">
+            <table class="w-full text-caption" data-test="subject-stat-table">
             <thead>
               <tr class="bg-pearl text-left">
                 <th class="whitespace-nowrap px-4 py-2 font-normal text-weak">科目</th>
-                <th class="whitespace-nowrap px-4 py-2 font-normal text-weak">平均分</th>
-                <th class="whitespace-nowrap px-4 py-2 font-normal text-weak">最高</th>
-                <th class="whitespace-nowrap px-4 py-2 font-normal text-weak">最低</th>
+                <th class="whitespace-nowrap px-4 py-2 font-normal text-weak">
+                  {{ showLevelOnly ? "平均等级" : "平均分" }}
+                </th>
+                <th class="whitespace-nowrap px-4 py-2 font-normal text-weak">
+                  {{ showLevelOnly ? "最高等级" : "最高" }}
+                </th>
+                <th class="whitespace-nowrap px-4 py-2 font-normal text-weak">
+                  {{ showLevelOnly ? "最低等级" : "最低" }}
+                </th>
                 <th class="whitespace-nowrap px-4 py-2 font-normal text-weak">及格率</th>
                 <th class="whitespace-nowrap px-4 py-2 font-normal text-weak">优秀率</th>
               </tr>
@@ -666,16 +763,17 @@ function fmtDate(d: string): string {
                 <td class="whitespace-nowrap px-4 py-2 text-ink">{{ stat.subject }}</td>
                 <td class="whitespace-nowrap px-4 py-2">
                   <span class="font-medium" :class="levelText(stat.average)">
-                    {{ formatNumber(stat.average) }}
+                    {{ subjectStatText(stat.average) }}
                   </span>
                 </td>
-                <td class="whitespace-nowrap px-4 py-2 text-muted">{{ formatNumber(stat.max) }}</td>
-                <td class="whitespace-nowrap px-4 py-2 text-muted">{{ formatNumber(stat.min) }}</td>
+                <td class="whitespace-nowrap px-4 py-2 text-muted">{{ subjectStatText(stat.max) }}</td>
+                <td class="whitespace-nowrap px-4 py-2 text-muted">{{ subjectStatText(stat.min) }}</td>
                 <td class="whitespace-nowrap px-4 py-2 text-muted">{{ formatRate(stat.passRate) }}</td>
                 <td class="whitespace-nowrap px-4 py-2 text-muted">{{ formatRate(stat.excellentRate) }}</td>
               </tr>
             </tbody>
           </table>
+          </div>
         </div>
       </div>
 
@@ -763,7 +861,7 @@ function fmtDate(d: string): string {
                       <span
                         class="block h-full rounded-pill"
                         :class="barClass(row.cells.get(subj)?.score)"
-                        :style="{ width: barWidth(row.cells.get(subj)?.score) }"
+                        :style="{ width: barWidthFor(row.cells.get(subj)?.score) }"
                       />
                     </span>
                   </div>
@@ -772,12 +870,13 @@ function fmtDate(d: string): string {
                   <div class="flex items-center gap-2">
                     <span class="font-semibold" :class="levelText(totalOf(row).score)">
                       <template v-if="totalOf(row).score !== null">
-                        {{ formatNumber(totalOf(row).score) }}
+                        {{ totalDisplayText(totalOf(row).score) }}
                       </template>
                       <template v-else>{{ totalOf(row).grade ?? "—" }}</template>
                     </span>
+                    <!-- 等级模式下总分列已显示等级名，徽标省去避免重复 -->
                     <span
-                      v-if="totalOf(row).score !== null"
+                      v-if="totalOf(row).score !== null && !showLevelOnly"
                       class="rounded-pill bg-pearl px-1.5 py-0.5 text-fine"
                       :class="levelText((totalOf(row).score ?? 0) / (subjects.length || 1))"
                       data-test="total-level"
@@ -791,7 +890,7 @@ function fmtDate(d: string): string {
                       <span
                         class="block h-full rounded-pill"
                         :class="barClass(totalOf(row).score)"
-                        :style="{ width: barWidth((totalOf(row).score ?? 0) / (subjects.length || 1)) }"
+                        :style="{ width: totalBarWidth(totalOf(row).score) }"
                       />
                     </span>
                   </div>
@@ -860,7 +959,7 @@ function fmtDate(d: string): string {
                 "
               >
                 <template v-if="row.cells[exam.id]?.score !== null && row.cells[exam.id]?.score !== undefined">
-                  {{ row.cells[exam.id].score }}
+                  {{ overviewCellText(row.cells[exam.id]?.score, exam.id) }}
                 </template>
                 <template v-else-if="row.cells[exam.id]?.grade">{{ row.cells[exam.id].grade }}</template>
                 <template v-else>—</template>
@@ -876,7 +975,7 @@ function fmtDate(d: string): string {
                 class="whitespace-nowrap px-4 py-2 tabular-nums text-weak"
               >
                 <template v-if="overviewStats.get(exam.id)?.count">
-                  {{ formatNumber(overviewStats.get(exam.id)?.average) }}
+                  {{ overviewAvgText(exam.id) }}
                 </template>
                 <template v-else>—</template>
               </td>
@@ -907,12 +1006,12 @@ function fmtDate(d: string): string {
               class="flex flex-1 flex-col items-center gap-1.5"
             >
               <span class="text-fine font-medium" :class="levelText(classAvgOf(point.stats))">
-                {{ formatNumber(classAvgOf(point.stats)) }}
+                {{ classAvgText(point.stats) }}
               </span>
               <span
                 class="w-full max-w-[56px] rounded-t-sm"
                 :class="barClass(classAvgOf(point.stats))"
-                :style="{ height: trendBarHeight(classAvgOf(point.stats)) }"
+                :style="{ height: trendBarHeight(classAvgPlot(point.stats)) }"
               />
               <span class="text-center text-fine text-weak">{{ point.exam.name }}</span>
               <span class="text-fine text-faint">{{ fmtDate(point.exam.exam_date).slice(5) }}</span>
@@ -946,7 +1045,7 @@ function fmtDate(d: string): string {
                   </td>
                   <td class="whitespace-nowrap px-4 py-2">
                     <span class="font-medium" :class="levelText(classAvgOf(point.stats))">
-                      {{ formatNumber(classAvgOf(point.stats)) }}
+                      {{ classAvgText(point.stats) }}
                     </span>
                   </td>
                   <td class="whitespace-nowrap px-4 py-2 text-muted">
@@ -991,10 +1090,7 @@ function fmtDate(d: string): string {
                     class="whitespace-nowrap px-4 py-2 tabular-nums"
                     :class="levelText(subjectAvgOf(point.stats, subj)) || 'text-faint'"
                   >
-                    <template v-if="subjectAvgOf(point.stats, subj) !== null">
-                      {{ formatNumber(subjectAvgOf(point.stats, subj)) }}
-                    </template>
-                    <template v-else>—</template>
+                    {{ subjectAvgText(point.stats, subj) }}
                   </td>
                 </tr>
               </tbody>
@@ -1010,7 +1106,7 @@ function fmtDate(d: string): string {
       class="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-8"
       @click.self="editOpen = false"
     >
-      <div class="w-[380px] rounded-lg bg-canvas p-6 shadow-window">
+      <div class="w-[380px] max-w-full rounded-lg bg-canvas p-6 shadow-window">
         <h3 class="text-tagline font-semibold text-ink">编辑考试信息</h3>
         <div class="mt-4 space-y-3">
           <label class="block">
@@ -1056,7 +1152,7 @@ function fmtDate(d: string): string {
       class="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-8"
       @click.self="correctOpen = false"
     >
-      <div class="w-[400px] rounded-lg bg-canvas p-6 shadow-window" data-test="correct-score-dialog">
+      <div class="w-[400px] max-w-full rounded-lg bg-canvas p-6 shadow-window" data-test="correct-score-dialog">
         <h3 class="text-tagline font-semibold text-ink">修改成绩</h3>
         <p class="mt-1 text-fine text-weak">
           {{ correctTarget.studentName }} · {{ correctTarget.subject }}
@@ -1102,11 +1198,38 @@ function fmtDate(d: string): string {
       class="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-8"
       @click.self="levelOpen = false"
     >
-      <div class="w-[420px] rounded-lg bg-canvas p-6 shadow-window" data-test="level-config-dialog">
+      <div class="w-[420px] max-w-full rounded-lg bg-canvas p-6 shadow-window" data-test="level-config-dialog">
         <h3 class="text-tagline font-semibold text-ink">等级映射</h3>
         <p class="mt-1 text-fine text-weak">
           成绩只记录真实分数，等级由下面的分数线自动判定。改完立即对班级统计与个人成绩生效。
         </p>
+
+        <!-- 显示等级开关：只改展示口径（等级名 / 档位分档图表），落库的仍是真实分数 -->
+        <div
+          class="mt-4 flex items-center justify-between gap-3 rounded-md bg-pearl px-3 py-2.5"
+          data-test="show-level-row"
+        >
+          <div class="min-w-0">
+            <p class="text-caption font-medium text-ink">显示等级</p>
+            <p class="mt-0.5 text-fine text-weak">
+              打开后成绩只显示等级、不显示具体分数，柱状图与折线图也按等级分档展示
+            </p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            data-test="show-level-toggle"
+            :aria-checked="draftShowLevel"
+            class="relative h-5 w-9 shrink-0 rounded-pill transition-colors"
+            :class="draftShowLevel ? 'bg-primary' : 'bg-divider'"
+            @click="draftShowLevel = !draftShowLevel"
+          >
+            <span
+              class="absolute top-0.5 h-4 w-4 rounded-full bg-canvas shadow-sm transition-[left]"
+              :style="{ left: draftShowLevel ? '18px' : '2px' }"
+            />
+          </button>
+        </div>
 
         <div class="mt-4 space-y-2">
           <div

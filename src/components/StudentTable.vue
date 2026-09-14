@@ -14,7 +14,7 @@ const emit = defineEmits<{
   saved: [payload: { studentName: string; dimensionName: string; polarity: BehaviorPolarity }];
 }>();
 
-const COLS = "180px 140px 160px 170px 120px 160px 120px 1fr";
+const COLS = "180px 140px 160px 170px 120px 160px max-content 1fr";
 
 /* ---------------- 快捷表现卡片 + 轻量 Toast ---------------- */
 const quickStudent = ref<StudentRow | null>(null);
@@ -45,7 +45,9 @@ onBeforeUnmount(() => clearTimeout(toastTimer));
 
 <template>
   <div>
-    <div class="overflow-hidden rounded-lg border border-hairline bg-canvas">
+    <!-- 小屏不隐藏列：表格保持完整列宽，横向滚动查看全部字段与操作 -->
+    <div class="scroll-thin overflow-x-auto rounded-lg border border-hairline bg-canvas">
+      <div class="min-w-max">
       <!-- 表头 -->
       <div
         class="grid h-11 items-center border-b border-hairline bg-pearl px-5 text-fine text-weak"
@@ -85,14 +87,24 @@ onBeforeUnmount(() => clearTimeout(toastTimer));
           <button
             v-if="!readonly"
             data-test="quick-record-btn"
-            class="rounded-full bg-primary-soft px-3 py-1 text-fine font-medium text-primary transition-colors hover:bg-primary hover:text-white"
+            class="whitespace-nowrap rounded-full bg-primary-soft px-3 py-1 text-fine font-medium text-primary transition-colors hover:bg-primary hover:text-white"
             @click="openQuick(row, $event)"
           >
             + 记表现
           </button>
-          <span data-test="view-btn" class="cursor-pointer text-weak hover:text-ink" @click="emit('open', row)">查看</span>
+          <span
+            data-test="view-btn"
+            class="inline-flex h-[26px] shrink-0 cursor-pointer items-center gap-0.5 whitespace-nowrap rounded-pill grad-border px-2.5 text-fine font-medium text-primary transition-[box-shadow] hover:shadow-[var(--shadow-halo)]"
+            @click="emit('open', row)"
+          >
+            查看
+            <svg width="10" height="10" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M6 3.5l4.5 4.5L6 12.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </span>
         </div>
         <span />
+      </div>
       </div>
     </div>
 

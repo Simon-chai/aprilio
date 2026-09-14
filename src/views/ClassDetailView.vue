@@ -40,6 +40,7 @@ import type { ImportRosterMode } from "../agent/page-actions/classes-import-rost
 import { confirm } from "@tauri-apps/plugin-dialog";
 import type { RosterImportResult, RosterTable } from "../lib/roster";
 import { averageOfSubjectAverages, formatNumber } from "../lib/score-analysis";
+import { levelNameOfScore, levelValueOf, showLevelOnly } from "../lib/score-config";
 import type {
   BehaviorPolarity,
   ClassBehaviorRecord,
@@ -71,17 +72,24 @@ const existingClasses = ref<ClassSummary[]>([]);
 
 const classSwitchOpen = ref(false);
 const classSwitchRoot = ref<HTMLElement | null>(null);
+const classSwitchTrigger = ref<HTMLElement | null>(null);
 const classSwitchMenu = ref<HTMLElement | null>(null);
+/** 下拉菜单用 fixed 定位：页头行是横向滚动容器，absolute 会被裁剪，fixed 跟随触发器贴窗口定位 */
+const classSwitchMenuPos = ref<{ left: number; top: number }>({ left: 0, top: 0 });
 
 /** 下拉候选：全部班级按名称排序——含当前班级，菜单里高亮打勾，看起来就是「选班级」而不是一串链接 */
 const sortedClasses = computed<ClassSummary[]>(() =>
   [...existingClasses.value].sort((a, b) => a.name.localeCompare(b.name, "zh")),
 );
 
-/** 展开下拉：滚动到当前班级那一项，班级多时也不会「不知道自己在哪」 */
+/** 展开下拉：按触发器实时位置定位（fixed 不受页头滚动容器裁剪），并滚动到当前班级那一项 */
 async function toggleClassSwitch(): Promise<void> {
   classSwitchOpen.value = !classSwitchOpen.value;
   if (!classSwitchOpen.value) return;
+  const rect = classSwitchTrigger.value?.getBoundingClientRect();
+  if (rect) {
+    classSwitchMenuPos.value = { left: rect.left, top: rect.bottom + 6 };
+  }
   await nextTick();
   const active = classSwitchMenu.value?.querySelector<HTMLElement>('[aria-current="page"]');
   if (active && typeof active.scrollIntoView === "function") {
@@ -145,9 +153,9 @@ function goTab(tab: ClassTab): void {
   activeTab.value = tab;
 }
 
-/** 概览卡统一样式：整卡是一个跳转按钮（hover / focus 高亮边框，右侧箭头呼应） */
+/** 概览卡统一样式：整卡是一个跳转按钮（顶部渐变细线 + hover 主色描边与光晕，右侧箭头呼应） */
 const metricCardClass =
-  "group flex h-full flex-col rounded-lg border border-hairline bg-canvas p-6 text-left transition-colors hover:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/15";
+  "metric-energy group flex h-full flex-col rounded-lg border border-hairline bg-canvas p-6 text-left transition-[border-color,box-shadow] duration-150 hover:border-primary/40 hover:shadow-[0_6px_18px_rgba(0,102,204,0.10)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/15";
 
 const importOpen = ref(false);
 const importMode = ref<ImportRosterMode>("smart");
@@ -253,12 +261,16 @@ async function refreshScoreOverview() {
  * 成绩概览卡的折线数据：每次考试一个点，取班级平均单科分。
  * 该口径把该班所有考试、所有科目的每一条成绩都算进来（总分随科目数变化不可比，
  * 单科均分恒为 0~100）；某次考试没有任何数字分（全等级制）时该点断开。
+ * 等级模式（「等级映射 → 显示等级」开启）：纵坐标按档位代表值画，同等级同一水平线。
  */
 const scoreTrendPoints = computed(() =>
-  scoreTrend.value.map((point) => ({
-    label: point.exam.name,
-    value: point.stats.subjects.length ? averageOfSubjectAverages(point.stats) : null,
-  }))
+  scoreTrend.value.map((point) => {
+    const value = point.stats.subjects.length ? averageOfSubjectAverages(point.stats) : null;
+    return {
+      label: point.exam.name,
+      value: showLevelOnly.value && value !== null ? levelValueOf(value) : value,
+    };
+  })
 );
 
 /** 最近一次有数字分的考试均分（卡片副标题展示） */
@@ -495,13 +507,15 @@ function goStudentDetail(row: StudentRow) {
           <AppLink to="/classes" icon="back" class="font-medium shrink-0">班级管理</AppLink>
           <span class="text-hairline shrink-0">|</span>
           <div class="min-w-0">
-            <div class="flex items-baseline gap-3 flex-wrap">
-              <div class="flex items-center gap-2">
+            <!-- 页头元信息行：窄窗口保持单行，横向滚动查看，不换行竖排 -->
+            <div class="scrollbar-none flex items-baseline gap-3 overflow-x-auto">
+              <div class="flex shrink-0 items-center gap-2">
                 <!-- 班级名即切换入口：点击下拉列出其他班级，选中跳转 -->
                 <div ref="classSwitchRoot" class="relative min-w-0">
                   <h1 class="flex min-w-0 items-center">
                     <!-- 触发器做成「下拉选择器」外形：边框 + 班级徽标 + 箭头，展开时主色描边 -->
                     <button
+                      ref="classSwitchTrigger"
                       type="button"
                       data-test="class-switch-trigger"
                       class="flex min-w-0 items-center gap-2 rounded-md border py-1 pl-2 pr-2.5 transition-colors"
@@ -538,13 +552,14 @@ function goStudentDetail(row: StudentRow) {
                       </svg>
                     </button>
                   </h1>
-                  <!-- 班级选择器：列出全部班级，当前项主色高亮 + 打勾 -->
+                  <!-- 班级选择器：fixed 定位脱离页头滚动容器，列出全部班级，当前项主色高亮 + 打勾 -->
                   <div
                     v-if="classSwitchOpen"
                     ref="classSwitchMenu"
                     data-test="class-switch-menu"
                     role="listbox"
-                    class="scroll-thin absolute left-0 top-full z-30 mt-1.5 max-h-80 w-64 overflow-y-auto rounded-lg border border-hairline bg-canvas p-1.5 shadow-lg"
+                    class="scrollbar-none fixed z-30 max-h-80 w-64 overflow-y-auto rounded-lg border border-hairline bg-canvas p-1.5 shadow-lg"
+                    :style="{ left: `${classSwitchMenuPos.left}px`, top: `${classSwitchMenuPos.top}px` }"
                   >
                     <button
                       v-for="c in sortedClasses"
@@ -594,62 +609,61 @@ function goStudentDetail(row: StudentRow) {
                     </p>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  class="flex h-7 w-7 items-center justify-center rounded-md text-weak hover:bg-pearl hover:text-ink transition-colors"
-                  title="修改班级名称"
+                <!-- 编辑 / 归档 / 删除：常显「图标+文字」胶囊，可发现性不依赖悬浮 -->
+                <AppIconButton
+                  label="编辑"
+                  show-label
                   @click="renameDialogOpen = true"
                 >
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
                     <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
                   </svg>
-                </button>
-                <button
+                </AppIconButton>
+                <AppIconButton
                   v-if="!readOnly"
-                  type="button"
+                  label="归档"
+                  show-label
                   data-test="archive-class-btn"
-                  class="flex h-7 w-7 items-center justify-center rounded-md text-weak hover:bg-pearl hover:text-ink transition-colors"
-                  title="归档班级（移入历史带过的班）"
                   @click="onArchiveClass"
                 >
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <rect x="3" y="4" width="18" height="4" rx="1" />
                     <path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4" />
                   </svg>
-                </button>
+                </AppIconButton>
                 <button
                   v-if="readOnly"
                   type="button"
                   data-test="restore-class-btn"
-                  class="flex h-7 items-center justify-center rounded-md px-2 text-caption text-primary hover:bg-pearl transition-colors"
+                  class="flex h-7 items-center justify-center whitespace-nowrap rounded-md px-2 text-caption text-primary hover:bg-pearl transition-colors"
                   title="恢复班级到在用列表"
                   @click="onRestoreClass"
                 >
                   恢复班级
                 </button>
-                <button
-                  type="button"
+                <AppIconButton
+                  label="删除"
+                  tone="danger"
+                  show-label
                   data-test="delete-class-btn"
-                  class="flex h-7 w-7 items-center justify-center rounded-md text-weak hover:bg-[#fdeef0] hover:text-danger transition-colors"
-                  title="删除班级"
                   @click="onDeleteClass"
                 >
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
                     <path d="M10 11v6M14 11v6" />
                   </svg>
-                </button>
+                </AppIconButton>
               </div>
-              <div class="flex items-center gap-2">
+              <div class="flex shrink-0 items-center gap-2">
                 <span
                   v-if="readOnly"
-                  class="rounded-pill bg-parchment px-2 py-0.5 text-fine text-weak"
+                  class="whitespace-nowrap rounded-pill bg-parchment px-2 py-0.5 text-fine text-weak"
                 >
                   已归档 · 只读
                 </span>
               </div>
-              <span class="text-caption text-weak">
+              <span class="shrink-0 whitespace-nowrap text-caption text-weak">
                 {{ summary?.studentCount ?? 0 }} 名学生 ({{ summary?.maleCount ?? 0 }} 男 · {{ summary?.femaleCount ?? 0 }} 女) · 照片 {{ summary?.photoCount ?? 0 }} 张
               </span>
             </div>
@@ -775,35 +789,35 @@ function goStudentDetail(row: StudentRow) {
           </div>
           <div class="mt-auto pt-1 text-fine text-muted">
             <template v-if="scoreTrendPoints.length">
-              共 {{ examCount }} 次考试<template v-if="latestScoreAverage !== null"> · 最近均分 {{ formatNumber(latestScoreAverage) }}</template>
+              共 {{ examCount }} 次考试<template v-if="latestScoreAverage !== null"> · 最近{{ showLevelOnly ? "等级" : "均分" }} {{ showLevelOnly ? levelNameOfScore(latestScoreAverage) : formatNumber(latestScoreAverage) }}</template>
             </template>
             <template v-else>导入成绩后自动生成趋势</template>
           </div>
         </button>
       </div>
 
-      <!-- Tab 切换 -->
-      <div class="flex items-center gap-3 border-b border-hairline pb-3">
+      <!-- Tab 切换：选中 = 主色文字 + 底部渐变能量线（-mb-px 贴住容器发丝线） -->
+      <div class="scrollbar-none flex items-center gap-3 overflow-x-auto border-b border-hairline">
         <button
           type="button"
-          class="rounded-sm px-4 py-2 text-caption font-medium transition-colors"
-          :class="activeTab === 'students' ? 'bg-ink text-canvas' : 'text-weak hover:text-ink hover:bg-pearl'"
+          class="relative whitespace-nowrap px-4 py-2 text-caption font-medium transition-colors"
+          :class="activeTab === 'students' ? 'text-primary font-semibold tab-energy' : 'text-weak hover:text-ink'"
           @click="activeTab = 'students'"
         >
           学生条目 ({{ summary?.studentCount ?? students.length }})
         </button>
         <button
           type="button"
-          class="rounded-sm px-4 py-2 text-caption font-medium transition-colors"
-          :class="activeTab === 'photos' ? 'bg-ink text-canvas' : 'text-weak hover:text-ink hover:bg-pearl'"
+          class="relative whitespace-nowrap px-4 py-2 text-caption font-medium transition-colors"
+          :class="activeTab === 'photos' ? 'text-primary font-semibold tab-energy' : 'text-weak hover:text-ink'"
           @click="activeTab = 'photos'"
         >
           班级相册 ({{ summary?.photoCount ?? 0 }})
         </button>
         <button
           type="button"
-          class="rounded-sm px-4 py-2 text-caption font-medium transition-colors"
-          :class="activeTab === 'behaviors' ? 'bg-ink text-canvas' : 'text-weak hover:text-ink hover:bg-pearl'"
+          class="relative whitespace-nowrap px-4 py-2 text-caption font-medium transition-colors"
+          :class="activeTab === 'behaviors' ? 'text-primary font-semibold tab-energy' : 'text-weak hover:text-ink'"
           @click="activeTab = 'behaviors'"
         >
           日常表现 ({{ behaviorRecords.length }})
@@ -811,8 +825,8 @@ function goStudentDetail(row: StudentRow) {
         <button
           type="button"
           data-test="tab-scores"
-          class="rounded-sm px-4 py-2 text-caption font-medium transition-colors"
-          :class="activeTab === 'scores' ? 'bg-ink text-canvas' : 'text-weak hover:text-ink hover:bg-pearl'"
+          class="relative whitespace-nowrap px-4 py-2 text-caption font-medium transition-colors"
+          :class="activeTab === 'scores' ? 'text-primary font-semibold tab-energy' : 'text-weak hover:text-ink'"
           @click="activeTab = 'scores'"
         >
           考试成绩 ({{ examCount }})
@@ -821,19 +835,19 @@ function goStudentDetail(row: StudentRow) {
 
       <!-- Tab 1: 学生条目 -->
       <div v-if="activeTab === 'students'" class="space-y-4">
-        <!-- 搜索栏右侧并列两个写入口：导入本班花名册（本班导入，区别于班级管理页「导入时自动建班」）/ 新建学生（预填本班） -->
-        <div class="flex items-center gap-3">
+        <!-- 搜索栏右侧并列两个写入口：窄窗口保持单行横向滚动，导入本班花名册（本班导入，区别于班级管理页「导入时自动建班」）/ 新建学生（预填本班） -->
+        <div class="scrollbar-none flex items-center gap-3 overflow-x-auto">
           <AppInput
             v-model="keyword"
             placeholder="搜索本班学生姓名或学号"
             width="320px"
+            class="shrink-0"
           />
           <AppIconButton
             v-if="!readOnly"
             label="导入本班花名册"
             data-test="import-roster-btn"
-            class="bg-gradient-to-b from-white to-mint hover:from-mint"
-            @click="openImportDialog"
+            @click="openImportDialog()"
           >
             <!-- 与班级管理页同款花名册图标：2×3 格表格 + 右上角加号 -->
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -846,7 +860,6 @@ function goStudentDetail(row: StudentRow) {
             v-if="!readOnly"
             label="新建学生"
             data-test="create-student-btn"
-            class="bg-gradient-to-b from-white to-mint hover:from-mint"
             @click="openCreateStudentDialog()"
           >
             <!-- 与班级管理页同款图标：加号 + 学生小人 -->
@@ -875,14 +888,14 @@ function goStudentDetail(row: StudentRow) {
 
       <!-- Tab 2: 班级相册 -->
       <div v-else-if="activeTab === 'photos'" class="space-y-4">
-        <!-- 筛选标签 -->
-        <div class="flex items-center gap-2">
+        <!-- 筛选标签：窄容器时不隐藏入口，横向滚动查看 -->
+        <div class="scrollbar-none flex items-center gap-2 overflow-x-auto">
           <button
             v-for="f in filterOptions"
             :key="f.value"
             type="button"
-            class="rounded-pill px-3 py-1 text-fine transition-colors"
-            :class="photoFilter === f.value ? 'bg-ink text-canvas font-medium' : 'bg-canvas border border-hairline text-weak hover:text-ink hover:border-ink'"
+            class="whitespace-nowrap rounded-pill px-3 py-1 text-fine transition-[color,box-shadow]"
+            :class="photoFilter === f.value ? 'grad-border-soft text-primary font-medium' : 'border border-hairline bg-canvas text-weak hover:text-ink'"
             @click="photoFilter = f.value"
           >
             {{ f.label }}
@@ -892,7 +905,7 @@ function goStudentDetail(row: StudentRow) {
             label="添加班级照片"
             data-test="add-photo-btn"
             class="ml-1.5"
-            @click="openAddPhotoDialog"
+            @click="openAddPhotoDialog()"
           >
             <!-- 语义图标：相框留缺角 + 加号，表示向班级相册添加照片 -->
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">

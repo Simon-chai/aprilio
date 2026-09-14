@@ -3,6 +3,7 @@ import { createMemoryHistory, createRouter } from "vue-router";
 import { describe, expect, it } from "vitest";
 import ClassesView from "../src/views/ClassesView.vue";
 import AppIconButton from "../src/components/ui/AppIconButton.vue";
+import ClassFormDialog from "../src/components/ClassFormDialog.vue";
 import StudentFormDialog from "../src/components/StudentFormDialog.vue";
 import ImportRosterDialog from "../src/components/ImportRosterDialog.vue";
 import { listRecycleItems } from "../src/lib/db";
@@ -61,11 +62,9 @@ describe("ClassesView.vue", () => {
     expect(tooltips.map((t) => t.text())).toEqual(["导入花名册", "新建班级"]);
     iconButtons.forEach((btn) => {
       expect(btn.find("svg").exists()).toBe(true);
-      // 校园氛围淡渐变底（白 → mint），悬浮时整体收拢到淡绿底
-      expect(btn.classes()).toContain("bg-gradient-to-b");
-      expect(btn.classes()).toContain("from-white");
-      expect(btn.classes()).toContain("to-mint");
-      expect(btn.classes()).toContain("hover:from-mint");
+      // 方案 C 渐变描边：可点性常显，主色图标 + hover 光环
+      expect(btn.classes()).toContain("grad-border");
+      expect(btn.classes()).toContain("text-primary");
     });
 
     // 页面上不存在裸控件：原生按钮都带统一布局样式
@@ -155,7 +154,7 @@ describe("ClassesView.vue", () => {
     expect(text).toContain("进入班级");
   });
 
-  it("renders class rename button right after class name with hover opacity classes", async () => {
+  it("opens rename dialog by clicking the class name on the card", async () => {
     const router = createTestRouter();
     await router.push("/classes");
     await router.isReady();
@@ -167,24 +166,33 @@ describe("ClassesView.vue", () => {
     });
     await flushPromises();
 
-    const renameButtons = wrapper.findAll('button[title="修改班级名称"]');
-    expect(renameButtons.length).toBeGreaterThan(0);
+    const nameButtons = wrapper.findAll('button[data-test="rename-class-btn"]');
+    expect(nameButtons.length).toBeGreaterThan(0);
 
-    const firstRenameBtn = renameButtons[0];
-    expect(firstRenameBtn.classes()).toContain("opacity-0");
-    expect(firstRenameBtn.classes()).toContain("group-hover:opacity-100");
-    expect(firstRenameBtn.classes()).toContain("inline-flex");
+    const firstNameBtn = nameButtons[0];
+    // 悬浮说明（自绘 tooltip）与编辑提示图标挂在名称按钮上
+    expect(firstNameBtn.find("[role='tooltip']").text()).toContain("点击编辑班级名称");
+    expect(firstNameBtn.find("svg").exists()).toBe(true);
 
-    // The rename button is inside the title row right next to the class name span
-    const parentRow = firstRenameBtn.element.parentElement;
+    // 名称按钮在标题行里，名称文字带 truncate
+    const parentRow = firstNameBtn.element.parentElement;
     expect(parentRow).not.toBeNull();
     expect(parentRow?.className).toContain("flex items-center gap-1.5");
     const nameSpan = parentRow?.querySelector("span");
     expect(nameSpan).not.toBeNull();
     expect(nameSpan?.className).toContain("truncate");
+
+    // 点击班级名 → 打开改名对话框并预填名称
+    const targetName = firstNameBtn.find("span.truncate").text();
+    await firstNameBtn.trigger("click");
+    const renameDialog = wrapper
+      .findAllComponents(ClassFormDialog)
+      .find((d) => d.props("mode") === "rename");
+    expect(renameDialog).toBeDefined();
+    expect(renameDialog!.props("initialName")).toBe(targetName);
   });
 
-  it("renders a delete button on each class card next to the rename button", async () => {
+  it("exposes archive / delete as low-frequency actions in the card ⋯ menu", async () => {
     const router = createTestRouter();
     await router.push("/classes");
     await router.isReady();
@@ -194,16 +202,19 @@ describe("ClassesView.vue", () => {
     });
     await flushPromises();
 
-    const deleteBtns = wrapper.findAll('button[title="删除班级"]');
-    const renameBtns = wrapper.findAll('button[title="修改班级名称"]');
-    expect(deleteBtns.length).toBe(renameBtns.length);
-    expect(deleteBtns.length).toBeGreaterThan(0);
-    // 与改名按钮同款 hover 显隐样式
-    expect(deleteBtns[0].classes()).toContain("inline-flex");
-    expect(deleteBtns[0].classes()).toContain("group-hover:opacity-100");
+    // 每张卡片一个「⋯」菜单触发器，与名称入口一一对应
+    const menuBtns = wrapper.findAll('button[data-test="card-menu-btn"]');
+    const nameButtons = wrapper.findAll('button[data-test="rename-class-btn"]');
+    expect(menuBtns.length).toBe(nameButtons.length);
+    expect(menuBtns.length).toBeGreaterThan(0);
+
+    await menuBtns[0].trigger("click");
+    const menu = wrapper.get("[data-test='card-menu']");
+    expect(menu.text()).toContain("归档班级");
+    expect(menu.text()).toContain("删除班级");
   });
 
-  it("delete button opens confirm dialog and moves the class to recycle bin", async () => {
+  it("delete menu item opens confirm dialog and moves the class to recycle bin", async () => {
     const router = createTestRouter();
     await router.push("/classes");
     await router.isReady();
@@ -213,10 +224,11 @@ describe("ClassesView.vue", () => {
     });
     await flushPromises();
 
-    const beforeCount = wrapper.findAll('button[title="删除班级"]').length;
+    const beforeCount = wrapper.findAll('button[data-test="card-menu-btn"]').length;
     const firstName = wrapper.get("span.truncate").text();
 
-    await wrapper.get('button[title="删除班级"]').trigger("click");
+    await wrapper.get('button[data-test="card-menu-btn"]').trigger("click");
+    await wrapper.get("[data-test='card-menu-delete']").trigger("click");
     const dialog = wrapper.get("[data-test='delete-class-dialog']");
     expect(dialog.text()).toContain(`删除班级「${firstName}」`);
     expect(dialog.text()).toContain("回收站");
@@ -226,7 +238,7 @@ describe("ClassesView.vue", () => {
 
     // 对话框关闭，班级卡片减少一张
     expect(wrapper.find("[data-test='delete-class-dialog']").exists()).toBe(false);
-    expect(wrapper.findAll('button[title="删除班级"]').length).toBe(beforeCount - 1);
+    expect(wrapper.findAll('button[data-test="card-menu-btn"]').length).toBe(beforeCount - 1);
 
     // 被删班级进了回收站
     const binItems = await listRecycleItems();
@@ -244,7 +256,8 @@ describe("ClassesView.vue", () => {
     await flushPromises();
 
     const firstName = wrapper.get("span.truncate").text();
-    await wrapper.get('button[title="删除班级"]').trigger("click");
+    await wrapper.get('button[data-test="card-menu-btn"]').trigger("click");
+    await wrapper.get("[data-test='card-menu-delete']").trigger("click");
     await wrapper.get("[data-test='delete-recreate-btn']").trigger("click");
     await flushPromises();
 

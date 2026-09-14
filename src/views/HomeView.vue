@@ -614,7 +614,7 @@ const dotClass = (i: number) => {
         ref="toggleBtn"
         type="button"
         data-test="timetable-toggle"
-        class="absolute left-12 top-1/2 flex -translate-y-1/2 items-center gap-2 rounded-pill px-4 py-2 text-caption backdrop-blur transition-all duration-200"
+        class="absolute left-12 top-1/2 flex -translate-y-1/2 items-center gap-2 whitespace-nowrap rounded-pill px-4 py-2 text-caption backdrop-blur transition-all duration-200"
         :class="panelOpen
           ? (toggleHover
               ? 'z-50 bg-white/90 font-medium text-ink ring-4 ring-white/40 shadow-lg shadow-black/30'
@@ -665,7 +665,7 @@ const dotClass = (i: number) => {
                   <button
                     type="button"
                     data-test="panel-mode-week"
-                    class="rounded-pill px-2.5 py-0.5 text-fine transition-colors"
+                    class="whitespace-nowrap rounded-pill px-2.5 py-0.5 text-fine transition-colors"
                     :class="panelMode === 'week' ? 'bg-white font-medium text-ink' : 'text-white/60 hover:text-white'"
                     @click="panelMode = 'week'"
                   >
@@ -674,7 +674,7 @@ const dotClass = (i: number) => {
                   <button
                     type="button"
                     data-test="panel-mode-calendar"
-                    class="rounded-pill px-2.5 py-0.5 text-fine transition-colors"
+                    class="whitespace-nowrap rounded-pill px-2.5 py-0.5 text-fine transition-colors"
                     :class="panelMode === 'calendar' ? 'bg-white font-medium text-ink' : 'text-white/60 hover:text-white'"
                     @click="panelMode = 'calendar'"
                   >
@@ -834,7 +834,7 @@ const dotClass = (i: number) => {
                     data-test="event-type-pill"
                     :title="`点按「${CALENDAR_EVENT_META[t].label}」筛选当天日程，再点取消`"
                     :aria-pressed="typeFilter === t"
-                    class="flex items-center gap-1 rounded-pill border px-2 py-0.5 text-fine transition-colors"
+                    class="flex items-center gap-1 whitespace-nowrap rounded-pill border px-2 py-0.5 text-fine transition-colors"
                     :class="typeFilter === t ? 'border-white bg-white font-medium text-ink' : 'border-white/25 text-white/60 hover:border-white/60'"
                     @click="toggleTypeFilter(t)"
                   >
@@ -930,11 +930,12 @@ const dotClass = (i: number) => {
               <p class="text-tagline font-semibold -tracking-[0.3px] text-ink">课程表</p>
               <p class="mt-1 truncate text-caption text-weak">{{ timetableEntryDesc }}</p>
             </div>
-            <div v-if="todaySessions.length" class="hidden items-center gap-1.5 lg:flex" data-test="entry-today-chips">
+            <!-- 今日课程速览：任何窗口宽度都显示，不按断点隐藏 -->
+            <div v-if="todaySessions.length" class="flex shrink-0 items-center gap-1.5" data-test="entry-today-chips">
               <span
                 v-for="s in todaySessions.slice(0, 4)"
                 :key="`${s.period}-${s.subject}-${s.class_name}`"
-                class="flex items-center gap-1 rounded-pill border px-2 py-0.5 text-fine"
+                class="flex items-center gap-1 whitespace-nowrap rounded-pill border px-2 py-0.5 text-fine"
                 :class="[subjectChipClass(s.subject), s.state === 'cancelled' ? 'line-through opacity-60' : '']"
               >
                 <span class="tnum opacity-60">第{{ s.period }}节</span>{{ s.subject }}

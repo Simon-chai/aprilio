@@ -476,6 +476,7 @@ function cellTitle(cell: CalendarCell): string {
         <div class="flex items-center justify-between gap-2">
           <h3
             data-test="my-calendar-selected-title"
+            class="shrink-0 whitespace-nowrap"
             :class="isDark ? 'text-fine font-semibold text-white/85' : 'text-body font-semibold text-ink'"
           >
             {{ selectedTitle }}
@@ -489,7 +490,7 @@ function cellTitle(cell: CalendarCell): string {
             </span>
           </h3>
           <!-- dark 只读面板：日程类型筛选（点胶囊置灰未命中类型，再点取消） -->
-          <div v-if="isDark" class="flex items-center gap-1.5">
+          <div v-if="isDark" class="flex min-w-0 flex-wrap items-center justify-end gap-1.5">
             <button
               v-for="t in CALENDAR_EVENT_TYPES"
               :key="t"
@@ -497,7 +498,7 @@ function cellTitle(cell: CalendarCell): string {
               data-test="event-type-pill"
               :title="`点按「${CALENDAR_EVENT_META[t].label}」筛选当天日程，再点取消`"
               :aria-pressed="typeFilter === t"
-              class="flex items-center gap-1 rounded-pill border px-2 py-0.5 text-fine transition-colors"
+              class="flex shrink-0 items-center gap-1 whitespace-nowrap rounded-pill border px-2 py-0.5 text-fine transition-colors"
               :class="typeFilter === t ? 'border-white bg-white font-medium text-ink' : 'border-white/25 text-white/60 hover:border-white/60'"
               @click="toggleTypeFilter(t)"
             >

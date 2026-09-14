@@ -26,8 +26,11 @@ const props = withDefaults(
     min?: number | null;
     /** 纵轴上限，默认按数据自动取 */
     max?: number | null;
+    /** 数据点数值的展示格式（悬浮提示用）；缺省显示「N 分」。
+     *  等级模式传入等级名转换（图表数据已按档位代表值分档） */
+    valueFormatter?: (value: number) => string;
   }>(),
-  { selectedIndex: null, min: null, max: null }
+  { selectedIndex: null, min: null, max: null, valueFormatter: undefined }
 );
 
 const emit = defineEmits<{
@@ -395,7 +398,9 @@ function onBandClick(index: number, event: MouseEvent) {
             {{ hover.exam }}
             <span v-if="hover.date" class="ml-1 opacity-70">{{ hover.date }}</span>
           </div>
-          <div class="opacity-90">{{ hover.subject }}：{{ hover.score }} 分</div>
+          <div class="opacity-90">
+            {{ hover.subject }}：{{ valueFormatter ? valueFormatter(hover.score) : `${hover.score} 分` }}
+          </div>
         </div>
       </div>
     </div>

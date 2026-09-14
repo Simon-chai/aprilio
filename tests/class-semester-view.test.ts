@@ -54,12 +54,13 @@ describe("ClassesView 归档与历史班", () => {
     await createClass(ARCHIVED);
     const wrapper = await mountView();
 
-    // 定位目标班级卡片，点它的归档按钮
+    // 定位目标班级卡片，通过「⋯」菜单触发归档
     const card = wrapper
       .findAll("div.group")
       .find((c) => c.text().includes(ARCHIVED))!;
     expect(card).toBeTruthy();
-    await card.get("[data-test='archive-class-btn']").trigger("click");
+    await card.get("[data-test='card-menu-btn']").trigger("click");
+    await card.get("[data-test='card-menu-archive']").trigger("click");
     expect(wrapper.find("[data-test='archive-class-dialog']").exists()).toBe(true);
     await wrapper.get("[data-test='confirm-archive-btn']").trigger("click");
     await flushPromises();

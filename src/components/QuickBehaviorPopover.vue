@@ -283,7 +283,7 @@ function cancelCustom() {
       <div
         v-if="open && effectiveStudent"
         data-test="quick-card"
-        class="fixed z-50 w-[460px] rounded-lg border border-hairline bg-canvas p-5 shadow-[var(--shadow-window)]"
+        class="fixed z-50 w-[460px] max-w-full rounded-lg border border-hairline bg-canvas p-5 shadow-[var(--shadow-window)]"
         :style="pos"
       >
         <!-- 头部：学生名 + 日期 + 关闭 -->

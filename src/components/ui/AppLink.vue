@@ -38,10 +38,10 @@ const emit = defineEmits<{ click: [] }>();
 
 /* chip：按钮形态的配色（描边 + 底色 + 文字）；onDarkSolid 为深色底主按钮实底强调 */
 const CHIP: Record<Tone, string> = {
-  primary: "border-hairline bg-canvas text-weak hover:border-faint hover:bg-pearl hover:text-ink",
+  primary: "grad-border text-primary hover:shadow-[var(--shadow-halo)]",
   onDark: "border-white/25 bg-white/10 text-white/85 hover:bg-white/20 hover:text-white",
   onDarkSolid: "border-transparent bg-primary-on-dark text-ink hover:bg-[#4da5ff]",
-  danger: "border-danger/40 bg-canvas text-danger hover:bg-danger-soft",
+  danger: "grad-border-danger text-danger hover:shadow-[var(--shadow-halo-danger)]",
   muted: "border-hairline bg-canvas text-muted hover:border-faint hover:bg-pearl hover:text-ink",
 };
 
@@ -61,8 +61,8 @@ const SIZES: Record<Size, string> = {
 };
 
 const rootCls = computed(() => [
-  "group/link inline-flex shrink-0 cursor-pointer select-none items-center",
-  "transition-[color,background-color,border-color,opacity] duration-150 active:scale-[0.97]",
+  "group/link inline-flex shrink-0 cursor-pointer select-none items-center whitespace-nowrap",
+  "transition-[color,background-color,border-color,box-shadow,opacity] duration-150 active:scale-[0.97]",
   "disabled:pointer-events-none disabled:opacity-40",
   props.variant === "chip"
     ? ["rounded-pill border", SIZES[props.size], CHIP[props.tone]]

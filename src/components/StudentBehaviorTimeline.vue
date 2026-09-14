@@ -93,10 +93,10 @@ const groupedRecords = computed<DateGroup[]>(() => {
 
 <template>
   <div class="flex flex-col gap-4">
-    <!-- 筛选控制栏 -->
-    <div v-if="records.length > 0" class="flex flex-wrap items-center justify-between gap-3 border-b border-divider pb-3">
+    <!-- 筛选控制栏：窄容器保持单行，横向滚动查看 -->
+    <div v-if="records.length > 0" class="scrollbar-none flex items-center justify-between gap-3 overflow-x-auto border-b border-divider pb-3">
       <!-- 倾向过滤胶囊 -->
-      <div class="flex items-center gap-1.5 text-fine">
+      <div class="flex shrink-0 items-center gap-1.5 text-fine">
         <button
           data-test="filter-all"
           type="button"
@@ -137,7 +137,7 @@ const groupedRecords = computed<DateGroup[]>(() => {
       </div>
 
       <!-- 维度过滤下拉 -->
-      <div v-if="availableDimensions.length > 1" class="flex items-center gap-2">
+      <div v-if="availableDimensions.length > 1" class="flex shrink-0 items-center gap-2">
         <span class="text-fine text-weak">维度：</span>
         <select
           data-test="dimension-select"
@@ -227,8 +227,8 @@ const groupedRecords = computed<DateGroup[]>(() => {
               :class="item.type === 'praise' ? 'bg-[#248a3d]' : item.type === 'improve' ? 'bg-[#d97706]' : 'bg-[#71717a]'"
             />
 
-            <!-- 内容区：单行布局，具体评语收进语义图标的悬浮说明 -->
-            <div class="flex min-w-0 flex-1 items-center gap-2 flex-wrap">
+            <!-- 内容区：单行布局（徽标/徽章/时间戳不换行不竖排），具体评语收进语义图标的悬浮说明 -->
+            <div class="flex min-w-0 flex-1 items-center gap-2 whitespace-nowrap">
               <!-- 维度微胶囊 -->
               <span class="rounded bg-parchment px-2 py-0.5 text-fine font-medium text-ink">
                 {{ item.dimension_name_snap }}
@@ -279,7 +279,7 @@ const groupedRecords = computed<DateGroup[]>(() => {
               </span>
 
               <!-- 时间戳 -->
-              <span class="ml-auto text-[11px] text-weak">
+              <span class="ml-auto shrink-0 text-[11px] text-weak">
                 {{ item.created_at.slice(11, 16) || "" }}
               </span>
             </div>

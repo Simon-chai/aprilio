@@ -176,13 +176,14 @@ function onPrint() {
 
 <template>
   <div class="space-y-4" data-test="eval-report-panel">
-    <div class="flex flex-wrap items-center gap-2">
-      <div class="flex items-center gap-1 rounded-sm bg-pearl p-0.5">
+    <!-- 生成条件行：窄容器保持单行，横向滚动查看，不换行竖排 -->
+    <div class="scrollbar-none flex items-center gap-2 overflow-x-auto">
+      <div class="flex shrink-0 items-center gap-1 rounded-sm bg-pearl p-0.5">
         <button
           type="button"
           data-test="range-mode-semester"
           class="rounded-sm px-3 py-1 text-caption"
-          :class="mode === 'semester' ? 'bg-ink text-canvas' : 'text-weak'"
+          :class="mode === 'semester' ? 'grad-border-soft font-medium text-primary' : 'text-weak hover:text-ink'"
           @click="mode = 'semester'"
         >
           按学期
@@ -191,13 +192,13 @@ function onPrint() {
           type="button"
           data-test="range-mode-custom"
           class="rounded-sm px-3 py-1 text-caption"
-          :class="mode === 'custom' ? 'bg-ink text-canvas' : 'text-weak'"
+          :class="mode === 'custom' ? 'grad-border-soft font-medium text-primary' : 'text-weak hover:text-ink'"
           @click="mode = 'custom'"
         >
           自定义
         </button>
       </div>
-      <div v-if="mode === 'custom'" class="flex items-center gap-1.5 text-caption text-weak">
+      <div v-if="mode === 'custom'" class="flex shrink-0 items-center gap-1.5 text-caption text-weak">
         <input
           v-model="customStart"
           type="date"
@@ -212,7 +213,7 @@ function onPrint() {
           class="h-8 rounded-sm border border-hairline bg-canvas px-2 text-caption text-ink outline-none"
         />
       </div>
-      <span v-else class="text-caption text-weak">当前学期：{{ semester }}</span>
+      <span v-else class="shrink-0 whitespace-nowrap text-caption text-weak">当前学期：{{ semester }}</span>
       <AppButton data-test="generate-report-btn" :disabled="generating" @click="onGenerate">
         {{ generating ? "生成中…" : "一键生成报告" }}
       </AppButton>
@@ -221,12 +222,13 @@ function onPrint() {
     <p v-if="message" class="text-fine text-primary">{{ message }}</p>
 
     <div v-if="previewMd || viewing" class="rounded-lg border border-hairline bg-canvas p-4">
-      <div class="flex items-center justify-between gap-2">
-        <p class="text-caption font-semibold text-ink">
+      <!-- 标题与操作保持单行不竖排：放不下时整行横向滚动 -->
+      <div class="scrollbar-none flex items-center justify-between gap-2 overflow-x-auto">
+        <p class="min-w-0 whitespace-nowrap text-caption font-semibold text-ink">
           {{ viewing?.title ?? "报告预览" }}
           <span class="ml-2 text-fine font-normal text-weak">{{ source === "ai" ? "AI 生成" : "数据版" }}</span>
         </p>
-        <div class="flex items-center gap-2">
+        <div class="flex shrink-0 items-center gap-2">
           <AppButton variant="secondary" @click="onPrint">打印</AppButton>
           <AppButton variant="secondary" :disabled="!shortComment" @click="onWriteBack">
             短评语回写

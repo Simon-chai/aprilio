@@ -144,21 +144,21 @@ const groupedRecords = computed<DateGroup[]>(() => {
 
 <template>
   <div class="flex flex-col gap-4">
-    <!-- 顶部分类主胶囊导航 -->
-    <div v-if="records.length > 0" class="flex flex-wrap items-center justify-between gap-3 border-b border-divider pb-3">
+    <!-- 顶部分类主胶囊导航：窄容器保持单行，横向滚动查看 -->
+    <div v-if="records.length > 0" class="scrollbar-none flex items-center justify-between gap-3 overflow-x-auto border-b border-divider pb-3">
       <!-- 大类切换胶囊 -->
-      <div class="flex items-center gap-2 text-caption">
+      <div class="flex shrink-0 items-center gap-2 text-caption">
         <button
           type="button"
-          class="rounded-full px-3.5 py-1 transition-colors font-medium cursor-pointer"
-          :class="selectedCategory === 'all' ? 'bg-ink text-canvas font-semibold shadow-xs' : 'bg-canvas border border-hairline text-weak hover:text-ink hover:border-ink'"
+          class="whitespace-nowrap rounded-full px-3.5 py-1 transition-colors font-medium cursor-pointer"
+          :class="selectedCategory === 'all' ? 'grad-border-soft text-primary font-semibold' : 'bg-canvas border border-hairline text-weak hover:text-ink hover:border-ink'"
           @click="selectedCategory = 'all'"
         >
           全部 ({{ categoryCounts.all }})
         </button>
         <button
           type="button"
-          class="rounded-full px-3.5 py-1 transition-colors font-medium cursor-pointer"
+          class="whitespace-nowrap rounded-full px-3.5 py-1 transition-colors font-medium cursor-pointer"
           :class="selectedCategory === 'study' ? 'bg-primary text-white font-semibold shadow-xs' : 'bg-canvas border border-hairline text-weak hover:text-ink hover:border-ink'"
           @click="selectedCategory = 'study'"
         >
@@ -166,7 +166,7 @@ const groupedRecords = computed<DateGroup[]>(() => {
         </button>
         <button
           type="button"
-          class="rounded-full px-3.5 py-1 transition-colors font-medium cursor-pointer"
+          class="whitespace-nowrap rounded-full px-3.5 py-1 transition-colors font-medium cursor-pointer"
           :class="selectedCategory === 'behavior' ? 'bg-[#059669] text-white font-semibold shadow-xs' : 'bg-canvas border border-hairline text-weak hover:text-ink hover:border-ink'"
           @click="selectedCategory = 'behavior'"
         >
@@ -174,7 +174,7 @@ const groupedRecords = computed<DateGroup[]>(() => {
         </button>
         <button
           type="button"
-          class="rounded-full px-3.5 py-1 transition-colors font-medium cursor-pointer"
+          class="whitespace-nowrap rounded-full px-3.5 py-1 transition-colors font-medium cursor-pointer"
           :class="selectedCategory === 'other' ? 'bg-[#7c3aed] text-white font-semibold shadow-xs' : 'bg-canvas border border-hairline text-weak hover:text-ink hover:border-ink'"
           @click="selectedCategory = 'other'"
         >
@@ -186,7 +186,7 @@ const groupedRecords = computed<DateGroup[]>(() => {
       <button
         v-if="!readonly"
         type="button"
-        class="inline-flex items-center gap-1.5 rounded-full bg-primary px-3.5 py-1 text-fine font-medium text-white transition-opacity hover:opacity-90 cursor-pointer shadow-xs"
+        class="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full bg-primary px-3.5 py-1 text-fine font-medium text-white transition-opacity hover:opacity-90 cursor-pointer shadow-xs"
         @click="emit('add')"
       >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
@@ -197,10 +197,10 @@ const groupedRecords = computed<DateGroup[]>(() => {
       </button>
     </div>
 
-    <!-- 次级多维复合筛选条 -->
-    <div v-if="records.length > 0" class="flex flex-wrap items-center justify-between gap-3 bg-canvas border border-hairline rounded-lg px-4 py-2.5">
+    <!-- 次级多维复合筛选条：窄容器保持单行，横向滚动查看 -->
+    <div v-if="records.length > 0" class="scrollbar-none flex items-center justify-between gap-3 overflow-x-auto bg-canvas border border-hairline rounded-lg px-4 py-2.5">
       <!-- 倾向过滤 -->
-      <div class="flex items-center gap-1.5 text-fine">
+      <div class="flex shrink-0 items-center gap-1.5 text-fine">
         <span class="text-weak mr-1">评价：</span>
         <button
           data-test="filter-all-polarity"
@@ -242,7 +242,7 @@ const groupedRecords = computed<DateGroup[]>(() => {
       </div>
 
       <!-- 学生与维度下拉筛选 -->
-      <div class="flex items-center gap-4 text-fine">
+      <div class="flex shrink-0 items-center gap-4 text-fine">
         <!-- 学生下拉 -->
         <div class="flex items-center gap-1.5">
           <span class="text-weak">学生：</span>
@@ -351,8 +351,8 @@ const groupedRecords = computed<DateGroup[]>(() => {
               :class="item.type === 'praise' ? 'bg-[#248a3d]' : item.type === 'improve' ? 'bg-[#d97706]' : 'bg-[#71717a]'"
             />
 
-            <!-- 内容区：单行布局，具体评语收进语义图标的悬浮说明 -->
-            <div class="flex min-w-0 flex-1 items-center gap-2 flex-wrap">
+            <!-- 内容区：单行布局（徽标/徽章/时间戳不换行不竖排），具体评语收进语义图标的悬浮说明 -->
+            <div class="flex min-w-0 flex-1 items-center gap-2 whitespace-nowrap">
               <!-- 学生姓名胶囊（支持点击直接进入该生档案） -->
               <button
                 data-test="student-badge"
@@ -420,7 +420,7 @@ const groupedRecords = computed<DateGroup[]>(() => {
               </span>
 
               <!-- 时间戳 -->
-              <span class="ml-auto text-[11px] text-weak">
+              <span class="ml-auto shrink-0 text-[11px] text-weak">
                 {{ item.created_at.slice(11, 16) || "" }}
               </span>
             </div>

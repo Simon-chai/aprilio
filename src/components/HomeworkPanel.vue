@@ -122,11 +122,12 @@ async function onDelete(record: StudentHomeworkRecord) {
 
 <template>
   <div class="space-y-4" data-test="homework-panel">
-    <div class="flex flex-wrap items-center justify-between gap-2">
-      <p class="text-caption text-weak" data-test="homework-summary">
+    <!-- 面板头：窄容器保持单行横向滚动，按钮不换行竖排 -->
+    <div class="scrollbar-none flex items-center justify-between gap-2 overflow-x-auto">
+      <p class="shrink-0 whitespace-nowrap text-caption text-weak" data-test="homework-summary">
         {{ summary || "本学期暂无作业记录" }}
       </p>
-      <AppButton data-test="add-homework-btn" @click="openAdd">+ 记作业</AppButton>
+      <AppButton data-test="add-homework-btn" class="shrink-0" @click="openAdd">+ 记作业</AppButton>
     </div>
 
     <p v-if="message" class="text-fine text-primary">{{ message }}</p>

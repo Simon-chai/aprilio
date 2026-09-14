@@ -44,9 +44,10 @@ function changeButtonOf(wrapper: VueWrapper, index = 0) {
 }
 
 function restoreButtonOf(wrapper: VueWrapper, index = 0) {
+  // 方案 C 后主色按钮变多，改按「恢复默认 / 移除背景图」文案定位三处图片恢复入口
   return wrapper
     .findAll("button")
-    .filter((button) => button.classes().includes("text-primary"))[index];
+    .filter((button) => /^(恢复默认|移除背景图)/.test(button.text()))[index];
 }
 
 function draftOf(wrapper: VueWrapper): Profile {
@@ -845,7 +846,7 @@ describe("profile subject editor (任教学科)", () => {
     const chip = chipOf(wrapper, "语文")!;
 
     await chip.trigger("click");
-    expect(chip.classes()).toContain("bg-ink");
+    expect(chip.classes()).toContain("grad-border-soft");
     expect(saveButtonOf(wrapper).attributes("disabled")).toBeUndefined();
 
     await saveButtonOf(wrapper).trigger("click");
@@ -867,7 +868,7 @@ describe("profile subject editor (任教学科)", () => {
 
     const chip = chipOf(wrapper, "写字")!;
     expect(chip).toBeDefined();
-    expect(chip.classes()).toContain("bg-ink");
+    expect(chip.classes()).toContain("grad-border-soft");
     expect((input.element as HTMLInputElement).value).toBe("");
 
     // 重复添加只保留一份；再点一次 chip 可取消选择
@@ -875,7 +876,7 @@ describe("profile subject editor (任教学科)", () => {
     await addBtn.trigger("click");
     expect(wrapper.findAll('button[data-test="subject-chip"]').filter((b) => b.text() === "写字")).toHaveLength(1);
     await chip.trigger("click");
-    expect(chip.classes()).not.toContain("bg-ink");
+    expect(chip.classes()).not.toContain("grad-border-soft");
   });
 
   it("applies an image chosen from the library to the draft without saving it yet", async () => {

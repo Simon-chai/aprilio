@@ -224,8 +224,8 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
             type="button"
             data-test="memo-history-type"
             :aria-pressed="typeFilter === t"
-            class="flex items-center gap-1 rounded-pill border px-2 py-0.5 text-fine transition-colors"
-            :class="typeFilter === t ? 'border-ink bg-ink font-medium text-canvas' : 'border-hairline text-weak hover:border-ink'"
+            class="flex items-center gap-1 whitespace-nowrap rounded-pill border px-2 py-0.5 text-fine transition-colors"
+            :class="typeFilter === t ? 'grad-border-soft text-primary font-medium' : 'border-hairline text-weak hover:border-ink'"
             @click="toggleTypeFilter(t)"
           >
             <span class="h-1.5 w-1.5 rounded-full" :class="CALENDAR_EVENT_META[t].dot" />
