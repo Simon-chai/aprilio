@@ -8,6 +8,7 @@ import AppLink from "../components/ui/AppLink.vue";
 import BackgroundPickerDialog from "../components/BackgroundPickerDialog.vue";
 import { ensureBackgroundLibrary, markBackgroundUsed } from "../lib/backgrounds";
 import { useClock } from "../composables/useClock";
+import { confirmAction } from "../composables/useConfirm";
 import {
   discardSelectedProfileImage,
   ensureProfile,
@@ -351,13 +352,15 @@ onBeforeRouteLeave(async () => {
   leaving.value = true;
 
   try {
-    if (
-      isDirty.value &&
-      !window.confirm(
-        "\u8FD8\u6709\u672A\u4FDD\u5B58\u7684\u8D44\u6599\uFF0C\u786E\u5B9A\u79BB\u5F00\u5417\uFF1F",
-      )
-    ) {
-      return false;
+    if (isDirty.value) {
+      // 守卫期间全局确认弹层拦截交互（遮罩 + leaving 禁用全部控件），路由挂起直至用户决断
+      const ok = await confirmAction({
+        title: "还有未保存的资料",
+        message: "确定离开吗？离开后将丢弃未保存的更改。",
+        tone: "danger",
+        confirmText: "离开",
+      });
+      if (!ok) return false;
     }
     return true;
   } finally {

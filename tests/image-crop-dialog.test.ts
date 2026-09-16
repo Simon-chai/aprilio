@@ -120,7 +120,8 @@ describe("ImageCropDialog（cropperjs 封装）", () => {
     const wrapper = mountDialog();
     await nextTick();
 
-    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    // Esc 由 AppDialog 壳在 document 捕获层接管（与 app-dialog.test.ts 同一派发方式）
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     await nextTick();
 
     expect(FakeCropper.instances[0].destroyed).toBe(true);

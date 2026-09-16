@@ -9,7 +9,13 @@
  *   所以节点再密也能选中；悬浮提示「哪次考试 + 分数」，点击展开该次考试详情。
  */
 import { computed, ref } from "vue";
-import { chartColorOf } from "../lib/chart-palette";
+import {
+  CHART_AXIS_LINE,
+  CHART_AXIS_TEXT,
+  CHART_PRIMARY,
+  CHART_TEXT_WEAK,
+  chartColorOf,
+} from "../lib/chart-palette";
 
 const props = withDefaults(
   defineProps<{
@@ -276,8 +282,8 @@ function onBandClick(index: number, event: MouseEvent) {
               :x2="PAD.l + plotW"
               :y1="yOf(t)"
               :y2="yOf(t)"
-              stroke="#e5e5e7"
               stroke-width="1"
+              :stroke="CHART_AXIS_LINE"
             />
             <text
               v-for="t in ticks"
@@ -286,7 +292,7 @@ function onBandClick(index: number, event: MouseEvent) {
               :y="yOf(t) + 3"
               text-anchor="end"
               font-size="10"
-              fill="#7a7a7a"
+              :fill="CHART_TEXT_WEAK"
             >
               {{ t }}
             </text>
@@ -299,9 +305,9 @@ function onBandClick(index: number, event: MouseEvent) {
             :x2="xOf(selectedIndex)"
             :y1="PAD.t"
             :y2="PAD.t + plotH"
-            stroke="#0066cc"
             stroke-width="1"
             stroke-dasharray="3 3"
+            :stroke="CHART_PRIMARY"
             opacity="0.5"
           />
 
@@ -369,7 +375,7 @@ function onBandClick(index: number, event: MouseEvent) {
               :y="H - PAD.b + 16"
               text-anchor="middle"
               font-size="10"
-              fill="#7a7a7a"
+              :fill="CHART_TEXT_WEAK"
             >
               {{ l.label }}
             </text>
@@ -380,7 +386,7 @@ function onBandClick(index: number, event: MouseEvent) {
               :y="H - PAD.b + 29"
               text-anchor="middle"
               font-size="10"
-              fill="#a1a1a6"
+              :fill="CHART_AXIS_TEXT"
             >
               {{ l.sub ?? "" }}
             </text>

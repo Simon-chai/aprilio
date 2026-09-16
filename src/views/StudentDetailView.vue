@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { confirm } from "@tauri-apps/plugin-dialog";
 import AppButton from "../components/ui/AppButton.vue";
 import AppCard from "../components/ui/AppCard.vue";
+import AppIcon from "../components/ui/AppIcon.vue";
 import AppIconButton from "../components/ui/AppIconButton.vue";
+import EmptyState from "../components/ui/EmptyState.vue";
 import StatusChip from "../components/ui/StatusChip.vue";
 import PhotoGrid from "../components/PhotoGrid.vue";
 import StudentFormDialog from "../components/StudentFormDialog.vue";
@@ -30,6 +31,8 @@ import { deletePhotoFile, getPhotosDir, importPhoto } from "../lib/photos";
 import { formatShort } from "../lib/format";
 import { currentSemester, semesterLabel } from "../lib/timetable";
 import { recentSemesters, semesterOfDate } from "../lib/semester";
+import { confirmAction } from "../composables/useConfirm";
+import { useToast } from "../composables/useToast";
 import { STATUS_LABEL } from "../types";
 import type { BehaviorPolarity, Photo, Student, StudentBehaviorRecord, StudentExamScore, StudentInput } from "../types";
 
@@ -67,8 +70,8 @@ const semesterBehaviors = computed(() =>
 
 const quickOpen = ref(false);
 const quickAnchor = ref<{ x: number; y: number } | null>(null);
-const toast = ref("");
-let toastTimer: ReturnType<typeof setTimeout> | undefined;
+/** 全局轻反馈（ToastHost 挂在 App.vue）：快捷记表现 / 删除表现的落地提示 */
+const toast = useToast();
 
 function openQuickBehavior(e?: MouseEvent) {
   if (e && (e.currentTarget || e.target)) {
@@ -85,25 +88,17 @@ function openQuickBehavior(e?: MouseEvent) {
   quickOpen.value = true;
 }
 
-function showToast(msg: string) {
-  toast.value = msg;
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => (toast.value = ""), 2400);
-}
-
 async function onQuickSaved(payload: { studentName: string; dimensionName: string; polarity: BehaviorPolarity }) {
-  showToast(`已记录 ${payload.studentName} ${payload.dimensionName}`);
+  toast(`已记录 ${payload.studentName} ${payload.dimensionName}`);
   behaviors.value = await listBehaviorRecords(id.value);
 }
 
 /** 删除一条表现记录（含评语），并刷新时间轴 */
 async function handleRemoveBehavior(recordId: number) {
   await deleteBehaviorRecord(recordId);
-  showToast("已删除该条表现记录");
+  toast("已删除该条表现记录");
   behaviors.value = await listBehaviorRecords(id.value);
 }
-
-onBeforeUnmount(() => clearTimeout(toastTimer));
 
 async function refresh() {
   loading.value = true;
@@ -175,12 +170,12 @@ async function onAddPhoto() {
 }
 
 async function onRemovePhoto(photo: Photo) {
-  const ok = isTauri()
-    ? await confirm(`删除「${photo.caption || "未命名"}」这张图片？`, {
-        title: "删除图片",
-        kind: "warning",
-      })
-    : window.confirm("删除这张图片？");
+  const ok = await confirmAction({
+    title: "删除图片",
+    message: `删除「${photo.caption || "未命名"}」这张图片？`,
+    tone: "danger",
+    confirmText: "删除",
+  });
   if (!ok) return;
 
   await deletePhoto(photo.id);
@@ -189,12 +184,12 @@ async function onRemovePhoto(photo: Photo) {
 }
 
 async function onDeleteStudent() {
-  const ok = isTauri()
-    ? await confirm(`删除学生「${student.value?.name ?? ""}」？删除后将移入回收站，保留 7 天，期间可恢复。`, {
-        title: "删除学生",
-        kind: "warning",
-      })
-    : window.confirm(`删除学生「${student.value?.name ?? ""}」？删除后将移入回收站，保留 7 天。`);
+  const ok = await confirmAction({
+    title: `删除学生「${student.value?.name ?? ""}」`,
+    message: "删除后将移入回收站，保留 7 天，期间可恢复。",
+    tone: "danger",
+    confirmText: "删除",
+  });
   if (!ok) return;
 
   await deleteStudent(id.value);
@@ -226,15 +221,7 @@ function goBack() {
   >
     <div class="flex shrink-0 items-center gap-2.5">
       <button class="text-ink" title="返回列表" @click="goBack">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-          <path
-            d="M10 3L5 8L10 13"
-            stroke="#1d1d1f"
-            stroke-width="1.6"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          />
-        </svg>
+        <AppIcon name="arrow-left" />
       </button>
       <h1 class="whitespace-nowrap text-tagline font-semibold text-ink">学生详情</h1>
     </div>
@@ -270,7 +257,7 @@ function goBack() {
   <!-- 内容：窄窗口不出竖排，整页内容按最小宽度横向滚动 -->
   <div class="scroll-thin flex-1 overflow-auto p-8">
     <div class="min-w-[1000px]">
-    <p v-if="error" class="mb-6 rounded-md bg-[#fdeef0] p-3 text-caption text-danger">
+    <p v-if="error" class="mb-6 rounded-md bg-danger-soft p-3 text-caption text-danger">
       {{ error }}
     </p>
 
@@ -278,10 +265,7 @@ function goBack() {
       <!-- 档案头部 -->
       <div class="flex items-center gap-6">
         <div class="flex h-24 w-24 shrink-0 items-center justify-center rounded-full bg-parchment">
-          <svg width="40" height="40" viewBox="0 0 40 40" fill="none" aria-hidden="true">
-            <circle cx="20" cy="14" r="7" fill="#cccccc" />
-            <path d="M6 36c0-7.2 6.3-11 14-11s14 3.8 14 11" fill="#cccccc" />
-          </svg>
+          <AppIcon name="person" :size="40" class="text-faint" />
         </div>
         <div class="min-w-0 flex-1 space-y-2.5">
           <div class="flex items-center gap-3">
@@ -300,10 +284,7 @@ function goBack() {
           </p>
         </div>
         <AppButton variant="danger" @click="onDeleteStudent">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-            <path d="M10 11v6M14 11v6" />
-          </svg>
+          <AppIcon name="trash" :size="13" />
           删除学生
         </AppButton>
       </div>
@@ -479,9 +460,11 @@ function goBack() {
               @remove="onRemovePhoto"
             />
 
-            <p v-if="!loading && !photos.length" class="py-6 text-center text-caption text-weak">
-              还没有图片记录，点上面的「添加图片」从本地选一张。
-            </p>
+            <EmptyState
+              v-if="!loading && !photos.length"
+              title="还没有图片记录"
+              description="点上面的「添加图片」从本地选一张。"
+            />
           </div>
 
           <!-- Tab 内容：成绩（班级成绩导入后自动关联） -->
@@ -539,27 +522,4 @@ function goBack() {
     @close="quickOpen = false"
     @saved="onQuickSaved"
   />
-
-  <!-- 快捷记表现 Toast 提示 -->
-  <Transition name="qb-toast">
-    <div
-      v-if="toast"
-      data-test="quick-toast"
-      class="fixed inset-x-0 top-4 z-[60] mx-auto w-fit rounded-full bg-tile px-4 py-1.5 text-fine text-white shadow-lg"
-    >
-      {{ toast }}
-    </div>
-  </Transition>
 </template>
-
-<style scoped>
-.qb-toast-enter-active,
-.qb-toast-leave-active {
-  transition: opacity 0.2s ease, transform 0.2s ease;
-}
-.qb-toast-enter-from,
-.qb-toast-leave-to {
-  opacity: 0;
-  transform: translateY(-8px);
-}
-</style>

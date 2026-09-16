@@ -8,6 +8,7 @@ import {
   listTeacherEventsInRange,
   setCalendarEventDone,
   setCalendarEventTitle,
+  searchCalendarEvents,
 } from "../src/lib/db";
 
 const CLASS_A = "日历测试班A";
@@ -88,6 +89,29 @@ describe("calendar event data access", () => {
     expect(
       (await listTeacherEventsInRange("2031-05-06", "2031-05-06")).find((e) => e.id === id)?.title
     ).toBe("三年二班收回执");
+  });
+
+  it("searches events by keyword across title and content, newest first, capped by limit", async () => {
+    const older = await addCalendarEvent(CLASS_A, "2032-05-06", "研学手册清点");
+    const newer = await addCalendarEvent(CLASS_A, "2032-05-20", "研学手册上交教导处");
+    const byTitle = await addCalendarEvent(CLASS_A, "2032-06-01", "毕业照拍摄安排");
+    await setCalendarEventTitle(byTitle, "研学手册归档");
+
+    // 正文命中与 AI 标题命中同等对待，按日期倒序
+    expect((await searchCalendarEvents("研学手册")).map((e) => e.id)).toEqual([
+      byTitle,
+      newer,
+      older,
+    ]);
+
+    // limit 截断只取最新的若干条
+    expect((await searchCalendarEvents("研学手册", 2)).map((e) => e.id)).toEqual([byTitle, newer]);
+
+    // 内存演示数据（挂在真实今天附近）同样可搜
+    expect((await searchCalendarEvents("教研组")).map((e) => e.content)).toContain("下午教研组会议");
+
+    // 空关键词不返回结果
+    expect(await searchCalendarEvents("   ")).toEqual([]);
   });
 
   it("removes class events with the class and everything with clearAll", async () => {

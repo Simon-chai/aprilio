@@ -2,6 +2,7 @@
 import { computed, ref, watch } from "vue";
 import { BEHAVIOR_CATEGORY_LABEL } from "../types";
 import type { BehaviorCategory, BehaviorPolarity, ClassBehaviorRecord, StudentRow } from "../types";
+import { confirmAction } from "../composables/useConfirm";
 
 const props = defineProps<{
   records: ClassBehaviorRecord[];
@@ -17,16 +18,15 @@ const emit = defineEmits<{
   remove: [recordId: number];
 }>();
 
-// 评语删除的两步确认：第一次点击进入待确认态，移出悬浮区后自动复位
-const armedRemoveId = ref<number | null>(null);
-
-function onRemoveClick(recordId: number) {
-  if (armedRemoveId.value === recordId) {
-    armedRemoveId.value = null;
-    emit("remove", recordId);
-  } else {
-    armedRemoveId.value = recordId;
-  }
+/** 删除评语所在的表现记录：全局确认弹层（armed 两步模式已退役） */
+async function onRemoveClick(recordId: number) {
+  const ok = await confirmAction({
+    title: "删除这条表现记录？",
+    message: "删除后不可恢复。",
+    tone: "danger",
+    confirmText: "删除",
+  });
+  if (ok) emit("remove", recordId);
 }
 
 const selectedCategory = ref<"all" | BehaviorCategory>("all");
@@ -167,7 +167,7 @@ const groupedRecords = computed<DateGroup[]>(() => {
         <button
           type="button"
           class="whitespace-nowrap rounded-full px-3.5 py-1 transition-colors font-medium cursor-pointer"
-          :class="selectedCategory === 'behavior' ? 'bg-[#059669] text-white font-semibold shadow-xs' : 'bg-canvas border border-hairline text-weak hover:text-ink hover:border-ink'"
+          :class="selectedCategory === 'behavior' ? 'bg-category-behavior text-white font-semibold shadow-xs' : 'bg-canvas border border-hairline text-weak hover:text-ink hover:border-ink'"
           @click="selectedCategory = 'behavior'"
         >
           🌱 {{ BEHAVIOR_CATEGORY_LABEL.behavior }} ({{ categoryCounts.behavior }})
@@ -175,7 +175,7 @@ const groupedRecords = computed<DateGroup[]>(() => {
         <button
           type="button"
           class="whitespace-nowrap rounded-full px-3.5 py-1 transition-colors font-medium cursor-pointer"
-          :class="selectedCategory === 'other' ? 'bg-[#7c3aed] text-white font-semibold shadow-xs' : 'bg-canvas border border-hairline text-weak hover:text-ink hover:border-ink'"
+          :class="selectedCategory === 'other' ? 'bg-category-other text-white font-semibold shadow-xs' : 'bg-canvas border border-hairline text-weak hover:text-ink hover:border-ink'"
           @click="selectedCategory = 'other'"
         >
           ✨ {{ BEHAVIOR_CATEGORY_LABEL.other }} ({{ categoryCounts.other }})
@@ -215,7 +215,7 @@ const groupedRecords = computed<DateGroup[]>(() => {
           data-test="filter-praise"
           type="button"
           class="rounded-full px-2.5 py-0.5 transition-colors font-medium cursor-pointer"
-          :class="selectedPolarity === 'praise' ? 'bg-[#e8f5e9] text-[#248a3d] border border-[#a3e635]' : 'bg-parchment text-weak hover:text-ink'"
+          :class="selectedPolarity === 'praise' ? 'bg-praise-soft text-praise border border-praise-line' : 'bg-parchment text-weak hover:text-ink'"
           @click="selectedPolarity = 'praise'"
         >
           👍 表扬 ({{ polarityCounts.praise }})
@@ -224,7 +224,7 @@ const groupedRecords = computed<DateGroup[]>(() => {
           data-test="filter-improve"
           type="button"
           class="rounded-full px-2.5 py-0.5 transition-colors font-medium cursor-pointer"
-          :class="selectedPolarity === 'improve' ? 'bg-[#fff3e0] text-[#d97706] border border-[#fcd34d]' : 'bg-parchment text-weak hover:text-ink'"
+          :class="selectedPolarity === 'improve' ? 'bg-improve-soft text-improve border border-improve-line' : 'bg-parchment text-weak hover:text-ink'"
           @click="selectedPolarity = 'improve'"
         >
           ⚠️ 待改进 ({{ polarityCounts.improve }})
@@ -234,7 +234,7 @@ const groupedRecords = computed<DateGroup[]>(() => {
           data-test="filter-neutral"
           type="button"
           class="rounded-full px-2.5 py-0.5 transition-colors font-medium cursor-pointer"
-          :class="selectedPolarity === 'neutral' ? 'bg-[#f4f4f5] text-[#52525b] border border-[#d4d4d8]' : 'bg-parchment text-weak hover:text-ink'"
+          :class="selectedPolarity === 'neutral' ? 'bg-neutral-soft text-neutral border border-neutral-line' : 'bg-parchment text-weak hover:text-ink'"
           @click="selectedPolarity = 'neutral'"
         >
           ➖ 中立 ({{ polarityCounts.neutral }})
@@ -348,7 +348,7 @@ const groupedRecords = computed<DateGroup[]>(() => {
             <!-- 节点圆点锚定在时间线上 -->
             <div
               class="absolute -left-[19px] top-5 flex h-2.5 w-2.5 items-center justify-center rounded-full ring-4 ring-canvas"
-              :class="item.type === 'praise' ? 'bg-[#248a3d]' : item.type === 'improve' ? 'bg-[#d97706]' : 'bg-[#71717a]'"
+              :class="item.type === 'praise' ? 'bg-praise' : item.type === 'improve' ? 'bg-improve' : 'bg-neutral'"
             />
 
             <!-- 内容区：单行布局（徽标/徽章/时间戳不换行不竖排），具体评语收进语义图标的悬浮说明 -->
@@ -376,16 +376,15 @@ const groupedRecords = computed<DateGroup[]>(() => {
               <!-- 倾向徽章 -->
               <span
                 class="rounded-full px-2 py-0.5 text-[11px] font-medium"
-                :class="item.type === 'praise' ? 'bg-[#e8f5e9] text-[#248a3d]' : item.type === 'improve' ? 'bg-[#fff3e0] text-[#d97706]' : 'bg-[#f4f4f5] text-[#52525b]'"
+                :class="item.type === 'praise' ? 'bg-praise-soft text-praise' : item.type === 'improve' ? 'bg-improve-soft text-improve' : 'bg-neutral-soft text-neutral'"
               >
                 {{ item.type === "praise" ? "👍 表扬" : item.type === "improve" ? "⚠️ 待改进" : "➖ 中立" }}
               </span>
 
-              <!-- 评语语义图标：悬浮显示具体评语，可在悬浮说明中两步确认删除 -->
+              <!-- 评语语义图标：悬浮显示具体评语，删除走全局确认弹层 -->
               <span
                 v-if="item.comment"
                 class="group/comment relative inline-flex"
-                @mouseleave="armedRemoveId = null"
               >
                 <button
                   type="button"
@@ -408,11 +407,10 @@ const groupedRecords = computed<DateGroup[]>(() => {
                         v-if="!readonly"
                         type="button"
                         data-test="comment-delete-btn"
-                        class="rounded px-1.5 py-0.5 text-[11px] font-medium transition-colors"
-                        :class="armedRemoveId === item.id ? 'bg-[#d70015] text-white' : 'text-white/70 hover:bg-white/10 hover:text-white'"
+                        class="rounded px-1.5 py-0.5 text-[11px] font-medium transition-colors text-white/70 hover:bg-white/10 hover:text-white"
                         @click.stop="onRemoveClick(item.id)"
                       >
-                        {{ armedRemoveId === item.id ? "确认删除" : "删除" }}
+                        删除
                       </button>
                     </span>
                   </span>

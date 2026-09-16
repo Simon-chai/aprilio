@@ -65,7 +65,7 @@ const activeName = computed(() => {
         >
           <path
             d="M2.2 7.2L8 2.4l5.8 4.8M3.6 6.4v6.8h8.8V6.4"
-            :stroke="activeName === item.name ? '#1d1d1f' : '#333333'"
+            stroke="currentColor"
             stroke-width="1.4"
             stroke-linecap="round"
             stroke-linejoin="round"
@@ -85,19 +85,19 @@ const activeName = computed(() => {
             width="12"
             height="9"
             rx="1.5"
-            :stroke="activeName === item.name ? '#1d1d1f' : '#333333'"
+            stroke="currentColor"
             stroke-width="1.4"
           />
           <path
             d="M5 13.5l1.5-2h3l1.5 2"
-            :stroke="activeName === item.name ? '#1d1d1f' : '#333333'"
+            stroke="currentColor"
             stroke-width="1.4"
             stroke-linecap="round"
             stroke-linejoin="round"
           />
           <path
             d="M5 6h4"
-            :stroke="activeName === item.name ? '#1d1d1f' : '#333333'"
+            stroke="currentColor"
             stroke-width="1.4"
             stroke-linecap="round"
           />
@@ -112,13 +112,13 @@ const activeName = computed(() => {
         >
           <path
             d="M6 7.6a2.75 2.75 0 100-5.5 2.75 2.75 0 000 5.5zM1.6 13.6c0-2.2 2-3.7 4.4-3.7s4.4 1.5 4.4 3.7"
-            :stroke="activeName === item.name ? '#1d1d1f' : '#333333'"
+            stroke="currentColor"
             stroke-width="1.4"
             stroke-linecap="round"
           />
           <path
             d="M11 3.3a2.5 2.5 0 010 4.8M12.4 10.2c1.7.5 2.9 1.7 2.9 3.4"
-            :stroke="activeName === item.name ? '#1d1d1f' : '#333333'"
+            stroke="currentColor"
             stroke-width="1.4"
             stroke-linecap="round"
           />
@@ -137,13 +137,13 @@ const activeName = computed(() => {
             width="12.4"
             height="10.4"
             rx="2.2"
-            :stroke="activeName === item.name ? '#1d1d1f' : '#333333'"
+            stroke="currentColor"
             stroke-width="1.4"
           />
-          <circle cx="5.7" cy="6.3" r="1.15" :fill="activeName === item.name ? '#1d1d1f' : '#333333'" />
+          <circle cx="5.7" cy="6.3" r="1.15" fill="currentColor" />
           <path
             d="M2.3 11.7l3.4-3.2 2.6 2.4 2.4-2.2 3 2.9"
-            :stroke="activeName === item.name ? '#1d1d1f' : '#333333'"
+            stroke="currentColor"
             stroke-width="1.4"
             stroke-linecap="round"
             stroke-linejoin="round"
@@ -159,14 +159,14 @@ const activeName = computed(() => {
         >
           <path
             d="M2.5 4.5h11M6.5 4.5V3h3v1.5M4 4.5l.7 8.2a1 1 0 0 0 1 .8h4.6a1 1 0 0 0 1-.8l.7-8.2"
-            :stroke="activeName === item.name ? '#1d1d1f' : '#333333'"
+            stroke="currentColor"
             stroke-width="1.4"
             stroke-linecap="round"
             stroke-linejoin="round"
           />
           <path
             d="M6.7 7.2v3.6M9.3 7.2v3.6"
-            :stroke="activeName === item.name ? '#1d1d1f' : '#333333'"
+            stroke="currentColor"
             stroke-width="1.4"
             stroke-linecap="round"
           />
@@ -183,12 +183,12 @@ const activeName = computed(() => {
             cx="8"
             cy="8"
             r="2.2"
-            :stroke="activeName === item.name ? '#1d1d1f' : '#333333'"
+            stroke="currentColor"
             stroke-width="1.4"
           />
           <path
             d="M8 1.7v1.5M8 12.8v1.5M2.9 2.9l1.1 1.1M12 12l1.1 1.1M1.7 8h1.5M12.8 8h1.5M2.9 13.1l1.1-1.1M12 4l1.1-1.1"
-            :stroke="activeName === item.name ? '#1d1d1f' : '#333333'"
+            stroke="currentColor"
             stroke-width="1.4"
             stroke-linecap="round"
           />
@@ -207,6 +207,7 @@ const activeName = computed(() => {
     >
       <svg
         v-if="!isFullscreen"
+        class="text-muted"
         width="14"
         height="14"
         viewBox="0 0 16 16"
@@ -215,7 +216,7 @@ const activeName = computed(() => {
       >
         <path
           d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"
-          stroke="#333333"
+          stroke="currentColor"
           stroke-width="1.4"
           stroke-linecap="round"
           stroke-linejoin="round"
@@ -223,6 +224,7 @@ const activeName = computed(() => {
       </svg>
       <svg
         v-else
+        class="text-muted"
         width="14"
         height="14"
         viewBox="0 0 16 16"
@@ -231,7 +233,7 @@ const activeName = computed(() => {
       >
         <path
           d="M6 2v4H2M14 6h-4V2M10 14v-4h4M2 10h4v4"
-          stroke="#333333"
+          stroke="currentColor"
           stroke-width="1.4"
           stroke-linecap="round"
           stroke-linejoin="round"

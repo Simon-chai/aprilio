@@ -10,6 +10,7 @@
 import { computed } from "vue";
 import ScoreLineChart from "./ScoreLineChart.vue";
 import { formatNumber, summarizeSubjectTrend } from "../lib/score-analysis";
+import { CHART_TEXT_WEAK } from "../lib/chart-palette";
 import {
   levelNameOfScore,
   levelRankOf,
@@ -55,8 +56,8 @@ const labels = computed(() =>
   }))
 );
 
-/** 班级均分参照线：灰色虚线，弱于本人成绩线 */
-const CLASS_AVG_COLOR = "#7a7a7a";
+/** 班级均分参照线：灰色虚线，弱于本人成绩线（色值取自 chart-palette） */
+const CLASS_AVG_COLOR = CHART_TEXT_WEAK;
 
 /** 双线走势：本人该科分数（实线）+ 班级均分（虚线参照；全班无数字分时不画） */
 const series = computed(() => {

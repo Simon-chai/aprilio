@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
 import AppButton from "./ui/AppButton.vue";
+import AppDialog from "./ui/AppDialog.vue";
+import AppIcon from "./ui/AppIcon.vue";
 import AppInput from "./ui/AppInput.vue";
 import type { ClassSummary } from "../types";
 
@@ -43,6 +45,8 @@ watch(
     if (isOpen) {
       className.value = props.initialName ?? "";
       error.value = "";
+      // 双跳 nextTick：AppDialog 打开时会先把焦点落到面板，之后再把焦点夺回名称输入框
+      await nextTick();
       await nextTick();
       const el = inputRef.value?.$el?.querySelector("input") || (inputRef.value?.$el as HTMLInputElement);
       el?.focus?.();
@@ -74,24 +78,19 @@ function handleSubmit() {
 </script>
 
 <template>
-  <div
-    v-if="open"
-    class="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-8"
-    @mousedown.self="emit('close')"
-  >
-    <div class="w-[460px] max-w-full rounded-lg bg-canvas p-6 shadow-window">
-      <div class="mb-5 flex items-center justify-between">
-        <h2 class="text-tagline font-semibold text-ink">{{ title }}</h2>
-        <button
-          type="button"
-          class="inline-flex items-center text-caption text-weak hover:text-ink"
-          @click="emit('close')"
-        >
-          关闭
-        </button>
-      </div>
+  <!-- AppDialog 壳：遮罩 / Esc / 焦点圈定 / 过渡由壳承担；宽度就近归档 sm（原 460px） -->
+  <AppDialog :open="open" :title="title" width="sm" @close="emit('close')">
+    <!-- 关闭 ✕：对齐原标题行的关闭按钮位置（面板右上角） -->
+    <button
+      type="button"
+      class="absolute right-6 top-6 flex h-6 w-6 items-center justify-center rounded-sm text-weak transition-colors hover:bg-parchment hover:text-ink"
+      aria-label="关闭"
+      @click="emit('close')"
+    >
+      <AppIcon name="close" :size="16" />
+    </button>
 
-      <form @submit.prevent="handleSubmit" class="space-y-4">
+    <form @submit.prevent="handleSubmit" class="mt-5 space-y-4">
         <div v-if="mode === 'rename' && initialName" class="text-caption text-weak">
           当前名称：<span class="font-medium text-ink">{{ initialName }}</span>
         </div>
@@ -117,6 +116,5 @@ function handleSubmit() {
           <AppButton type="submit" variant="primary">确定</AppButton>
         </div>
       </form>
-    </div>
-  </div>
+  </AppDialog>
 </template>

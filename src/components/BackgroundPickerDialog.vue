@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
 import AppButton from "./ui/AppButton.vue";
+import AppDialog from "./ui/AppDialog.vue";
+import AppIcon from "./ui/AppIcon.vue";
 import AppIconButton from "./ui/AppIconButton.vue";
 import ImageCropDialog from "./ImageCropDialog.vue";
 import {
@@ -52,7 +54,6 @@ const emit = defineEmits<{
 }>();
 
 const url = ref("");
-const urlInput = ref<HTMLInputElement | null>(null);
 const busy = ref(false);
 const error = ref("");
 
@@ -82,14 +83,12 @@ const sharedPool = computed(() => props.kind !== "avatar");
 
 watch(
   () => props.open,
-  async (isOpen) => {
+  (isOpen) => {
     if (!isOpen) return;
     url.value = "";
     error.value = "";
     void ensureBackgroundLibrary();
-    // 焦点落在链接输入框：想直接用网络图片时打开即可粘贴
-    await nextTick();
-    urlInput.value?.focus();
+    // 焦点由 AppDialog 的 autofocus 机制接管：打开即落在链接输入框，想直接用网络图片时即可粘贴
   },
 );
 
@@ -263,143 +262,147 @@ function labelOf(item: BackgroundImage): string {
 </script>
 
 <template>
-  <div
-    v-if="open"
+  <!-- AppDialog 壳：遮罩 / Esc / 焦点圈定 / 过渡由壳承担；宽度按规格归档 lg（图库网格更宽裕）。
+       data-test 由调用方透传（home-bg-picker / profile-bg-picker 等），落在面板上 -->
+  <AppDialog
+    :open="open"
+    :title="`${title} · 图片库`"
+    width="lg"
     data-test="bg-picker"
-    class="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-8"
-    @mousedown.self="emit('close')"
+    class="max-h-full overflow-y-auto scroll-thin"
+    @close="emit('close')"
   >
-    <div class="max-h-full w-[520px] max-w-full overflow-y-auto scroll-thin rounded-lg bg-canvas p-6 shadow-window">
-      <div class="mb-5 flex items-center justify-between">
-        <h2 class="text-tagline font-semibold text-ink">{{ title }} · 图片库</h2>
-        <button
-          type="button"
-          class="inline-flex items-center text-caption text-weak hover:text-ink"
-          @click="emit('close')"
+    <!-- 关闭 ✕：对齐面板右上角（原标题行「关闭」文字按钮统一为图标） -->
+    <button
+      type="button"
+      class="absolute right-6 top-6 flex h-6 w-6 items-center justify-center rounded-sm text-weak transition-colors hover:bg-parchment hover:text-ink"
+      aria-label="关闭"
+      @click="emit('close')"
+    >
+      <AppIcon name="close" :size="16" />
+    </button>
+
+    <div class="mt-5 space-y-4">
+      <div class="flex flex-wrap items-center gap-3">
+        <AppIconButton
+          data-test="bg-picker-local"
+          label="本地上传"
+          :disabled="busy"
+          @click="pickLocal"
         >
-          关闭
-        </button>
+          <!-- 语义图标：上传托盘，与「导入花名册」同一套图标 -->
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <path d="M7 8l5-5 5 5" />
+            <path d="M12 3v12" />
+          </svg>
+        </AppIconButton>
+        <p class="text-fine text-weak">
+          {{ crop ? "支持 png / jpg / webp / gif / bmp · 上传后可裁剪取景" : "支持 png / jpg / webp / gif / bmp" }}
+        </p>
       </div>
 
-      <div class="space-y-4">
-        <div class="flex flex-wrap items-center gap-3">
-          <AppIconButton
-            data-test="bg-picker-local"
-            label="本地上传"
+      <div>
+        <p class="mb-1.5 text-fine text-weak">
+          {{ crop ? "粘贴图片链接（下载后可裁剪取景）" : "粘贴图片链接（自动下载到本地缓存）" }}
+        </p>
+        <div class="flex items-center gap-2">
+          <!-- autofocus：AppDialog 打开时焦点落到这里，直接粘贴链接即可 -->
+          <input
+            v-model="url"
+            data-test="bg-picker-url"
+            type="url"
+            inputmode="url"
+            autofocus
+            placeholder="https://example.com/photo.jpg"
             :disabled="busy"
-            @click="pickLocal"
+            class="h-9 flex-1 rounded-sm border border-hairline bg-canvas px-3 text-caption text-ink outline-none transition-colors focus:border-primary-focus"
+            @keydown.enter.prevent="addFromUrl"
+          />
+          <AppButton
+            data-test="bg-picker-add"
+            variant="primary"
+            :disabled="busy"
+            @click="addFromUrl"
           >
-            <!-- 语义图标：上传托盘，与「导入花名册」同一套图标 -->
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <path d="M7 8l5-5 5 5" />
-              <path d="M12 3v12" />
-            </svg>
-          </AppIconButton>
-          <p class="text-fine text-weak">
-            {{ crop ? "支持 png / jpg / webp / gif / bmp · 上传后可裁剪取景" : "支持 png / jpg / webp / gif / bmp" }}
-          </p>
+            {{ busy ? "加载中" : "添加" }}
+          </AppButton>
+        </div>
+      </div>
+
+      <p
+        v-if="error"
+        data-test="bg-picker-error"
+        role="alert"
+        class="text-caption text-danger"
+      >
+        {{ error }}
+      </p>
+
+      <div class="border-t border-divider pt-4">
+        <div class="mb-2 flex items-center justify-between">
+          <p class="text-caption font-semibold text-ink">历史图片</p>
+          <button
+            v-if="current"
+            data-test="bg-picker-clear"
+            type="button"
+            class="text-fine text-weak underline-offset-2 hover:text-danger hover:underline"
+            @click="emit('clear'); emit('close')"
+          >
+            移除当前背景
+          </button>
         </div>
 
-        <div>
-          <p class="mb-1.5 text-fine text-weak">
-            {{ crop ? "粘贴图片链接（下载后可裁剪取景）" : "粘贴图片链接（自动下载到本地缓存）" }}
-          </p>
-          <div class="flex items-center gap-2">
-            <input
-              ref="urlInput"
-              v-model="url"
-              data-test="bg-picker-url"
-              type="url"
-              inputmode="url"
-              placeholder="https://example.com/photo.jpg"
-              :disabled="busy"
-              class="h-9 flex-1 rounded-sm border border-hairline bg-canvas px-3 text-caption text-ink outline-none transition-colors focus:border-primary-focus"
-              @keydown.enter.prevent="addFromUrl"
-            />
-            <AppButton
-              data-test="bg-picker-add"
-              variant="primary"
-              :disabled="busy"
-              @click="addFromUrl"
-            >
-              {{ busy ? "加载中" : "添加" }}
-            </AppButton>
-          </div>
-        </div>
-
-        <p
-          v-if="error"
-          data-test="bg-picker-error"
-          role="alert"
-          class="text-caption text-danger"
-        >
-          {{ error }}
+        <p v-if="sharedPool" class="mb-2 text-fine text-weak">
+          首页大图与课表背景共用这套图片库（头像独立）。
         </p>
 
-        <div class="border-t border-divider pt-4">
-          <div class="mb-2 flex items-center justify-between">
-            <p class="text-caption font-semibold text-ink">历史图片</p>
+        <p v-if="!items.length" class="py-4 text-fine text-weak">
+          还没有历史图片，上传或添加一个链接后即可随时切换。
+        </p>
+
+        <div v-else class="grid grid-cols-4 gap-2">
+          <div v-for="item in items" :key="item.id" class="group relative">
             <button
-              v-if="current"
-              data-test="bg-picker-clear"
               type="button"
-              class="text-fine text-weak underline-offset-2 hover:text-danger hover:underline"
-              @click="emit('clear'); emit('close')"
+              data-test="bg-picker-item"
+              class="block h-16 w-full overflow-hidden rounded-sm border bg-pearl bg-cover bg-center transition-colors"
+              :class="
+                current === item.file
+                  ? 'border-primary ring-1 ring-primary'
+                  : 'border-hairline hover:border-ink'
+              "
+              :style="{ backgroundImage: backgroundSrc(item) ? `url(${backgroundSrc(item)})` : undefined }"
+              :title="`${labelOf(item)} · ${shortTime(item.added_at)}`"
+              @click="useItem(item)"
             >
-              移除当前背景
+              <span
+                v-if="item.source === 'url'"
+                class="absolute left-1 top-1 rounded-pill bg-black/55 px-1.5 text-[10px] leading-4 text-white"
+              >
+                网络
+              </span>
             </button>
-          </div>
-
-          <p v-if="sharedPool" class="mb-2 text-fine text-weak">
-            首页大图与课表背景共用这套图片库（头像独立）。
-          </p>
-
-          <p v-if="!items.length" class="py-4 text-fine text-weak">
-            还没有历史图片，上传或添加一个链接后即可随时切换。
-          </p>
-
-          <div v-else class="grid grid-cols-4 gap-2">
-            <div v-for="item in items" :key="item.id" class="group relative">
-              <button
-                type="button"
-                data-test="bg-picker-item"
-                class="block h-16 w-full overflow-hidden rounded-sm border bg-pearl bg-cover bg-center transition-colors"
-                :class="
-                  current === item.file
-                    ? 'border-primary ring-1 ring-primary'
-                    : 'border-hairline hover:border-ink'
-                "
-                :style="{ backgroundImage: backgroundSrc(item) ? `url(${backgroundSrc(item)})` : undefined }"
-                :title="`${labelOf(item)} · ${shortTime(item.added_at)}`"
-                @click="useItem(item)"
-              >
-                <span
-                  v-if="item.source === 'url'"
-                  class="absolute left-1 top-1 rounded-pill bg-black/55 px-1.5 text-[10px] leading-4 text-white"
-                >
-                  网络
-                </span>
-              </button>
-              <button
-                type="button"
-                data-test="bg-picker-remove"
-                class="absolute right-1 top-1 hidden h-4 w-4 items-center justify-center rounded-pill bg-black/55 text-white group-hover:flex"
-                :aria-label="`删除 ${labelOf(item)}`"
-                @click="dropItem(item)"
-              >
-                <svg width="9" height="9" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                  <path d="M3.5 3.5l9 9M12.5 3.5l-9 9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
-                </svg>
-              </button>
-              <p class="mt-1 truncate text-[10px] text-weak">{{ labelOf(item) }}</p>
-            </div>
+            <button
+              type="button"
+              data-test="bg-picker-remove"
+              class="absolute right-1 top-1 hidden h-4 w-4 items-center justify-center rounded-pill bg-black/55 text-white group-hover:flex"
+              :aria-label="`删除 ${labelOf(item)}`"
+              @click="dropItem(item)"
+            >
+              <svg width="9" height="9" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M3.5 3.5l9 9M12.5 3.5l-9 9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+              </svg>
+            </button>
+            <p class="mt-1 truncate text-[10px] text-weak">{{ labelOf(item) }}</p>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- 裁剪窗：窗口固定 16:9，移动的是图片，确认后才落盘入库 -->
+    <!-- 裁剪窗：窗口固定 16:9，移动的是图片，确认后才落盘入库。
+         挂在面板内（fixed 定位不受影响）：保持组件单根以承接调用方透传的 data-test，
+         并随本弹窗开合一同挂载/卸载 -->
     <ImageCropDialog
       :open="cropOpen"
       :src="cropSrc"
@@ -407,5 +410,5 @@ function labelOf(item: BackgroundImage): string {
       @confirm="onCropConfirm"
       @cancel="onCropCancel"
     />
-  </div>
+  </AppDialog>
 </template>

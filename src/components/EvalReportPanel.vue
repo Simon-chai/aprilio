@@ -4,6 +4,7 @@
  */
 import { computed, ref, watch } from "vue";
 import AppButton from "./ui/AppButton.vue";
+import { confirmAction } from "../composables/useConfirm";
 import {
   createEvalReport,
   deleteEvalReport,
@@ -162,7 +163,13 @@ async function onWriteBack() {
 }
 
 async function onDelete(id: number) {
-  if (!window.confirm("删除这条报告存档？")) return;
+  const ok = await confirmAction({
+    title: "删除报告存档",
+    message: "删除这条报告存档？",
+    tone: "danger",
+    confirmText: "删除",
+  });
+  if (!ok) return;
   await deleteEvalReport(id);
   if (viewing.value?.id === id) viewing.value = null;
   await refreshHistory();

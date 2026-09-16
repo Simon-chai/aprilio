@@ -3,6 +3,9 @@ import { computed, onMounted } from "vue";
 import { useRoute } from "vue-router";
 import AppSidebar from "./components/AppSidebar.vue";
 import AgentChat from "./components/agent/AgentChat.vue";
+import GlobalSearch from "./components/GlobalSearch.vue";
+import ConfirmHost from "./components/ui/ConfirmHost.vue";
+import ToastHost from "./components/ui/ToastHost.vue";
 import { purgeExpiredRecycleItems } from "./lib/db";
 import { useFullscreen } from "./composables/useFullscreen";
 
@@ -29,5 +32,11 @@ onMounted(() => {
     </main>
     <!-- AI 助手全局浮层：任何页面都可唤起，由自主 Agent 框架驱动 -->
     <AgentChat />
+    <!-- Ctrl+F 全局搜索浮层：跨学生 / 班级 / 考试 / 照片 / 备忘搜索并跳转 -->
+    <GlobalSearch />
+    <!-- 全局轻反馈 Toast：所有页面的提示统一从这里顶部弹出，层级高于一切弹层 -->
+    <ToastHost />
+    <!-- 全局确认弹层宿主：confirmAction() 命令式确认的唯一渲染出口 -->
+    <ConfirmHost />
   </div>
 </template>

@@ -10,7 +10,10 @@
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import Cropper from "cropperjs";
 import "cropperjs/dist/cropper.css";
+import { CROP_FILL_COLOR } from "../lib/image";
 import AppButton from "./ui/AppButton.vue";
+import AppDialog from "./ui/AppDialog.vue";
+import AppIcon from "./ui/AppIcon.vue";
 
 const props = withDefaults(
   defineProps<{
@@ -84,7 +87,7 @@ function confirmCrop(): void {
     canvas = cropper.getCroppedCanvas({
       width: OUTPUT_WIDTH,
       imageSmoothingQuality: "high",
-      fillColor: "#ffffff",
+      fillColor: CROP_FILL_COLOR,
     });
   } catch (cause) {
     console.error("[crop] getCroppedCanvas failed", cause);
@@ -106,19 +109,14 @@ function onCancel(): void {
   emit("cancel");
 }
 
-function onKeydown(event: KeyboardEvent): void {
-  if (event.key === "Escape") onCancel();
-}
-
-/* 弹窗打开（或换了图）就重建裁剪器；关闭 / 卸载一律销毁 */
+/* 弹窗打开（或换了图）就重建裁剪器；关闭 / 卸载一律销毁。
+   Esc / 遮罩点击由 AppDialog 壳承担：@close 走 onCancel 同一条取消路径 */
 async function syncCropper(open: boolean, src: string): Promise<void> {
   if (open && src) {
     await nextTick();
     buildCropper();
-    window.addEventListener("keydown", onKeydown);
   } else {
     destroyCropper();
-    window.removeEventListener("keydown", onKeydown);
   }
 }
 
@@ -136,29 +134,30 @@ watch(
 
 onBeforeUnmount(() => {
   destroyCropper();
-  window.removeEventListener("keydown", onKeydown);
 });
 </script>
 
 <template>
-  <div
-    v-if="open"
+  <!-- AppDialog 壳：遮罩 / Esc / 焦点圈定 / 过渡由壳承担；叠在背景选择器之上，z=60 抬高一层 -->
+  <AppDialog
+    :open="open"
+    :title="title"
+    width="lg"
+    :z="60"
     data-test="crop-dialog"
-    class="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-8"
-    @mousedown.self="onCancel"
+    @close="onCancel"
   >
-    <div class="w-[820px] max-w-full rounded-lg bg-canvas p-6 shadow-window">
-      <div class="mb-4 flex items-center justify-between">
-        <h2 class="text-tagline font-semibold text-ink">{{ title }}</h2>
-        <button
-          type="button"
-          class="inline-flex items-center text-caption text-weak hover:text-ink"
-          @click="onCancel"
-        >
-          关闭
-        </button>
-      </div>
+    <!-- 关闭 ✕：对齐面板右上角（原标题行「关闭」文字按钮统一为图标） -->
+    <button
+      type="button"
+      class="absolute right-6 top-6 flex h-6 w-6 items-center justify-center rounded-sm text-weak transition-colors hover:bg-parchment hover:text-ink"
+      aria-label="关闭"
+      @click="onCancel"
+    >
+      <AppIcon name="close" :size="16" />
+    </button>
 
+    <div class="mt-4">
       <!-- cropper 舞台：图片完整可见，选区外变暗，选区可拖到任意位置 -->
       <div
         ref="stageEl"
@@ -204,5 +203,5 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </div>
-  </div>
+  </AppDialog>
 </template>

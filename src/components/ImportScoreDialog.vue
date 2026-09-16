@@ -12,6 +12,8 @@
  */
 import { computed, ref, watch } from "vue";
 import AppButton from "./ui/AppButton.vue";
+import AppDialog from "./ui/AppDialog.vue";
+import AppIcon from "./ui/AppIcon.vue";
 import AnalyzingOverlay from "./AnalyzingOverlay.vue";
 import { isTauri, listClasses } from "../lib/db";
 import { isAiConfigured, loadAiConfig } from "../lib/ai";
@@ -429,18 +431,27 @@ defineExpose({ loadText, loadTable, analyzeFromTable });
 </script>
 
 <template>
-  <div
-    v-if="props.open"
-    class="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-8"
-    @click.self="emit('close')"
+  <!-- AppDialog 壳：遮罩 / Esc / 焦点圈定 / 过渡由壳承担；导入向导防误关 → 遮罩点击不关闭。
+       面板透传 flex 纵向布局：中间内容区滚动，标题与底部操作区固定 -->
+  <AppDialog
+    :open="open"
+    title="导入成绩"
+    width="lg"
+    :close-on-overlay="false"
+    class="flex max-h-full flex-col"
+    @close="emit('close')"
   >
-    <div class="flex max-h-full w-[820px] max-w-full flex-col rounded-lg bg-canvas p-6 shadow-window">
-      <div class="mb-4 flex shrink-0 items-center justify-between">
-        <h2 class="text-tagline font-semibold text-ink">导入成绩</h2>
-        <button class="text-caption text-weak hover:text-ink" @click="emit('close')">关闭</button>
-      </div>
+    <!-- 关闭 ✕：对齐面板右上角（原标题行「关闭」文字按钮统一为图标） -->
+    <button
+      type="button"
+      class="absolute right-6 top-6 flex h-6 w-6 items-center justify-center rounded-sm text-weak transition-colors hover:bg-parchment hover:text-ink"
+      aria-label="关闭"
+      @click="emit('close')"
+    >
+      <AppIcon name="close" :size="16" />
+    </button>
 
-      <div class="scroll-thin relative min-h-0 flex-1 overflow-y-auto pr-1">
+    <div class="scroll-thin relative mt-4 min-h-0 flex-1 overflow-y-auto pr-1">
         <!-- AI 分析中：动画独占舞台（内容区此时很矮，叠在原内容上会被裁切/半透明透底） -->
         <div v-if="analyzing" data-test="analyzing-stage" class="relative min-h-[320px]">
           <AnalyzingOverlay
@@ -487,13 +498,13 @@ defineExpose({ loadText, loadTable, analyzeFromTable });
           </div>
         </div>
 
-        <p v-if="readError" class="mt-4 rounded-md bg-[#fdeef0] p-3 text-caption text-danger">{{ readError }}</p>
-        <p v-if="activeFile?.error" class="mt-4 rounded-md bg-[#fdeef0] p-3 text-caption text-danger">
+        <p v-if="readError" class="mt-4 rounded-md bg-danger-soft p-3 text-caption text-danger">{{ readError }}</p>
+        <p v-if="activeFile?.error" class="mt-4 rounded-md bg-danger-soft p-3 text-caption text-danger">
           {{ activeFile.error }}
         </p>
         <p
           v-if="activeFile?.notScoreSheet"
-          class="mt-4 rounded-md bg-[#fdeef0] p-3 text-caption text-danger"
+          class="mt-4 rounded-md bg-danger-soft p-3 text-caption text-danger"
         >
           这张表格不像成绩单：没有识别到科目成绩列。若要导入学生花名册，请使用「导入花名册」。
         </p>
@@ -673,6 +684,5 @@ defineExpose({ loadText, loadTable, analyzeFromTable });
           {{ importing ? "导入中…" : files.length > 1 ? `开始导入（${pendingCount} 个待导入）` : "开始导入" }}
         </AppButton>
       </div>
-    </div>
-  </div>
+  </AppDialog>
 </template>

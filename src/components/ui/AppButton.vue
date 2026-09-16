@@ -21,7 +21,7 @@ const VARIANTS: Record<Variant, string> = {
   /* 渐变描边：hover 泛起光环 */
   secondary: "h-9 px-[18px] rounded-pill grad-border text-primary hover:shadow-[var(--shadow-halo)]",
   pearl: "h-8 px-3.5 rounded-md grad-border text-primary hover:shadow-[var(--shadow-halo)]",
-  dark: "h-8 px-[15px] rounded-sm bg-ink text-white hover:bg-[#000000]",
+  dark: "h-8 px-[15px] rounded-sm bg-ink text-white hover:bg-ink-deep",
   danger:
     "h-9 px-[18px] rounded-pill grad-border-danger text-danger hover:shadow-[var(--shadow-halo-danger)]",
   link: "h-9 px-0 text-primary hover:text-primary-focus",

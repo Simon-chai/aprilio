@@ -1,0 +1,1009 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>aprilio · 课堂模式可玩原型（智能点名 / 座位大屏 / 小组积分 / 下课小结）</title>
+<style>
+/* ================================================================
+   设计 token —— 复刻 src/style.css @theme（含 2026-09-16 还债新增的
+   praise / improve / neutral 三态家族与 AI 紫），保证原型即未来实现的样子
+   ================================================================ */
+:root{
+  --primary:#0066cc; --primary-focus:#0071e3; --primary-on-dark:#2997ff; --primary-soft:#eaf3fc;
+  --ink:#1d1d1f; --muted:#333333; --weak:#7a7a7a; --faint:#cccccc;
+  --canvas:#ffffff; --parchment:#f5f5f7; --pearl:#fafafc; --mint:#e8f5ec;
+  --hairline:#e0e0e0; --divider:#f0f0f0; --tile:#272729;
+  --danger:#d70015; --danger-soft:#fdeef0; --success:#248a3d;
+  --praise:#248a3d; --praise-soft:#e8f5e9; --praise-line:#a3e635;
+  --improve:#d97706; --improve-soft:#fff3e0; --improve-line:#fcd34d;
+  --neutral:#52525b; --neutral-soft:#f4f4f5; --neutral-line:#d4d4d8;
+  --ai:#6d28d9; --ai-soft:#f5f1ff; --ai-line:#e3d9ff;
+  --grad-primary:linear-gradient(135deg,#0066cc,#0091ff);
+  --grad-border-primary:linear-gradient(135deg,rgba(0,102,204,.65),rgba(0,145,255,.45));
+  --shadow-window:0 24px 60px -12px rgba(0,0,0,.18);
+  /* 课堂模式深色舞台的专用变量 */
+  --stage-ink:#1d1d1f; --stage-deep:#141416; --stage-card:rgba(255,255,255,.07);
+  --stage-line:rgba(255,255,255,.14); --stage-text:#f5f5f7; --stage-dim:rgba(245,245,247,.55);
+  --praise-dark:#a3e635; --improve-dark:#fcd34d; --neutral-dark:#d4d4d8;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;color:var(--ink);
+  font-family:Inter,system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+  -webkit-font-smoothing:antialiased;
+  background:#f4f6f9;
+  background-image:radial-gradient(circle,#e3e7ee 1px,transparent 1px);
+  background-size:26px 26px;
+}
+button{font-family:inherit;cursor:pointer}
+button:focus-visible{outline:2px solid var(--primary-on-dark);outline-offset:2px}
+
+/* ============ 原型文档（说明区，对齐 interaction-style-proposal 文风） ============ */
+.doc{max-width:1240px;margin:0 auto;padding:40px 32px 0}
+.doc .kicker{font-size:12px;font-weight:600;letter-spacing:2.5px;color:var(--primary);text-transform:uppercase}
+.doc h1{margin:10px 0 0;font-size:32px;line-height:1.25;letter-spacing:-.5px;font-weight:700}
+.doc .sub{margin:12px 0 0;max-width:880px;font-size:14px;line-height:1.8;color:var(--muted)}
+.doc .sub b{color:var(--ink)}
+.dirs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-top:22px}
+.dir{background:var(--canvas);border:1px solid var(--hairline);border-radius:16px;padding:18px 20px;position:relative;overflow:hidden}
+.dir::before{content:"";position:absolute;inset:0 0 auto 0;height:3px;background:var(--grad-primary)}
+.dir .p{display:inline-block;font-size:10.5px;font-weight:700;letter-spacing:1.2px;padding:2px 9px;border-radius:99px;background:var(--primary-soft);color:var(--primary)}
+.dir h3{margin:10px 0 4px;font-size:16.5px;letter-spacing:-.2px}
+.dir .en{font-size:10.5px;letter-spacing:1.5px;color:var(--weak);text-transform:uppercase}
+.dir p{margin:10px 0 0;font-size:12.5px;line-height:1.7;color:var(--muted)}
+.dir p b{color:var(--ink)}
+.dir .why{margin-top:10px;padding-top:9px;border-top:1px dashed var(--hairline);font-size:11.5px;line-height:1.65;color:var(--muted)}
+.dir .why b{color:var(--primary)}
+.howto{margin-top:16px;display:flex;flex-wrap:wrap;gap:8px}
+.howto span{font-size:12px;color:var(--muted);background:var(--canvas);border:1px solid var(--hairline);border-radius:999px;padding:6px 14px}
+.howto b{color:var(--primary);font-weight:600}
+
+/* ============ 模拟窗口（可玩舞台） ============ */
+.proto-wrap{max-width:1240px;margin:26px auto 0;padding:0 32px 70px}
+.win{
+  border-radius:18px;overflow:hidden;box-shadow:var(--shadow-window);
+  border:1px solid rgba(0,0,0,.35);
+  height:min(880px,92vh);min-height:640px;
+  background:var(--stage-deep);color:var(--stage-text);
+  display:flex;flex-direction:column;
+}
+.win-bar{flex:none;display:flex;align-items:center;gap:10px;padding:9px 16px;background:#0e0e10;border-bottom:1px solid rgba(255,255,255,.07)}
+.win-bar .dots{display:flex;gap:7px}
+.win-bar .dots i{width:11px;height:11px;border-radius:99px;background:#3a3a3e}
+.win-bar .dots i:first-child{background:#ff5f57}.win-bar .dots i:nth-child(2){background:#febc2e}.win-bar .dots i:last-child{background:#28c840}
+.win-bar .title{font-size:12px;color:rgba(245,245,247,.45);letter-spacing:.3px}
+.win-bar .note{margin-left:auto;font-size:11px;color:rgba(245,245,247,.35)}
+
+/* —— 舞台通用 —— */
+#launcher,#app{flex:1;display:flex;flex-direction:column;min-height:0}
+.stage-pad{flex:1;display:flex;flex-direction:column;min-height:0;padding:20px 26px 18px}
+.glass{background:var(--stage-card);border:1px solid var(--stage-line);border-radius:18px}
+.glass-dim{background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.1);border-radius:14px}
+.grad-border{border:1px solid transparent;background:linear-gradient(rgba(255,255,255,.06),rgba(255,255,255,.06)) padding-box,var(--grad-border-primary) border-box}
+.pill{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:7px 15px;font-size:13.5px;font-weight:600;transition:all .15s;white-space:nowrap}
+.btn-primary{border:0;background:var(--grad-primary);color:#fff}
+.btn-primary:hover{filter:brightness(1.08)}
+.btn-ghost{border:1px solid var(--stage-line);background:rgba(255,255,255,.06);color:var(--stage-text)}
+.btn-ghost:hover{background:rgba(255,255,255,.12)}
+.btn-ghost.on{background:rgba(41,151,255,.22);border-color:rgba(41,151,255,.6);color:#9ecbff}
+.tab{position:relative;border:0;background:none;color:var(--stage-dim);font-size:14.5px;font-weight:600;padding:9px 16px;border-radius:10px;transition:color .15s}
+.tab:hover{color:var(--stage-text)}
+.tab.on{color:#fff}
+.tab.on::after{content:"";position:absolute;left:12px;right:12px;bottom:-1px;height:3px;border-radius:99px;background:var(--grad-primary)}
+.chip{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:4px 11px;font-size:12px;background:rgba(255,255,255,.07);color:var(--stage-dim);border:1px solid transparent;transition:all .15s}
+.chip:hover{color:var(--stage-text)}
+.dim-text{color:var(--stage-dim)}
+.hidden{display:none !important}
+
+/* —— 顶栏 —— */
+.topbar{flex:none;display:flex;align-items:center;gap:14px;padding:13px 26px;border-bottom:1px solid rgba(255,255,255,.09)}
+.topbar .cls{display:flex;flex-direction:column;gap:2px}
+.topbar .cls b{font-size:15.5px;font-weight:700}
+.topbar .cls span{font-size:11.5px;color:var(--stage-dim)}
+.tabs{display:flex;gap:2px;background:rgba(255,255,255,.05);border:1px solid var(--stage-line);border-radius:14px;padding:3px}
+.timer{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:.5px}
+.timer .ring{width:30px;height:30px}
+.timer.warn{color:var(--improve-dark)}
+.timer.danger{color:#ff6b6b}
+.spacer{flex:1}
+
+/* —— 页面容器 —— */
+.screen{flex:1;display:none;min-height:0}
+.screen.on{display:flex}
+.col{display:flex;flex-direction:column;min-height:0}
+.panel-head{flex:none;display:flex;align-items:center;gap:8px;padding:13px 16px 11px;font-size:13px;font-weight:700;color:var(--stage-text)}
+.panel-head .cnt{font-size:11px;color:var(--stage-dim);font-weight:500}
+
+/* —— 点名页 —— */
+#scr-pick{gap:18px}
+.pick-side{flex:none;width:250px}
+.pick-main{flex:1;min-width:0}
+.rail{flex:none;width:288px}
+.pick-stage{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;min-height:0}
+.pick-card{position:relative;width:min(560px,92%);padding:40px 36px 32px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:14px}
+.pick-card .name{font-size:56px;line-height:1.15;letter-spacing:-1.2px;font-weight:700;min-height:64px}
+.pick-card .name.rolling{color:#9ecbff}
+.pick-card .hint{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;color:#cdb6ff;background:rgba(109,40,217,.18);border:1px solid rgba(109,40,217,.45);border-radius:999px;padding:6px 14px}
+.pick-card .hint .ai-dot{width:6px;height:6px;border-radius:99px;background:#a78bfa}
+.pick-acts{display:flex;flex-wrap:wrap;justify-content:center;gap:9px;margin-top:2px}
+.big-btn{border:0;border-radius:999px;padding:13px 30px;font-size:16px;font-weight:700;background:var(--grad-primary);color:#fff;box-shadow:0 6px 22px rgba(0,102,204,.4);transition:transform .15s}
+.big-btn:active{transform:scale(.96)}
+.big-btn:disabled{opacity:.45;pointer-events:none}
+.seg{display:flex;gap:3px;background:rgba(255,255,255,.06);border:1px solid var(--stage-line);border-radius:12px;padding:3px}
+.seg button{border:0;background:none;color:var(--stage-dim);font-size:12.5px;font-weight:600;padding:6px 12px;border-radius:9px;transition:all .15s}
+.seg button.on{background:rgba(41,151,255,.25);color:#bfe0ff}
+.cover-bar{height:7px;border-radius:99px;background:rgba(255,255,255,.09);overflow:hidden;margin:8px 0 10px}
+.cover-bar i{display:block;height:100%;border-radius:99px;background:var(--grad-primary);transition:width .4s}
+.called-list{flex:1;overflow-y:auto;display:flex;flex-wrap:wrap;gap:7px;align-content:flex-start;padding:2px 16px 14px}
+.called-chip{display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.07);border:1px solid var(--stage-line);border-radius:999px;padding:4px 6px 4px 11px;font-size:12px;transition:all .15s}
+.called-chip:hover{border-color:rgba(255,107,107,.5)}
+.called-chip .x{width:17px;height:17px;border-radius:99px;border:0;background:rgba(255,255,255,.1);color:var(--stage-dim);font-size:10px;line-height:1;display:inline-flex;align-items:center;justify-content:center}
+.called-chip:hover .x{background:rgba(255,107,107,.25);color:#ff9b9b}
+.fair-list{padding:0 16px 14px;display:flex;flex-direction:column;gap:6px}
+.fair-row{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--stage-dim)}
+.fair-row b{color:var(--stage-text);font-weight:600}
+.fair-row .d{margin-left:auto;font-variant-numeric:tabular-nums}
+.fair-row.hot .d{color:var(--improve-dark);font-weight:700}
+
+/* —— 座位页 —— */
+#scr-seats{gap:18px}
+.seat-board{flex:1;min-width:0;display:flex;flex-direction:column;min-height:0}
+.podium{flex:none;align-self:center;margin-bottom:14px;padding:5px 42px;border-radius:10px;background:rgba(255,255,255,.08);border:1px solid var(--stage-line);font-size:12px;letter-spacing:8px;color:var(--stage-dim)}
+.seat-row{flex:1;display:grid;grid-auto-flow:column;grid-template-rows:repeat(6,minmax(0,1fr));gap:12px;min-height:0}
+.seat-col{display:flex;flex-direction:column;min-height:0;border-radius:14px;padding:8px 8px 6px;background:rgba(255,255,255,.028);border:1px solid rgba(255,255,255,.07)}
+.seat-col .gname{flex:none;text-align:center;font-size:11.5px;font-weight:700;padding:2px 0 6px}
+.seats-grid{flex:1;display:grid;grid-template-rows:repeat(6,minmax(0,1fr));gap:8px;min-height:0}
+.seat{position:relative;border:0;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.09);border-radius:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;transition:all .15s;min-height:0}
+.seat:hover{background:rgba(255,255,255,.11);transform:translateY(-1px)}
+.seat .ava{position:relative;width:34px;height:34px;border-radius:99px;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;background:rgba(255,255,255,.1)}
+.seat .ava::after{content:"";position:absolute;inset:-3px;border-radius:99px;border:2px solid var(--g)}
+.seat .nm{font-size:11.5px;color:var(--stage-dim);max-width:96%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.seat .bd{position:absolute;top:5px;right:6px;display:flex;gap:3px;font-size:10px}
+.seat.absent{opacity:.32;filter:saturate(.3)}
+.seat.absent .nm::after{content:" · 缺勤"}
+.seat.pickme{border-color:var(--primary-on-dark);background:rgba(41,151,255,.16)}
+.seat.flash-praise{animation:flashP .7s}
+.seat.flash-improve{animation:flashI .7s}
+@keyframes flashP{0%{background:rgba(163,230,53,.4)}100%{background:rgba(255,255,255,.05)}}
+@keyframes flashI{0%{background:rgba(252,211,77,.4)}100%{background:rgba(255,255,255,.05)}}
+.seat.heat-1{background:rgba(163,230,53,.1)} .seat.heat-2{background:rgba(163,230,53,.22)} .seat.heat-3{background:rgba(163,230,53,.38)}
+.seat-tools{flex:none;display:flex;align-items:center;gap:10px;margin-top:14px;padding:10px 14px}
+.swap-hint{font-size:12px;color:var(--improve-dark)}
+.legend{margin-left:auto;display:flex;gap:12px;font-size:11.5px;color:var(--stage-dim)}
+.legend i{display:inline-block;width:9px;height:9px;border-radius:99px;margin-right:4px;vertical-align:-1px}
+
+/* —— 小组页 —— */
+#scr-groups{gap:18px}
+.group-board{flex:1;min-width:0;overflow-y:auto;display:flex;flex-direction:column;gap:14px}
+.g-view,.p-view{flex:1;min-height:0;overflow-y:auto;padding-right:2px}
+.g-row{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px}
+.g-card{padding:14px 15px;display:flex;flex-direction:column;gap:10px;transition:transform .2s}
+.g-card.lead{border-color:rgba(255,209,102,.55);background:rgba(255,209,102,.09)}
+.g-card .top{display:flex;align-items:center;gap:7px;font-size:13.5px;font-weight:700}
+.g-card .crown{font-size:14px}
+.g-card .members{display:flex;gap:4px}
+.g-card .members span{width:22px;height:22px;border-radius:99px;background:rgba(255,255,255,.09);border:1px solid var(--g);display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:700}
+.g-card .score{font-size:34px;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:-1px;line-height:1}
+.g-card .score.bump{animation:bump .45s}
+@keyframes bump{0%{transform:scale(1)}35%{transform:scale(1.18)}100%{transform:scale(1)}}
+.g-card .acts{display:flex;flex-wrap:wrap;gap:5px}
+.g-add{border:1px solid var(--stage-line);background:rgba(255,255,255,.06);color:var(--stage-dim);border-radius:999px;padding:4px 10px;font-size:11.5px;transition:all .15s}
+.g-add:hover{border-color:rgba(163,230,53,.6);color:var(--praise-dark);background:rgba(163,230,53,.1)}
+.g-sub{border:1px solid var(--stage-line);background:none;color:var(--stage-dim);border-radius:999px;padding:4px 10px;font-size:11.5px}
+.g-sub:hover{border-color:rgba(252,211,77,.5);color:var(--improve-dark)}
+.p-row{display:flex;align-items:center;gap:12px;padding:11px 16px;border-radius:13px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);margin-bottom:8px}
+.p-rank{width:30px;text-align:center;font-size:15px;font-weight:800;color:var(--stage-dim)}
+.p-row:nth-child(1) .p-rank{color:#ffd166}
+.p-row .p-ava{width:30px;height:30px;border-radius:99px;background:rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;border:2px solid var(--g)}
+.p-row .p-name{font-size:13.5px;font-weight:600}
+.p-row .p-meta{font-size:11.5px;color:var(--stage-dim)}
+.p-row .flowers{margin-left:auto;font-size:14px;color:#ffb3d9;font-variant-numeric:tabular-nums}
+
+/* —— 小结页 —— */
+#scr-digest{gap:18px;overflow-y:auto;padding-bottom:6px}
+.dg-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:14px;overflow-y:auto;padding-right:2px}
+.dg-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.dg-stat{padding:14px 18px}
+.dg-stat b{display:block;font-size:26px;font-weight:800;letter-spacing:-.5px;font-variant-numeric:tabular-nums}
+.dg-stat span{font-size:12px;color:var(--stage-dim)}
+.dg-grid2{display:grid;grid-template-columns:1.25fr 1fr;gap:14px;min-height:0}
+.dg-tl{padding:4px 16px 14px;overflow-y:auto;display:flex;flex-direction:column;gap:2px;max-height:300px}
+.tl-row{display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.06);font-size:12.5px}
+.tl-row:last-child{border-bottom:0}
+.tl-ico{width:26px;height:26px;border-radius:99px;display:inline-flex;align-items:center;justify-content:center;font-size:13px;flex:none}
+.tl-ico.p{background:rgba(163,230,53,.16);color:var(--praise-dark)}
+.tl-ico.i{background:rgba(252,211,77,.14);color:var(--improve-dark)}
+.tl-ico.n{background:rgba(255,255,255,.1);color:var(--stage-dim)}
+.tl-ico.g{background:rgba(41,151,255,.18);color:#9ecbff}
+.tl-time{margin-left:auto;color:var(--stage-dim);font-variant-numeric:tabular-nums;font-size:11px}
+.tl-text b{font-weight:600}
+.tl-text{color:var(--stage-dim)}
+.tl-text b{color:var(--stage-text)}
+.dg-silent{padding:14px 16px;display:flex;flex-direction:column;gap:8px}
+.dg-silent .who{display:flex;flex-wrap:wrap;gap:7px}
+.dg-silent .why-note{font-size:11.5px;color:var(--stage-dim);line-height:1.7}
+.dg-ai{padding:16px 18px}
+.dg-ai .ai-tag{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:700;color:#cdb6ff;background:rgba(109,40,217,.22);border:1px solid rgba(109,40,217,.5);border-radius:999px;padding:3px 11px}
+.dg-ai .txt{margin-top:11px;font-size:13.5px;line-height:1.9;color:var(--stage-text);white-space:pre-wrap;min-height:60px}
+.dg-ai .caret{display:inline-block;width:2px;height:14px;background:#a78bfa;margin-left:2px;animation:blink .9s steps(1) infinite;vertical-align:-2px}
+@keyframes blink{50%{opacity:0}}
+.dg-acts{display:flex;gap:10px;align-items:center;margin-top:13px;flex-wrap:wrap}
+
+/* —— 右栏：本节课动态 —— */
+.feed{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:8px;padding:2px 14px 14px}
+.feed-item{border-radius:12px;padding:9px 12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.07);font-size:12px}
+.feed-item .fi-top{display:flex;align-items:center;gap:7px}
+.feed-item .fi-top b{font-size:12.5px}
+.feed-item .fi-top .t{margin-left:auto;font-size:10.5px;color:var(--stage-dim);font-variant-numeric:tabular-nums}
+.feed-item .fi-sub{margin-top:3px;color:var(--stage-dim);font-size:11.5px}
+.feed-item .fi-sub .p{color:var(--praise-dark)}
+.feed-item .fi-sub .i{color:var(--improve-dark)}
+.feed-item .fi-sub .n{color:var(--stage-dim)}
+.feed-empty{margin:auto;text-align:center;color:var(--stage-dim);font-size:12.5px;padding:20px 0}
+
+/* —— 底部快捷面板（座位点选） —— */
+.sheet-mask{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;z-index:80}
+.sheet-mask.on{display:block}
+.sheet{position:fixed;left:50%;bottom:26px;transform:translate(-50%,140%);width:min(640px,92vw);background:#1d1d1f;border:1px solid rgba(255,255,255,.16);border-radius:20px;box-shadow:0 24px 60px rgba(0,0,0,.5);z-index:81;padding:18px 22px;transition:transform .22s}
+.sheet.on{transform:translate(-50%,0)}
+.sheet .s-head{display:flex;align-items:center;gap:10px}
+.sheet .s-head .nm{font-size:17px;font-weight:700}
+.sheet .s-head .close{margin-left:auto;border:0;background:rgba(255,255,255,.08);color:var(--stage-dim);width:28px;height:28px;border-radius:9px;font-size:13px}
+.sheet .s-dims{display:flex;gap:7px;margin:14px 0 12px;flex-wrap:wrap}
+.sheet .s-dims .chip.on{background:rgba(41,151,255,.22);border-color:rgba(41,151,255,.6);color:#bfe0ff}
+.sheet .s-pols{display:flex;gap:9px;flex-wrap:wrap}
+.pol-btn{flex:1;min-width:120px;border-radius:13px;padding:11px 14px;font-size:14px;font-weight:700;border:1px solid var(--stage-line);background:rgba(255,255,255,.05);color:var(--stage-text);transition:all .15s}
+.pol-btn small{display:block;font-size:11px;font-weight:400;color:var(--stage-dim);margin-top:2px}
+.pol-btn.p:hover{border-color:var(--praise-line);background:rgba(163,230,53,.12);color:var(--praise-dark)}
+.pol-btn.i:hover{border-color:var(--improve-line);background:rgba(252,211,77,.12);color:var(--improve-dark)}
+.pol-btn.n:hover{border-color:var(--neutral-line);background:rgba(212,212,216,.1)}
+.sheet .s-links{display:flex;gap:14px;margin-top:13px;padding-top:11px;border-top:1px solid rgba(255,255,255,.08)}
+.sheet .s-links button{border:0;background:none;color:var(--stage-dim);font-size:12px;padding:0}
+.sheet .s-links button:hover{color:#9ecbff}
+
+/* —— 点名遮罩浮字 —— */
+.fly{position:fixed;z-index:90;font-size:15px;font-weight:800;pointer-events:none;animation:fly .9s ease-out forwards}
+@keyframes fly{0%{opacity:0;transform:translateY(6px) scale(.7)}15%{opacity:1}100%{opacity:0;transform:translateY(-46px) scale(1.15)}}
+
+/* —— 启动页 —— */
+#launcher{align-items:center;justify-content:center;gap:22px;background:
+  radial-gradient(1200px 500px at 70% -10%,rgba(0,102,204,.22),transparent 60%),
+  radial-gradient(900px 500px at 15% 110%,rgba(232,245,236,.06),transparent 55%),
+  var(--stage-deep)}
+.ln-card{width:min(520px,92%);padding:30px 34px;display:flex;flex-direction:column;gap:14px}
+.ln-tag{display:inline-flex;align-items:center;gap:7px;align-self:flex-start;font-size:11.5px;font-weight:700;color:#9ecbff;background:rgba(41,151,255,.14);border:1px solid rgba(41,151,255,.4);border-radius:999px;padding:4px 12px}
+.ln-tag .dot{width:6px;height:6px;border-radius:99px;background:#2997ff;animation:blink 1.4s steps(1) infinite}
+.ln-card h2{margin:2px 0 0;font-size:25px;letter-spacing:-.4px;font-weight:800}
+.ln-meta{display:flex;flex-wrap:wrap;gap:8px}
+.ln-meta span{font-size:12.5px;color:var(--stage-dim);background:rgba(255,255,255,.06);border:1px solid var(--stage-line);border-radius:999px;padding:5px 13px}
+.ln-meta b{color:var(--stage-text)}
+.ln-tips{display:flex;flex-direction:column;gap:7px;font-size:12.5px;color:var(--stage-dim);line-height:1.6}
+.ln-tips b{color:var(--stage-text);font-weight:600}
+.ln-keys{display:flex;gap:8px;flex-wrap:wrap;margin-top:2px}
+.ln-keys kbd{font-family:inherit;font-size:11px;color:var(--stage-dim);background:rgba(255,255,255,.07);border:1px solid var(--stage-line);border-bottom-width:2px;border-radius:7px;padding:2px 8px}
+
+/* —— Toast —— */
+#toasts{position:fixed;top:18px;left:50%;transform:translateX(-50%);z-index:120;display:flex;flex-direction:column;gap:8px;align-items:center}
+.toast{background:#272729;color:#fff;border-radius:999px;padding:7px 18px;font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,.35);animation:tIn .2s ease-out;white-space:nowrap}
+.toast .p{color:var(--praise-line)} .toast .i{color:var(--improve-dark)}
+@keyframes tIn{from{opacity:0;transform:translateY(-8px)}to{opacity:1}}
+
+/* —— 投影模式：隐藏侧栏与说明、整体放大，适合教室大屏 —— */
+.win.proj{font-size:15.5px}
+.win.proj .pick-side,.win.proj .rail,.win.proj .seat-tools,.win.proj .win-bar .note{display:none}
+.win.proj .pick-card .name{font-size:76px}
+.win.proj .podium{font-size:14px;padding:8px 54px}
+.win.proj .tab{font-size:16.5px;padding:10px 18px}
+.win.proj .seat .ava{width:42px;height:42px;font-size:17px}
+.win.proj .seat .nm{font-size:14px}
+.win.proj .g-card .score{font-size:44px}
+.win.proj .pick-stage{gap:24px}
+
+/* —— 落库说明表 —— */
+.notes{max-width:1240px;margin:8px auto 60px;padding:0 32px}
+.notes h2{font-size:19px;letter-spacing:-.3px;margin:26px 0 12px}
+.notes table{width:100%;border-collapse:collapse;background:var(--canvas);border:1px solid var(--hairline);border-radius:14px;overflow:hidden}
+.notes th,.notes td{padding:11px 16px;border-bottom:1px solid var(--divider);font-size:12.5px;text-align:left;line-height:1.6}
+.notes th{background:var(--pearl);font-size:11px;letter-spacing:1px;color:var(--weak)}
+.notes tr:last-child td{border-bottom:0}
+.notes td b{color:var(--ink)}
+.notes code{font-size:11.5px;background:var(--parchment);border:1px solid var(--hairline);border-radius:5px;padding:1px 6px}
+@media (prefers-reduced-motion:reduce){*{animation-duration:.01ms !important;transition-duration:.01ms !important}}
+@media (max-width:1100px){.dirs{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+
+<header class="doc">
+  <div class="kicker">APRILIO · 课堂模式设计原型</div>
+  <h1>上课了：把「课中 40 分钟」装进 aprilio</h1>
+  <p class="sub">
+    现有功能全部服务「课后案头」（成绩、报告、照片），课堂本身是空白。课堂模式是一个<b>全屏沉浸界面</b>：
+    依据课表感知「现在该上哪个班的课」，把 <b>点名 → 点评 → 小组竞赛 → 下课小结</b> 串成一条课堂叙事，
+    所有记录直接落入既有的表现流水与评价报告素材池。数据为演示模拟，正式版从花名册与课表读取。
+  </p>
+
+  <div class="dirs">
+    <div class="dir">
+      <span class="p">P0 · 点名台</span>
+      <h3>智能点名</h3>
+      <span class="en">Smart Pick</span>
+      <p>老虎机式抽取，落定即出学生卡。三种权重：<b>均匀 / 关注沉默（未点天数加权）/ 全员轮询</b>。</p>
+      <div class="why"><b>差异化</b>：点名历史与发言权重由表现流水推导，零新增表；点名落点直接进入快捷记表现。</div>
+    </div>
+    <div class="dir">
+      <span class="p">P0 · 大屏</span>
+      <h3>座位表课堂</h3>
+      <span class="en">Seating Board</span>
+      <p>全班按座位网格铺开，点头像两步记表现（维度→倾向），+1 飘字全班可见；支持热力图、换座、缺勤标记。</p>
+      <div class="why"><b>借鉴</b>：iDoceo 座位表（王牌）× ClassDojo 课堂模式。投影模式隐藏教师侧栏、字号放大。</div>
+    </div>
+    <div class="dir">
+      <span class="p">P1 · 竞赛</span>
+      <h3>小组积分赛</h3>
+      <span class="en">Group Race</span>
+      <p>座位分组的实时积分 PK（发言/纪律/合作/作业），组间排行与个人红花榜一键切换。</p>
+      <div class="why"><b>补齐</b>：CLASS_MANAGEMENT_DESIGN 自己排期的 P2 红花榜在此落地；分数为流水聚合、不单独落库。</div>
+    </div>
+    <div class="dir">
+      <span class="p">P2 · 收口</span>
+      <h3>下课小结</h3>
+      <span class="en">Lesson Digest</span>
+      <p>下课铃一响：本节课统计、沉默预警、时间线回放，AI 生成小结存入班级动态，成为评价报告素材。</p>
+      <div class="why"><b>闭环</b>：课堂记录 → student_behavior_records → 评价报告（report-ai）数据入口，一课一档。</div>
+    </div>
+  </div>
+
+  <div class="howto">
+    <span><b>①</b> 点「开始上课」进入课堂（计时开始）</span>
+    <span><b>②</b> 点名页：<b>空格</b> 抽人，试试「关注沉默」</span>
+    <span><b>③</b> 座位页：点头像记表现，开「热力」看分布</span>
+    <span><b>④</b> 小组页：给各组 +1，切「红花榜」</span>
+    <span><b>⑤</b> 点顶栏「下课」出小结，让 AI 写一段</span>
+    <span><b>⑥</b> 右上「投影」模拟教室大屏</span>
+    <span><kbd>空格</kbd> 抽人 · <kbd>1~4</kbd> 切页 · <kbd>Esc</kbd> 返回</span>
+  </div>
+</header>
+
+<main class="proto-wrap">
+  <div class="win" id="win">
+
+    <!-- 启动页：课表节次感知 -->
+    <section id="launcher">
+      <div class="ln-card glass">
+        <span class="ln-tag"><i class="dot"></i>已从「我的课表」识别当前节次</span>
+        <h2>现在是你的 三(2)班 · 数学课</h2>
+        <div class="ln-meta">
+          <span>周四 · <b>第 3 节</b></span>
+          <span><b>10:05 – 10:45</b></span>
+          <span>在班学生 <b>30 人</b>（缺勤 2 人）</span>
+        </div>
+        <div class="ln-tips">
+          <div><b>点名台</b>：优先抽取「7 天未发言」的同学，点名落定直接记表现</div>
+          <div><b>座位大屏</b>：点头像两步记表现，投影模式全班可见 +1 动画</div>
+          <div><b>下课小结</b>：本节课自动汇总，AI 写一段存入班级动态</div>
+        </div>
+        <button class="big-btn" style="align-self:flex-start" id="btn-start">🔔 开始上课</button>
+        <div class="ln-keys">
+          <kbd>空格</kbd><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><kbd>4</kbd><kbd>Esc</kbd>
+          <span style="font-size:11.5px;color:var(--stage-dim);align-self:center">非课表时段可手动选择班级（原型略）</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 课堂主界面 -->
+    <section id="app" class="hidden">
+      <div class="topbar">
+        <div class="cls">
+          <b>三(2)班 · 数学</b>
+          <span>第 3 节 · 10:05–10:45 · 周四</span>
+        </div>
+        <div class="tabs" id="tabs">
+          <button class="tab on" data-s="pick">🎲 点名台</button>
+          <button class="tab" data-s="seats">🪑 座位</button>
+          <button class="tab" data-s="groups">🏆 小组</button>
+          <button class="tab" data-s="digest">📋 小结</button>
+        </div>
+        <div class="spacer"></div>
+        <div class="timer" id="timer">
+          <svg class="ring" viewBox="0 0 30 30"><circle cx="15" cy="15" r="12" fill="none" stroke="rgba(255,255,255,.12)" stroke-width="3"/><circle id="timer-arc" cx="15" cy="15" r="12" fill="none" stroke="#2997ff" stroke-width="3" stroke-linecap="round" stroke-dasharray="75.4" stroke-dashoffset="0" transform="rotate(-90 15 15)"/></svg>
+          <span id="timer-txt">40:00</span>
+        </div>
+        <button class="pill btn-ghost" id="btn-proj">投影</button>
+        <button class="pill btn-primary" id="btn-end">下课 → 小结</button>
+      </div>
+
+      <!-- ① 点名台 -->
+      <div class="stage-pad screen on" id="scr-pick">
+        <div class="col pick-side glass">
+          <div class="panel-head">抽取模式</div>
+          <div class="seg" id="pick-modes" style="margin:0 16px 12px">
+            <button data-m="uniform" class="on">均匀</button>
+            <button data-m="silent">关注沉默</button>
+            <button data-m="round">全员轮询</button>
+          </div>
+          <div class="panel-head" style="padding-top:2px">本节课点名 <span class="cnt" id="cover-txt">0 / 30</span></div>
+          <div style="padding:0 16px"><div class="cover-bar"><i id="cover-bar" style="width:0%"></i></div></div>
+          <div class="panel-head" style="padding-top:0;padding-bottom:9px">已点名单</div>
+          <div class="called-list" id="called-list">
+            <span class="feed-empty" style="padding:4px 0 12px">还没点过，试试空格 ␣</span>
+          </div>
+          <div class="panel-head" style="border-top:1px solid var(--stage-line);padding-bottom:8px" id="fair-head">沉默预警 <span class="cnt">最久未点</span></div>
+          <div class="fair-list" id="fair-list"></div>
+        </div>
+
+        <div class="col pick-main glass">
+          <div class="pick-stage">
+            <div class="pick-card glass-dim" id="pick-card">
+              <div class="chip" id="pick-mode-chip">均匀随机</div>
+              <div class="name" id="pick-name">准备好了吗？</div>
+              <div id="pick-hint" class="hint hidden"><i class="ai-dot"></i><span id="pick-hint-txt"></span></div>
+              <div class="pick-acts" id="pick-acts"></div>
+            </div>
+            <button class="big-btn" id="btn-pick">🎲 开始抽取（空格）</button>
+            <span class="dim-text" style="font-size:12px" id="pick-tip">点名后可直接为其记表现 · 也可到座位页点任意学生</span>
+          </div>
+        </div>
+
+        <div class="col rail glass">
+          <div class="panel-head">本节课动态 <span class="cnt" id="rail-cnt">0 条</span></div>
+          <div class="feed" id="feed"></div>
+        </div>
+      </div>
+
+      <!-- ② 座位表 -->
+      <div class="stage-pad screen" id="scr-seats">
+        <div class="col seat-board">
+          <div class="podium">讲　台</div>
+          <div class="seat-row" id="seat-row"></div>
+          <div class="seat-tools glass-dim">
+            <button class="pill btn-ghost" id="btn-heat">🌡 热力</button>
+            <button class="pill btn-ghost" id="btn-swap">🔀 调整座位</button>
+            <span class="swap-hint hidden" id="swap-hint">点击两个座位完成交换 · Esc 取消</span>
+            <div class="legend" id="legend"></div>
+          </div>
+        </div>
+        <div class="col rail glass">
+          <div class="panel-head">本节课动态 <span class="cnt" id="rail-cnt2">0 条</span></div>
+          <div class="feed" id="feed2"></div>
+        </div>
+      </div>
+
+      <!-- ③ 小组 -->
+      <div class="stage-pad screen" id="scr-groups">
+        <div class="col group-board">
+          <div class="seg" style="align-self:flex-start">
+            <button class="on" data-v="g" id="v-g">🏆 小组积分赛</button>
+            <button data-v="p" id="v-p">🌸 个人红花榜</button>
+          </div>
+          <div class="g-view" id="g-view"></div>
+          <div class="p-view hidden" id="p-view"></div>
+        </div>
+        <div class="col rail glass">
+          <div class="panel-head">本节课动态 <span class="cnt" id="rail-cnt3">0 条</span></div>
+          <div class="feed" id="feed3"></div>
+        </div>
+      </div>
+
+      <!-- ④ 下课小结 -->
+      <div class="stage-pad screen" id="scr-digest">
+        <div class="col dg-main">
+          <div class="dg-stats" id="dg-stats"></div>
+          <div class="dg-grid2">
+            <div class="col glass">
+              <div class="panel-head">本节课时间线 <span class="cnt" id="dg-tl-cnt"></span></div>
+              <div class="dg-tl" id="dg-tl"></div>
+            </div>
+            <div class="col glass">
+              <div class="panel-head">沉默预警</div>
+              <div class="dg-silent">
+                <div class="why-note">这些同学近 7 天既未被点到、也没有发言记录，建议明天优先关注：</div>
+                <div class="who" id="dg-silent"></div>
+              </div>
+            </div>
+          </div>
+          <div class="glass dg-ai">
+            <span class="ai-tag">✦ AI 课堂小结</span>
+            <div class="txt" id="dg-ai-txt">点下方按钮，AI 根据本节课记录写一段小结（正式版走 report-ai 同款管道）。</div>
+            <div class="dg-acts">
+              <button class="pill btn-primary" id="btn-ai">✦ 生成小结</button>
+              <button class="pill btn-ghost" id="btn-archive">存入班级动态</button>
+              <span style="font-size:12px;color:var(--stage-dim)">存档后可在班级详情「日常表现」与评价报告中回看</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 窗口标题条 -->
+    <div class="win-bar" style="order:-1">
+      <div class="dots"><i></i><i></i><i></i></div>
+      <span class="title">aprilio · 课堂模式（原型演示 · 数据为模拟数据）</span>
+      <span class="note">原型仅演示交互形态，落库方案见页面底部说明</span>
+    </div>
+  </div>
+</main>
+
+<footer class="notes">
+  <h2>落库与集成说明（原型 → 正式版）</h2>
+  <table>
+    <tr><th>能力</th><th>数据基础</th><th>迁移</th></tr>
+    <tr><td><b>节次感知</b>（现在是哪个班的课）</td><td><code>timetables / timetable_slots / timetable_exceptions</code> + <code>semesterOfDate()</code></td><td>零迁移，与首页课表面板共用 <code>buildMyDays</code> 投影</td></tr>
+    <tr><td><b>点名</b></td><td>点名历史 = <code>student_behavior_records</code> 的一条 neutral 流水（维度「课堂表现」，备注「课堂点名」）</td><td>零迁移；「N 天未点」由流水实时推导，不存冗余</td></tr>
+    <tr><td><b>座位表</b></td><td>新增轻表 <code>seatings(class_name, semester, row, col, student_id)</code>；P0 无表时按学号序默认排布</td><td>1 张轻表；归档班级随删（与课表同策略）</td></tr>
+    <tr><td><b>记表现</b></td><td><code>student_behavior_records</code> + <code>behavior_dimensions</code>（作业/成绩/课堂/劳动），评语走 <code>behavior-ai</code> 推荐沉淀</td><td>零迁移，复用 QuickBehaviorPopover 保存逻辑</td></tr>
+    <tr><td><b>小组积分</b></td><td>组 = 座位列映射；组分 = 本节课表现流水实时聚合，不落独立分值表</td><td>零迁移（下课小结存档后，聚合值随小结快照固化）</td></tr>
+    <tr><td><b>下课小结</b></td><td>新增轻表 <code>lesson_sessions(class_name, date, period, subject, digest_md, stats_json)</code>；AI 文本走 <code>report-ai</code> 同款增强层（无 AI 回退数据版）</td><td>1 张轻表；小结合并进评价报告素材区间</td></tr>
+    <tr><td><b>交互基建</b></td><td>AppDialog / ConfirmHost / useToast / AppIcon（2026-09-16 还债已交付）</td><td>零迁移，课堂模式为首批重度用户</td></tr>
+  </table>
+</footer>
+
+<!-- 座位快捷记表现底部面板 -->
+<div class="sheet-mask" id="sheet-mask"></div>
+<div class="sheet" id="sheet">
+  <div class="s-head">
+    <span class="nm" id="sh-name">学生</span>
+    <span class="chip" id="sh-meta"></span>
+    <button class="close" id="sh-close">✕</button>
+  </div>
+  <div class="s-dims" id="sh-dims"></div>
+  <div class="s-pols">
+    <button class="pol-btn p" data-t="praise">👍 表扬 <small>+1 记入档案</small></button>
+    <button class="pol-btn i" data-t="improve">⚠️ 待改进 <small>记入档案，提醒关注</small></button>
+    <button class="pol-btn n" data-t="neutral">➖ 中立 <small>仅记录，不加减分</small></button>
+  </div>
+  <div class="s-links">
+    <button id="sh-absent">⛔ 标记缺勤</button>
+    <button id="sh-pick-him">🎲 点他发言</button>
+  </div>
+</div>
+
+<div id="toasts"></div>
+
+<script>
+/* ================================================================
+   演示数据（正式版从花名册读取；发言/未点天数由表现流水推导）
+   ================================================================ */
+const GROUPS = [
+  { name:"火箭组", icon:"🚀", color:"#5aa9ff" },
+  { name:"星星组", icon:"⭐", color:"#ffd166" },
+  { name:"种子组", icon:"🌱", color:"#7ddba0" },
+  { name:"彩虹组", icon:"🌈", color:"#c792ea" },
+  { name:"蜜蜂组", icon:"🐝", color:"#ff9f7a" },
+];
+/* 30 名学生：列 = 小组（5 组 × 6 人） */
+const NAMES = [
+  "林小满","陈子墨","王一诺","李思远","周子航",
+  "许静姝","沈亦舟","顾清晏","聂星野","方知行",
+  "白鹿鸣","江晚吟","祁云帆","宋雨桐","韩沐宸",
+  "秦子衿","尤若曦","柳望舒","章文彦","罗静远",
+  "高见山","谢云起","唐诗涵","冯知夏","董亦辰",
+  "袁沐阳","蒋星遥","叶知秋","程一鸣","苏念安",
+];
+/* 演示画像：本周发言次数 / 距上次被点天数（99=从未）/ 上次记录 */
+const SPEECH = [0,2,1,0,3,1,0,4,1,2,0,1,2,0,5,1,0,2,1,0,3,1,0,2,1,0,2,4,1,0];
+const DAYS   = [14,3,7,21,1,5,99,2,8,4,12,6,3,18,1,9,15,2,5,11,4,7,16,2,6,13,3,1,8,10];
+const NOTES  = ["表扬：作业工整（9月10日）","表扬：课堂发言积极（上周五）","提醒：课堂走神（9月8日）","表扬：值日认真（上周）","—"];
+
+/* 评语库：与 db.ts BEHAVIOR_PRESET_SEED 同源 */
+const DIMS = [
+  { id:3, name:"课堂表现", code:"classroom" },
+  { id:1, name:"作业情况", code:"homework" },
+  { id:4, name:"劳动情况", code:"labor" },
+  { id:2, name:"成绩反馈", code:"exam" },
+];
+const PRESET = {
+  "3|praise":["课堂听讲专注，积极举手发言发表独到见解","互动热烈，能主动带动小组讨论探索"],
+  "3|improve":["课堂听讲容易走神，需要老师多次提醒注意集中","自控力较弱，有做小动作或讲话现象"],
+  "3|neutral":["课堂表现平稳，能按时完成课堂任务"],
+  "1|praise":["书写工整规范，解题步骤完整清晰","按时独立完成作业，正确率极高"],
+  "1|improve":["作业未按时提交，需及时补交"],
+  "4|praise":["值日尽职尽责，主动帮助其他同学整理桌椅"],
+  "4|improve":["值日敷衍草率，未完成清洁任务提前离开"],
+  "2|praise":["较上次有显著进步，难题突破能力提升"],
+  "2|improve":["基础计算失误较多，需加强审题与验算习惯"],
+};
+
+/* ================================================================
+   状态
+   ================================================================ */
+const S = {
+  started:false, screen:"pick", mode:"uniform", swap:false, swapA:null, heat:false,
+  rolling:false, curPick:null, sheetStu:null, sheetDim:3,
+  absent:new Set([5,17]),              // 演示：2 人缺勤
+  called:[],                          // 本节课点名 [{id, t}]
+  events:[],                          // 本节课流水 [{id, stu, dim, type, text, t, kind}]
+  gscore:[0,0,0,0,0],                 // 小组本节课积分（表现流水聚合口径）
+  praiseWeek:[3,1,0,2,1,0,4,1,0,2,1,3,0,1,5,2,0,1,2,0,3,1,0,2,1,4,0,1,2,1],
+  timer:null, remain:40*60,
+};
+const stus = NAMES.map((n,i)=>({ id:i, name:n, g:Math.floor(i/6), speech:SPEECH[i], days:DAYS[i], note:NOTES[i%NOTES.length] }));
+const $ = s=>document.querySelector(s);
+const $$ = s=>[...document.querySelectorAll(s)];
+const nowT = ()=>{ const d=new Date(); return String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0"); };
+
+/* Toast（复刻 useToast 的顶部居中 pill） */
+function toast(msg){ const el=document.createElement("div"); el.className="toast"; el.innerHTML=msg; $("#toasts").appendChild(el); setTimeout(()=>{el.style.opacity="0";el.style.transition="opacity .25s";setTimeout(()=>el.remove(),260)},2300); }
+
+/* +1 飘字 */
+function fly(rect, html, color){
+  const el=document.createElement("div"); el.className="fly"; el.style.color=color;
+  el.style.left=(rect.left+rect.width/2-16)+"px"; el.style.top=(rect.top-6)+"px"; el.innerHTML=html;
+  document.body.appendChild(el); setTimeout(()=>el.remove(),950);
+}
+
+/* ================================================================
+   计时器
+   ================================================================ */
+function startTimer(){
+  clearInterval(S.timer);
+  S.timer=setInterval(()=>{
+    S.remain=Math.max(0,S.remain-1);
+    const m=String(Math.floor(S.remain/60)).padStart(2,"0"), s=String(S.remain%60).padStart(2,"0");
+    $("#timer-txt").textContent=m+":"+s;
+    const arc=$("#timer-arc"); arc.style.strokeDashoffset=(75.4*(1-S.remain/2400)).toFixed(1);
+    $("#timer").classList.toggle("warn",S.remain<=300&&S.remain>60);
+    $("#timer").classList.toggle("danger",S.remain<=60);
+  },1000);
+}
+
+/* ================================================================
+   记录（点名/座位/小组共用的流水入口）
+   ================================================================ */
+function record(stu, dimId, type, via){
+  const dim=DIMS.find(d=>d.id===dimId)||DIMS[0];
+  const pool=PRESET[dim.id+"|"+type]||PRESET["3|"+type]||["课堂记录"];
+  const text=pool[Math.floor(Math.random()*pool.length)];
+  const ev={ id:S.events.length, stu, dimId:dim.id, dimName:dim.name, type, text, t:nowT(), via:via||"座位" };
+  S.events.unshift(ev);
+  if(type==="praise"){ S.gscore[stu.g]+=1; S.praiseWeek[stu.id]+=1; }
+  if(type==="improve"){ S.gscore[stu.g]-=1; }
+  renderFeed(); renderSeats(); renderGroups(); bumpScore(stu.g);
+  return ev;
+}
+function bumpScore(g){
+  const el=document.querySelector(`[data-gscore="${g}"]`);
+  if(el){ el.textContent=S.gscore[g]; el.classList.remove("bump"); void el.offsetWidth; el.classList.add("bump"); }
+}
+function groupPoint(g, delta, reason){
+  S.gscore[g]+=delta;
+  S.events.unshift({ id:S.events.length, stu:null, g, delta, reason, t:nowT(), via:"小组", kind:"group" });
+  renderFeed(); renderGroups(); bumpScore(g);
+}
+
+/* ================================================================
+   右栏：本节课动态
+   ================================================================ */
+function feedHTML(ev){
+  if(ev.kind==="group"){
+    const d=ev.delta>0?"＋"+ev.delta:"－"+(-ev.delta);
+    const cls=ev.delta>0?"p":"i";
+    return `<div class="feed-item"><div class="fi-top">${GROUPS[ev.g].icon} <b>${GROUPS[ev.g].name}</b><span class="t">${ev.t}</span></div><div class="fi-sub"><span class="${cls}">${d} 分</span> · ${ev.reason}</div></div>`;
+  }
+  const icon=ev.type==="praise"?"👍":ev.type==="improve"?"⚠️":"➖";
+  const cls=ev.type==="praise"?"p":ev.type==="improve"?"i":"n";
+  const tag=ev.type==="praise"?"表扬":ev.type==="improve"?"待改进":"记录";
+  return `<div class="feed-item"><div class="fi-top">${icon} <b>${ev.stu.name}</b><span class="t">${ev.t}</span></div><div class="fi-sub">${ev.dimName} · <span class="${cls}">${tag}</span> · ${ev.via==="点名"?"🎲":"🪑"} ${ev.via}</div></div>`;
+}
+function renderFeed(){
+  const html=S.events.length?S.events.map(feedHTML).join(""):`<div class="feed-empty">本节课还没有记录<br>试试空格点名，或去座位页点头像</div>`;
+  ["#feed","#feed2","#feed3"].forEach(id=>$(id).innerHTML=html);
+  ["#rail-cnt","#rail-cnt2","#rail-cnt3"].forEach(id=>$(id).textContent=S.events.length+" 条");
+}
+
+/* ================================================================
+   ① 点名台
+   ================================================================ */
+function pickPool(){
+  const alive=stus.filter(s=>!S.absent.has(s.id));
+  if(S.mode==="round"){
+    const un=alive.filter(s=>!S.called.some(c=>c.id===s.id));
+    return un.length?un:alive; // 轮空自动重开（toast 提示在落定时给）
+  }
+  return alive;
+}
+function weights(pool){
+  if(S.mode!=="silent") return pool.map(()=>1);
+  return pool.map(s=>Math.pow(Math.min(s.days,21)/3,2)+1); // 未点天数平方加权，沉默者优先
+}
+function rollPick(){
+  if(S.rolling) return;
+  const pool=pickPool();
+  if(!pool.length){ toast("全员缺勤中"); return; }
+  const w=weights(pool); const sum=w.reduce((a,b)=>a+b,0);
+  let r=Math.random()*sum, winner=pool[0];
+  for(let i=0;i<pool.length;i++){ r-=w[i]; if(r<=0){ winner=pool[i]; break; } }
+  S.rolling=true;
+  $("#btn-pick").disabled=true;
+  const nameEl=$("#pick-name"); nameEl.classList.add("rolling");
+  $("#pick-hint").classList.add("hidden"); $("#pick-acts").innerHTML="";
+  let delay=45, total=0;
+  const spin=()=>{
+    const rnd=pool[Math.floor(Math.random()*pool.length)];
+    nameEl.textContent=rnd.name;
+    delay*=1.13; total+=delay;
+    if(total<2400) setTimeout(spin,delay);
+    else setTimeout(()=>reveal(winner),delay);
+  };
+  spin();
+}
+function reveal(s){
+  S.rolling=false; S.curPick=s;
+  const nameEl=$("#pick-name"); nameEl.classList.remove("rolling");
+  nameEl.textContent=s.name;
+  /* AI 提示（正式版从表现流水实时推导，此处为演示文案） */
+  const hinted=(S.mode==="silent"&&s.days>=7);
+  $("#pick-hint").classList.remove("hidden");
+  $("#pick-hint-txt").innerHTML=hinted
+    ? `${s.days>=99?"本学期从未被点到":"已 "+s.days+" 天没被点到"} · 建议优先关注`
+    : `本周发言 ${s.speech} 次 · 上次记录：${s.note}`;
+  /* 落点即快捷记表现（维度胶囊 + 三倾向） */
+  S.called.push({id:s.id,t:nowT()});
+  if(S.mode==="round"&&S.called.filter(c=>!S.absent.has(c.id)).length>=stus.length-S.absent.size){
+    toast("全员轮完 · 轮询重新开始");
+  }
+  const acts=$("#pick-acts"); acts.innerHTML="";
+  const dimRow=document.createElement("div");
+  dimRow.style.cssText="display:flex;gap:7px;flex-wrap:wrap;justify-content:center";
+  let selDim=3;
+  DIMS.forEach(d=>{
+    const b=document.createElement("button"); b.className="chip"+(d.id===3?" on":""); b.textContent=d.name;
+    b.onclick=()=>{ selDim=d.id; [...dimRow.children].forEach(x=>x.classList.remove("on")); b.classList.add("on"); };
+    dimRow.appendChild(b);
+  });
+  acts.appendChild(dimRow);
+  const row=document.createElement("div"); row.style.cssText="display:flex;gap:9px";
+  [["praise","👍 表扬 +1","--praise-line"],["improve","⚠️ 待改进","--improve-line"],["neutral","➖ 仅记录","--neutral-line"]].forEach(([t,label,c])=>{
+    const b=document.createElement("button"); b.className="pol-btn"; b.style.cssText="flex:none;padding:9px 18px;font-size:13px";
+    b.textContent=label; b.style.color=`var(${c})`;
+    b.onclick=()=>{ const ev=record(s,selDim,t,"点名"); toast(`${s.name} · ${ev.dimName} · ${t==="praise"?"已表扬":t==="improve"?"待改进已记录":"已记录"}`); renderCalled(); };
+    row.appendChild(b);
+  });
+  acts.appendChild(row);
+  $("#btn-pick").disabled=false;
+  $("#btn-pick").textContent="🎲 再抽一个（空格）";
+  renderCalled();
+}
+function renderCalled(){
+  const list=$("#called-list");
+  const n=S.called.length, total=stus.length-S.absent.size;
+  $("#cover-txt").textContent=`${n} / ${total}`;
+  $("#cover-bar").style.width=Math.min(100,n/total*100)+"%";
+  list.innerHTML = n
+    ? S.called.map(c=>`<span class="called-chip">${stus[c.id].name}<button class="x" title="撤销" data-undo="${c.id}">✕</button></span>`).join("")
+    : `<span class="feed-empty" style="padding:4px 0 12px">还没点过，试试空格 ␣</span>`;
+  $$("#called-list [data-undo]").forEach(b=>b.onclick=()=>{
+    const id=+b.dataset.undo;
+    S.called=S.called.filter(c=>c.id!==id);
+    renderCalled(); toast("已撤销 "+stus[id].name+" 的点名");
+  });
+  /* 沉默预警（关注沉默模式的权重可视化） */
+  const fair=$("#fair-list");
+  const top=[...stus].filter(s=>!S.absent.has(s.id)).sort((a,b)=>b.days-a.days).slice(0,5);
+  fair.innerHTML=top.map(s=>`<div class="fair-row ${s.days>=10?"hot":""}"><b>${s.name}</b><span>${GROUPS[s.g].icon}${GROUPS[s.g].name.slice(0,-1)}</span><span class="d">${s.days>=99?"从未":s.days+" 天"}</span></div>`).join("");
+}
+
+/* ================================================================
+   ② 座位表
+   ================================================================ */
+function renderSeats(){
+  const row=$("#seat-row"); row.innerHTML="";
+  for(let c=0;c<5;c++){
+    const col=document.createElement("div"); col.className="seat-col";
+    col.innerHTML=`<div class="gname" style="color:${GROUPS[c].color}">${GROUPS[c].icon} ${GROUPS[c].name}</div>`;
+    const grid=document.createElement("div"); grid.className="seats-grid";
+    for(let r=0;r<6;r++){
+      const stu=stus[c*6+r];
+      const praiseN=S.praiseWeek[stu.id];
+      const seat=document.createElement("button"); seat.className="seat"; seat.dataset.stu=stu.id;
+      seat.style.setProperty("--g",GROUPS[c].color);
+      if(S.absent.has(stu.id)) seat.classList.add("absent");
+      if(S.heat){ const h=S.events.filter(e=>e.stu&&e.stu.id===stu.id&&e.type==="praise").length; if(h>0) seat.classList.add("heat-"+Math.min(3,h)); }
+      if(S.swapA===stu.id) seat.classList.add("pickme");
+      seat.innerHTML=`<span class="ava">${stu.name[0]}</span><span class="nm">${stu.name}</span><span class="bd">${praiseN>0?"🌸"+praiseN:""}</span>`;
+      seat.onclick=e=>onSeat(stu,e);
+      grid.appendChild(seat);
+    }
+    col.appendChild(grid); row.appendChild(col);
+  }
+  $("#legend").innerHTML=GROUPS.map(g=>`<span><i style="background:${g.color}"></i>${g.name}</span>`).join("")+`<span style="margin-left:6px">🌸 本周表扬</span>`;
+}
+function onSeat(stu,e){
+  if(S.swap){
+    if(S.swapA===stu.id){ S.swapA=null; renderSeats(); toast("已取消选择"); }
+    else if(S.swapA===null){ S.swapA=stu.id; renderSeats(); }
+    else{
+      /* 交换座位：交换数组位置后按新位置重算组归属（画像随人走，不随座位走） */
+      const aIdx=stus.findIndex(x=>x.id===S.swapA), bIdx=stus.findIndex(x=>x.id===stu.id);
+      const aName=stus[aIdx].name;
+      [stus[aIdx],stus[bIdx]]=[stus[bIdx],stus[aIdx]];
+      stus[aIdx].g=Math.floor(aIdx/6); stus[bIdx].g=Math.floor(bIdx/6);
+      S.swapA=null; renderSeats(); renderGroups(); toast("座位已交换："+aName+" ⇄ "+stu.name);
+    }
+    return;
+  }
+  openSheet(stu,e);
+}
+function openSheet(stu,e){
+  S.sheetStu=stu; S.sheetDim=3;
+  $("#sh-name").textContent=stu.name;
+  $("#sh-meta").textContent=`${GROUPS[stu.g].icon} ${GROUPS[stu.g].name} · 本周发言 ${stu.speech} 次`;
+  const dims=$("#sh-dims"); dims.innerHTML="";
+  DIMS.forEach(d=>{
+    const b=document.createElement("button"); b.className="chip"+(d.id===3?" on":""); b.textContent=d.name;
+    b.onclick=()=>{ S.sheetDim=d.id; [...dims.children].forEach(x=>x.classList.remove("on")); b.classList.add("on"); };
+    dims.appendChild(b);
+  });
+  $("#sh-absent").textContent=S.absent.has(stu.id)?"✅ 取消缺勤":"⛔ 标记缺勤";
+  $("#sheet-mask").classList.add("on"); $("#sheet").classList.add("on");
+}
+function closeSheet(){ $("#sheet-mask").classList.remove("on"); $("#sheet").classList.remove("on"); S.sheetStu=null; }
+
+/* ================================================================
+   ③ 小组
+   ================================================================ */
+function renderGroups(){
+  const gv=$("#g-view");
+  if(!gv.classList.contains("hidden")){
+    /* 每次全量重建（事件量小，重建保证榜单/皇冠/按钮状态一致） */
+    const top=Math.max(...S.gscore);
+    gv.innerHTML=`<div class="g-row">`+GROUPS.map((g,i)=>`
+        <div class="g-card glass-dim ${S.gscore[i]===top&&S.gscore[i]>0?"lead":""}" style="--g:${g.color}">
+          <div class="top"><span>${g.icon}</span>${g.name}${S.gscore[i]===top&&S.gscore[i]>0?'<span class="crown">👑</span>':""}</div>
+          <div class="members">${stus.filter(s=>s.g===i).map(m=>`<span title="${m.name}">${m.name[0]}</span>`).join("")}</div>
+          <div class="score" data-gscore="${i}">${S.gscore[i]}</div>
+          <div class="acts">
+            ${["发言","纪律","合作","作业"].map(r=>`<button class="g-add" data-g="${i}" data-r="${r}">＋ ${r}</button>`).join("")}
+            <button class="g-sub" data-sub="${i}">－ 提醒</button>
+          </div>
+        </div>`).join("")+`</div>`;
+    $$("#g-view .g-add").forEach(b=>b.onclick=()=>{ groupPoint(+b.dataset.g,1,b.dataset.r); toast(`${GROUPS[+b.dataset.g].name} <span class="p">+1</span> · ${b.dataset.r}`); });
+    $$("#g-view .g-sub").forEach(b=>b.onclick=()=>{ groupPoint(+b.dataset.sub,-1,"纪律提醒"); toast(`${GROUPS[+b.dataset.sub].name} <span class="i">-1</span> · 纪律提醒`); });
+  }else{
+    renderFlowers();
+  }
+}
+function renderFlowers(){
+  const rows=[...stus].sort((a,b)=>S.praiseWeek[b.id]-S.praiseWeek[a.id]);
+  $("#p-view").innerHTML=rows.map((s,i)=>`<div class="p-row" style="--g:${GROUPS[s.g].color}">
+    <span class="p-rank">${i+1}</span>
+    <span class="p-ava">${s.name[0]}</span>
+    <span class="p-name">${s.name}</span>
+    <span class="p-meta">${GROUPS[s.g].icon} ${GROUPS[s.g].name} · 被点 ${S.called.filter(c=>c.id===s.id).length} 次</span>
+    <span class="flowers">${"🌸".repeat(Math.min(6,S.praiseWeek[s.id]))} ${S.praiseWeek[s.id]}</span>
+  </div>`).join("");
+}
+
+/* ================================================================
+   ④ 下课小结
+   ================================================================ */
+function renderDigest(){
+  const praise=S.events.filter(e=>e.kind!=="group"&&e.type==="praise").length;
+  const improve=S.events.filter(e=>e.kind!=="group"&&e.type==="improve").length;
+  const grouped=S.events.filter(e=>e.kind!=="group").map(e=>e.stu.id);
+  const touched=new Set(grouped).size;
+  const top=Math.max(...S.gscore);
+  const champ=top>0?GROUPS[S.gscore.indexOf(top)].name:"—";
+  $("#dg-stats").innerHTML=`
+    <div class="dg-stat glass"><b>${S.called.length}</b><span>点名人次 · 覆盖 ${new Set(S.called.map(c=>c.id)).size} 人</span></div>
+    <div class="dg-stat glass"><b style="color:var(--praise-dark)">${praise}</b><span>表扬记录</span></div>
+    <div class="dg-stat glass"><b style="color:var(--improve-dark)">${improve}</b><span>待改进记录 · 涉及 ${new Set(S.events.filter(e=>e.stu&&e.type==="improve").map(e=>e.stu.id)).size} 人</span></div>
+    <div class="dg-stat glass"><b style="color:#ffd166">👑 ${champ}</b><span>小组冠军 · ${top} 分</span></div>`;
+  $("#dg-tl").innerHTML=S.events.length?S.events.map(ev=>{
+    if(ev.kind==="group") return `<div class="tl-row"><span class="tl-ico g">🏆</span><span class="tl-text"><b>${GROUPS[ev.g].name}</b> ${ev.delta>0?"+":"-"}${Math.abs(ev.delta)} · ${ev.reason}</span><span class="tl-time">${ev.t}</span></div>`;
+    const ico=ev.type==="praise"?"p":ev.type==="improve"?"i":"n";
+    const em=ev.type==="praise"?"👍":ev.type==="improve"?"⚠️":"➖";
+    return `<div class="tl-row"><span class="tl-ico ${ico}">${em}</span><span class="tl-text"><b>${ev.stu.name}</b> · ${ev.dimName} · ${ev.text}</span><span class="tl-time">${ev.t}</span></div>`;
+  }).join(""):`<div class="feed-empty" style="padding:18px 0">本节课暂无记录</div>`;
+  $("#dg-tl-cnt").textContent=S.events.length+" 条";
+  /* 沉默预警：既未被点、本周又零发言 */
+  const silent=stus.filter(s=>!S.absent.has(s.id)&&!S.called.some(c=>c.id===s.id)&&s.speech===0);
+  $("#dg-silent").innerHTML=silent.length
+    ? silent.map(s=>`<span class="chip" style="border-color:${GROUPS[s.g].color}55">${s.name}<b style="color:${GROUPS[s.g].color}">${GROUPS[s.g].icon}</b></span>`).join("")
+    : `<span style="font-size:12.5px;color:var(--praise-dark)">太棒了，没有沉默的同学 🎉</span>`;
+}
+function genAI(){
+  const praise=S.events.filter(e=>e.kind!=="group"&&e.type==="praise");
+  const improveNames=[...new Set(S.events.filter(e=>e.stu&&e.type==="improve").map(e=>e.stu.name))];
+  const top=Math.max(...S.gscore);
+  const champ=top>0?GROUPS[S.gscore.indexOf(top)].name:"";
+  const silent=stus.filter(s=>!S.absent.has(s.id)&&!S.called.some(c=>c.id===s.id)&&s.speech===0);
+  const stars=praise.slice(0,3).map(e=>e.stu.name);
+  const cover=new Set(S.called.map(c=>c.id)).size;
+  const txt=
+`本节课三(2)班数学课整体氛围活跃：共点名 ${S.called.length} 人次、覆盖 ${cover}/${stus.length-S.absent.size} 人，产生表扬记录 ${praise.length} 条${stars.length?`，其中 ${stars.join("、")} 表现突出`:""}。${champ?`${champ}以 ${top} 分领跑小组积分。`:""}${improveNames.length?`需关注 ${improveNames.join("、")} 的课堂专注度，建议课后轻声提醒，不必当众点破。`:"本节课无待改进记录，节奏可以再快一些。"}${silent.length?`仍有 ${silent.length} 名同学（${silent.slice(0,3).map(s=>s.name).join("、")}${silent.length>3?" 等":""}）整周零发言且本节课未被点到，建议明天用「关注沉默」模式优先抽取。`:""}`;
+  /* 打字机效果（正式版为 report-ai 流式输出） */
+  const el=$("#dg-ai-txt");
+  el.innerHTML='<span class="txt-node"></span><span class="caret"></span>';
+  const node=el.querySelector(".txt-node"), caret=el.querySelector(".caret");
+  let i=0;
+  const timer=setInterval(()=>{
+    i=Math.min(txt.length,i+2+Math.floor(Math.random()*3));
+    node.textContent=txt.slice(0,i);
+    if(i>=txt.length){ clearInterval(timer); caret.remove(); }
+  },30);
+}
+
+/* ================================================================
+   导航与全局
+   ================================================================ */
+function go(scr){
+  S.screen=scr;
+  $$("#tabs .tab").forEach(b=>b.classList.toggle("on",b.dataset.s===scr));
+  $$(".screen").forEach(el=>el.classList.remove("on"));
+  $("#scr-"+scr).classList.add("on");
+  if(scr==="digest") renderDigest();
+}
+$("#tabs").addEventListener("click",e=>{ const b=e.target.closest(".tab"); if(b) go(b.dataset.s); });
+$("#btn-end").onclick=()=>{ go("digest"); toast("下课 · 本节课小结已生成"); };
+$("#btn-proj").onclick=()=>{ const on=$("#win").classList.toggle("proj"); $("#btn-proj").classList.toggle("on",on); toast(on?"投影模式 · 侧栏已隐藏、字号放大":"已退出投影模式"); };
+$("#btn-start").onclick=()=>{
+  S.started=true; $("#launcher").classList.add("hidden"); $("#app").classList.remove("hidden");
+  startTimer(); renderFeed(); renderSeats(); renderGroups(); renderCalled();
+  toast("上课 · 三(2)班 数学 · 40 分钟计时开始");
+  /* 预置两条历史记录，演示动态流与热力图效果 */
+  record(stus[2],3,"praise","座位"); record(stus[8],4,"improve","座位");
+};
+$("#btn-pick").onclick=rollPick;
+$("#pick-modes").addEventListener("click",e=>{
+  const b=e.target.closest("button"); if(!b) return;
+  S.mode=b.dataset.m;
+  $$("#pick-modes button").forEach(x=>x.classList.toggle("on",x===b));
+  $("#pick-mode-chip").textContent=b.textContent;
+  $("#pick-tip").textContent=b.dataset.m==="silent"?"权重 = 未点天数平方 · 沉默者优先被抽中":b.dataset.m==="round"?"本节课未点过的同学先被抽，轮完自动重开":"每位同学等概率被抽中";
+});
+/* 座位工具 */
+$("#btn-heat").onclick=()=>{ S.heat=!S.heat; $("#btn-heat").classList.toggle("on",S.heat); renderSeats(); toast(S.heat?"热力图 · 绿色越深本节课表扬越多":"热力已关闭"); };
+$("#btn-swap").onclick=()=>{ S.swap=!S.swap; S.swapA=null; $("#btn-swap").classList.toggle("on",S.swap); $("#swap-hint").classList.toggle("hidden",!S.swap); renderSeats(); };
+/* 底部面板 */
+$("#sh-close").onclick=closeSheet; $("#sheet-mask").onclick=closeSheet;
+$$("#sheet .pol-btn").forEach(b=>b.onclick=()=>{
+  if(!S.sheetStu) return;
+  const stu=S.sheetStu;
+  const seat=document.querySelector(`.seat[data-stu="${stu.id}"]`);
+  const ev=record(stu,S.sheetDim,b.dataset.t,"座位");
+  if(seat){ const r=seat.getBoundingClientRect();
+    fly(r, b.dataset.t==="praise"?"+1 👍":b.dataset.t==="improve"?"-1 ⚠️":"➖",
+        b.dataset.t==="praise"?"#a3e635":b.dataset.t==="improve"?"#fcd34d":"#d4d4d8");
+    seat.classList.add(b.dataset.t==="praise"?"flash-praise":b.dataset.t==="improve"?"flash-improve":"");
+  }
+  toast(`${stu.name} · ${ev.dimName} · ${b.dataset.t==="praise"?"已表扬":b.dataset.t==="improve"?"待改进已记录":"已记录"}`);
+  closeSheet();
+});
+$("#sh-absent").onclick=()=>{
+  if(!S.sheetStu) return;
+  const id=S.sheetStu.id;
+  if(S.absent.has(id)){ S.absent.delete(id); toast(S.sheetStu.name+" 已到班"); }
+  else{ S.absent.add(id); toast(S.sheetStu.name+" 已标记缺勤 · 点名池自动排除"); }
+  renderSeats(); closeSheet();
+};
+$("#sh-pick-him").onclick=()=>{
+  const stu=S.sheetStu;
+  if(!stu) return;
+  closeSheet(); go("pick"); reveal(stu);
+};
+/* 小组视图切换 */
+$("#v-g").onclick=()=>{ $("#v-g").classList.add("on"); $("#v-p").classList.remove("on"); $("#g-view").classList.remove("hidden"); $("#p-view").classList.add("hidden"); };
+$("#v-p").onclick=()=>{ $("#v-p").classList.add("on"); $("#v-g").classList.remove("on"); $("#p-view").classList.remove("hidden"); $("#g-view").classList.add("hidden"); renderFlowers(); };
+/* 小结 */
+$("#btn-ai").onclick=genAI;
+$("#btn-archive").onclick=()=>toast("已存档 · 本节课小结写入班级动态与评价报告素材池");
+/* 键盘 */
+document.addEventListener("keydown",e=>{
+  if(e.key==="Escape"){
+    if($("#sheet").classList.contains("on")){ closeSheet(); return; }
+    if(S.swap){ $("#btn-swap").click(); return; }
+    if(S.started){ return; }
+  }
+  if(!S.started) return;
+  if(e.code==="Space"&&S.screen==="pick"&&!$("#sheet").classList.contains("on")){ e.preventDefault(); rollPick(); }
+  const map={"1":"pick","2":"seats","3":"groups","4":"digest"};
+  if(map[e.key]) go(map[e.key]);
+});
+/* 初始渲染（启动页背后的座位预览） */
+renderSeats(); renderGroups(); renderCalled(); renderFeed();
+</script>
+</body>
+</html>

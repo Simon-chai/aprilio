@@ -28,6 +28,31 @@
   --color-danger: #d70015;
   --color-danger-soft: #fdeef0;
 
+  /* 表现三态（与 schema type 字段 praise/improve/neutral 一一对应） */
+  --color-praise: #248a3d; /* 表扬文字/节点，与 success 同源 */
+  --color-praise-soft: #e8f5e9;
+  --color-praise-line: #a3e635; /* 筛选胶囊选中描边 */
+  --color-improve: #d97706;
+  --color-improve-soft: #fff3e0;
+  --color-improve-line: #fcd34d;
+  --color-neutral: #52525b;
+  --color-neutral-soft: #f4f4f5;
+  --color-neutral-line: #d4d4d8;
+
+  /* 表现分类胶囊选中色（study 分类沿用 primary，无需新增） */
+  --color-category-behavior: #059669;
+  --color-category-other: #7c3aed;
+
+  /* AI 生成内容标识（QuickBehaviorPopover 的 AI 推荐评语 chips） */
+  --color-ai: #6d28d9;
+  --color-ai-soft: #f5f1ff;
+  --color-ai-line: #e3d9ff;
+  --color-ai-hover: #ede4ff;
+
+  /* 散点归位 */
+  --color-ink-deep: #000000; /* AppButton dark hover */
+  --color-primary-on-dark-hover: #4da5ff; /* AppLink 深底胶囊 hover */
+
   /* 监护人风格标签胶囊：按情感倾向的填充色（AI 判定倾向，见 lib/guardian-tags.ts） */
   --color-tag-positive: #248a3d; /* 正面倾向文字，与 success 同源 */
   --color-tag-positive-soft: #e7f3ea; /* 正面倾向底色 */

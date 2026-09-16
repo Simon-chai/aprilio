@@ -583,8 +583,8 @@ function cellTitle(cell: CalendarCell): string {
               :aria-label="e.done ? '标记为待办' : '标记为已完成'"
               @click="toggleEvent(e)"
             >
-              <svg v-if="e.done" width="10" height="10" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                <path d="M3 8.5l3.5 3.5L13 4.5" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+              <svg v-if="e.done" class="text-white" width="10" height="10" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M3 8.5l3.5 3.5L13 4.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
               </svg>
             </button>
             <span

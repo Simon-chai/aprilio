@@ -385,7 +385,7 @@ function cancelCustom() {
             <button
               data-test="polarity-praise"
               class="flex-1 rounded-md px-3 py-1.5 text-caption font-medium transition-colors"
-              :class="polarity === 'praise' ? 'bg-[#e8f5e9] text-[#248a3d]' : 'bg-parchment text-muted hover:bg-hairline'"
+              :class="polarity === 'praise' ? 'bg-praise-soft text-praise' : 'bg-parchment text-muted hover:bg-hairline'"
               @click="polarity = 'praise'"
             >
               👍 表扬
@@ -393,7 +393,7 @@ function cancelCustom() {
             <button
               data-test="polarity-neutral"
               class="flex-1 rounded-md px-3 py-1.5 text-caption font-medium transition-colors"
-              :class="polarity === 'neutral' ? 'bg-[#e8e8ed] text-ink' : 'bg-parchment text-muted hover:bg-hairline'"
+              :class="polarity === 'neutral' ? 'bg-neutral-soft text-ink' : 'bg-parchment text-muted hover:bg-hairline'"
               @click="polarity = 'neutral'"
             >
               ➖ 中立
@@ -401,7 +401,7 @@ function cancelCustom() {
             <button
               data-test="polarity-improve"
               class="flex-1 rounded-md px-3 py-1.5 text-caption font-medium transition-colors"
-              :class="polarity === 'improve' ? 'bg-[#fdeef0] text-[#d70015]' : 'bg-parchment text-muted hover:bg-hairline'"
+              :class="polarity === 'improve' ? 'bg-danger-soft text-danger' : 'bg-parchment text-muted hover:bg-hairline'"
               @click="polarity = 'improve'"
             >
               ⚠️ 待改进
@@ -418,7 +418,7 @@ function cancelCustom() {
                 v-for="(t, i) in aiItems"
                 :key="`ai-${i}`"
                 data-test="ai-bubble"
-                class="rounded-full border border-[#e3d9ff] bg-[#f5f1ff] px-3 py-1 text-fine text-[#6d28d9] transition-colors hover:bg-[#ede4ff]"
+                class="rounded-full border border-ai-line bg-ai-soft px-3 py-1 text-fine text-ai transition-colors hover:bg-ai-hover"
                 @click="applyComment(t)"
               >
                 ✨ AI：{{ t }}

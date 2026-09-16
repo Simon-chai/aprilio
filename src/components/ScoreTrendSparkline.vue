@@ -7,6 +7,7 @@
  * 目标是「一眼看出走势」，细节看图请进「考试成绩」Tab。
  */
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { CHART_PRIMARY } from "../lib/chart-palette";
 
 const props = withDefaults(
   defineProps<{
@@ -155,8 +156,8 @@ const ariaLabel = computed(() => {
     >
       <defs>
         <linearGradient :id="gradientId" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="#0066cc" stop-opacity="0.2" />
-          <stop offset="100%" stop-color="#0066cc" stop-opacity="0" />
+          <stop offset="0%" :stop-color="CHART_PRIMARY" stop-opacity="0.2" />
+          <stop offset="100%" :stop-color="CHART_PRIMARY" stop-opacity="0" />
         </linearGradient>
       </defs>
 
@@ -167,12 +168,12 @@ const ariaLabel = computed(() => {
           data-test="spark-line"
           :points="linePoints(seg)"
           fill="none"
-          stroke="#0066cc"
+          :stroke="CHART_PRIMARY"
           stroke-width="2"
           stroke-linecap="round"
           stroke-linejoin="round"
         />
-        <circle v-else :cx="seg[0]!.x" :cy="seg[0]!.y" r="3" fill="#0066cc" />
+        <circle v-else :cx="seg[0]!.x" :cy="seg[0]!.y" r="3" :fill="CHART_PRIMARY" />
       </template>
 
       <g v-if="lastPoint">
@@ -181,7 +182,7 @@ const ariaLabel = computed(() => {
           :cy="lastPoint.y"
           r="6"
           fill="none"
-          stroke="#0066cc"
+          :stroke="CHART_PRIMARY"
           stroke-opacity="0.25"
         />
         <circle
@@ -189,7 +190,7 @@ const ariaLabel = computed(() => {
           :cx="lastPoint.x"
           :cy="lastPoint.y"
           r="3"
-          fill="#0066cc"
+          :fill="CHART_PRIMARY"
         />
       </g>
     </svg>

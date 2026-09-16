@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { onBeforeUnmount, ref } from "vue";
+import { ref } from "vue";
 import type { BehaviorPolarity, StudentRow } from "../types";
 import { formatShort } from "../lib/format";
 import QuickBehaviorPopover from "./QuickBehaviorPopover.vue";
+import { useToast } from "../composables/useToast";
 
 withDefaults(
   defineProps<{ rows: StudentRow[]; readonly?: boolean }>(),
@@ -16,11 +17,11 @@ const emit = defineEmits<{
 
 const COLS = "180px 140px 160px 170px 120px 160px max-content 1fr";
 
-/* ---------------- 快捷表现卡片 + 轻量 Toast ---------------- */
+/* ---------------- 快捷表现卡片 + 全局轻反馈 ---------------- */
 const quickStudent = ref<StudentRow | null>(null);
 const quickAnchor = ref<{ x: number; y: number } | null>(null);
-const toast = ref("");
-let toastTimer: ReturnType<typeof setTimeout> | undefined;
+/** 全局轻反馈（ToastHost 挂在 App.vue）：快捷记表现保存成功提示 */
+const toast = useToast();
 
 function openQuick(row: StudentRow, e: MouseEvent) {
   const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -29,9 +30,7 @@ function openQuick(row: StudentRow, e: MouseEvent) {
 }
 
 function onQuickSaved(payload: { studentName: string; dimensionName: string; polarity: BehaviorPolarity }) {
-  toast.value = `已记录 ${payload.studentName} ${payload.dimensionName}`;
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => (toast.value = ""), 2400);
+  toast(`已记录 ${payload.studentName} ${payload.dimensionName}`);
   // 上抛给父组件刷新表现计数/时间轴（不整页刷新）
   emit("saved", payload);
 }
@@ -39,8 +38,6 @@ function onQuickSaved(payload: { studentName: string; dimensionName: string; pol
 function closeQuick() {
   quickStudent.value = null;
 }
-
-onBeforeUnmount(() => clearTimeout(toastTimer));
 </script>
 
 <template>
@@ -116,28 +113,5 @@ onBeforeUnmount(() => clearTimeout(toastTimer));
       @close="closeQuick"
       @saved="onQuickSaved"
     />
-
-    <!-- 列表顶部微型 Toast -->
-    <Transition name="qb-toast">
-      <div
-        v-if="toast"
-        data-test="quick-toast"
-        class="fixed inset-x-0 top-4 z-[60] mx-auto w-fit rounded-full bg-tile px-4 py-1.5 text-fine text-white shadow-lg"
-      >
-        {{ toast }}
-      </div>
-    </Transition>
   </div>
 </template>
-
-<style scoped>
-.qb-toast-enter-active,
-.qb-toast-leave-active {
-  transition: opacity 0.2s ease, transform 0.2s ease;
-}
-.qb-toast-enter-from,
-.qb-toast-leave-to {
-  opacity: 0;
-  transform: translateY(-8px);
-}
-</style>

@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import AppIconButton from "../components/ui/AppIconButton.vue";
+import AppIcon from "../components/ui/AppIcon.vue";
 import AppInput from "../components/ui/AppInput.vue";
 import AppLink from "../components/ui/AppLink.vue";
 import EmptyState from "../components/ui/EmptyState.vue";
@@ -37,7 +38,8 @@ import { getPhotosDir, importPhoto, photoUrl } from "../lib/photos";
 import { onPageAction } from "../agent/page-action-bus";
 import { clearPageContext, reportPageContext } from "../agent/page-context-bus";
 import type { ImportRosterMode } from "../agent/page-actions/classes-import-roster";
-import { confirm } from "@tauri-apps/plugin-dialog";
+import { confirmAction } from "../composables/useConfirm";
+import { useToast } from "../composables/useToast";
 import type { RosterImportResult, RosterTable } from "../lib/roster";
 import { averageOfSubjectAverages, formatNumber } from "../lib/score-analysis";
 import { levelNameOfScore, levelValueOf, showLevelOnly } from "../lib/score-config";
@@ -184,12 +186,12 @@ function closeScoreImport() {
 function onRosterImported(payload: { result: RosterImportResult; targetClass: string | null }) {
   void refresh();
   if (payload.result.failed.length > 0) {
-    showToast(`导入完成，但有 ${payload.result.failed.length} 行失败，请在对话框中查看明细`);
+    toast(`导入完成，但有 ${payload.result.failed.length} 行失败，请在对话框中查看明细`);
     return;
   }
   importOpen.value = false;
   activeTab.value = "students";
-  showToast(
+  toast(
     `花名册导入完成：成功 ${payload.result.imported} · 更新 ${payload.result.updated} · 跳过 ${payload.result.skipped.length}`,
   );
 }
@@ -203,14 +205,14 @@ function onScoreImported(payload: { className: string | null }) {
     return;
   }
   activeTab.value = "scores";
-  showToast("成绩导入完成，已关联到学生档案");
+  toast("成绩导入完成，已关联到学生档案");
 }
 
 const quickOpen = ref(false);
 const quickStudent = ref<StudentRow | null>(null);
 const quickAnchor = ref<{ x: number; y: number } | null>(null);
-const toast = ref("");
-let toastTimer: ReturnType<typeof setTimeout> | undefined;
+/** 全局轻反馈（ToastHost 渲染）：本页所有提示统一出口，错误路径 tone=error */
+const toast = useToast();
 
 const filterOptions: { label: string; value: "all" | "public" | "student" }[] = [
   { label: "全部", value: "all" },
@@ -292,12 +294,6 @@ function openQuickBehavior(targetStudentId?: number) {
   quickOpen.value = true;
 }
 
-function showToast(msg: string) {
-  toast.value = msg;
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => (toast.value = ""), 2400);
-}
-
 /** 仅重拉班级表现流水：局部更新概览卡与日常表现 Tab 的计数，不整页刷新 */
 async function refreshBehaviorRecords() {
   behaviorRecords.value = await listBehaviorRecordsByClass(props.name);
@@ -305,7 +301,7 @@ async function refreshBehaviorRecords() {
 }
 
 async function onQuickSaved(payload: { studentName: string; dimensionName: string; polarity: BehaviorPolarity }) {
-  showToast(`已记录 ${payload.studentName} ${payload.dimensionName}`);
+  toast(`已记录 ${payload.studentName} ${payload.dimensionName}`);
   await refreshBehaviorRecords();
 }
 
@@ -317,7 +313,7 @@ async function onTableBehaviorSaved() {
 /** 删除一条表现记录（含评语），并刷新时间轴 */
 async function handleRemoveBehavior(recordId: number) {
   await deleteBehaviorRecord(recordId);
-  showToast("已删除该条表现记录");
+  toast("已删除该条表现记录");
   await refreshBehaviorRecords();
 }
 
@@ -331,24 +327,26 @@ async function handleRenameClass(value: ClassFormValue) {
     await renameClass(props.name, newName);
   } catch (e) {
     // 失败保持弹窗打开，错误上浮到 toast——不再静默只进日志
-    showToast(`重命名失败：${e instanceof Error ? e.message : String(e)}`);
+    toast(`重命名失败：${e instanceof Error ? e.message : String(e)}`, { tone: "error" });
     return;
   }
   renameDialogOpen.value = false;
   router.replace({ name: "class-detail", params: { name: newName } });
 }
 
-/** 归档班级：移入「历史带过的班」，数据只读保留；回到班级管理页 */
+/** 归档班级：移入「历史带过的班」，数据只读保留；回到班级管理页（与 ClassesView 同一确认文案模板） */
 async function onArchiveClass() {
-  const message = `归档班级「${props.name}」？归档后从班级管理移出，进入「历史带过的班」，数据只读保留、可随时恢复。`;
-  const ok = isTauri()
-    ? await confirm(message, { title: "归档班级", kind: "warning" })
-    : window.confirm(message);
+  const ok = await confirmAction({
+    title: `归档班级「${props.name}」`,
+    message:
+      "归档后，班级会从「在用班级」移出，进入「历史带过的班」；学生、成绩、表现、照片、评语与课表全部保留，只读可查，随时可以恢复。",
+    confirmText: "归档",
+  });
   if (!ok) return;
   try {
     await archiveClass(props.name);
   } catch (e) {
-    showToast(`归档失败：${e instanceof Error ? e.message : String(e)}`);
+    toast(`归档失败：${e instanceof Error ? e.message : String(e)}`, { tone: "error" });
     return;
   }
   router.push({ name: "classes" });
@@ -359,24 +357,27 @@ async function onRestoreClass() {
   try {
     await restoreClass(props.name);
   } catch (e) {
-    showToast(`恢复失败：${e instanceof Error ? e.message : String(e)}`);
+    toast(`恢复失败：${e instanceof Error ? e.message : String(e)}`, { tone: "error" });
     return;
   }
-  showToast("已恢复到在用班级");
+  toast("已恢复到在用班级");
   await refresh();
 }
 
-/** 删除整个班级：学生/照片/表现记录整体进回收站，保留 7 天可恢复 */
+/** 删除整个班级：学生/照片/表现记录整体进回收站，保留 7 天可恢复（与 ClassesView 同一确认文案模板） */
 async function onDeleteClass() {
-  const message = `删除班级「${props.name}」？班级下的学生、照片与表现记录将移入回收站，保留 7 天，期间可恢复。`;
-  const ok = isTauri()
-    ? await confirm(message, { title: "删除班级", kind: "warning" })
-    : window.confirm(message);
+  const ok = await confirmAction({
+    title: `删除班级「${props.name}」`,
+    message:
+      "班级下的学生档案、照片与表现记录将一并移入回收站，保留 7 天，期间可随时恢复；超过 7 天将彻底删除。",
+    confirmText: "删除",
+    tone: "danger",
+  });
   if (!ok) return;
   try {
     await deleteClass(props.name);
   } catch (e) {
-    showToast(`删除失败：${e instanceof Error ? e.message : String(e)}`);
+    toast(`删除失败：${e instanceof Error ? e.message : String(e)}`, { tone: "error" });
     return;
   }
   router.push({ name: "classes" });
@@ -406,7 +407,7 @@ const offCreateStudentAction = onPageAction<Partial<StudentInput>>(
   "classes/create-student",
   (preset) => {
     if (readOnly.value) {
-      showToast("该班级已归档，只读");
+      toast("该班级已归档，只读");
       return;
     }
     openCreateStudentDialog(preset);
@@ -415,7 +416,7 @@ const offCreateStudentAction = onPageAction<Partial<StudentInput>>(
 
 const offImportRosterAction = onPageAction<ImportRosterMode>("classes/import-roster", (mode) => {
   if (readOnly.value) {
-    showToast("该班级已归档，只读");
+    toast("该班级已归档，只读");
     return;
   }
   openImportDialog(mode ?? "smart");
@@ -430,7 +431,6 @@ onBeforeUnmount(() => {
   document.removeEventListener("mousedown", onClassSwitchMouseDown);
   document.removeEventListener("keydown", onClassSwitchKeydown);
   clearTimeout(timer);
-  clearTimeout(toastTimer);
   offCreateStudentAction();
   offImportRosterAction();
   clearPageContext("class-detail");
@@ -535,21 +535,12 @@ function goStudentDetail(row: StudentRow) {
                         {{ name.slice(0, 1) }}
                       </span>
                       <span class="text-airy font-semibold text-ink truncate">{{ name }}</span>
-                      <svg
+                      <AppIcon
+                        name="chevron-down"
+                        :size="14"
                         class="shrink-0 transition-transform"
                         :class="classSwitchOpen ? 'rotate-180 text-primary' : 'text-faint'"
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        aria-hidden="true"
-                      >
-                        <path d="m6 9 6 6 6-6" />
-                      </svg>
+                      />
                     </button>
                   </h1>
                   <!-- 班级选择器：fixed 定位脱离页头滚动容器，列出全部班级，当前项主色高亮 + 打勾 -->
@@ -588,21 +579,12 @@ function goStudentDetail(row: StudentRow) {
                         </span>
                         <span class="block text-fine text-faint">{{ c.studentCount }} 名学生</span>
                       </span>
-                      <svg
+                      <AppIcon
                         v-if="c.name === name"
+                        name="check"
+                        :size="14"
                         class="shrink-0 text-primary"
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2.5"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        aria-hidden="true"
-                      >
-                        <path d="M20 6 9 17l-5-5" />
-                      </svg>
+                      />
                     </button>
                     <p v-if="!sortedClasses.length" class="px-2 py-1.5 text-fine text-faint">
                       暂无班级
@@ -615,10 +597,7 @@ function goStudentDetail(row: StudentRow) {
                   show-label
                   @click="renameDialogOpen = true"
                 >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                  </svg>
+                  <AppIcon name="edit" :size="12" />
                 </AppIconButton>
                 <AppIconButton
                   v-if="!readOnly"
@@ -627,10 +606,7 @@ function goStudentDetail(row: StudentRow) {
                   data-test="archive-class-btn"
                   @click="onArchiveClass"
                 >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <rect x="3" y="4" width="18" height="4" rx="1" />
-                    <path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4" />
-                  </svg>
+                  <AppIcon name="archive" :size="12" />
                 </AppIconButton>
                 <button
                   v-if="readOnly"
@@ -649,10 +625,7 @@ function goStudentDetail(row: StudentRow) {
                   data-test="delete-class-btn"
                   @click="onDeleteClass"
                 >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                    <path d="M10 11v6M14 11v6" />
-                  </svg>
+                  <AppIcon name="trash" :size="12" />
                 </AppIconButton>
               </div>
               <div class="flex shrink-0 items-center gap-2">
@@ -690,9 +663,7 @@ function goStudentDetail(row: StudentRow) {
               class="shrink-0 text-faint transition-all duration-150 group-hover:translate-x-0.5 group-hover:text-primary"
               aria-hidden="true"
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                <path d="m9 18 6-6-6-6" />
-              </svg>
+              <AppIcon name="chevron-right" :size="14" />
             </span>
           </div>
           <div class="mt-2 text-title font-semibold text-ink">
@@ -716,9 +687,7 @@ function goStudentDetail(row: StudentRow) {
               class="shrink-0 text-faint transition-all duration-150 group-hover:translate-x-0.5 group-hover:text-primary"
               aria-hidden="true"
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                <path d="m9 18 6-6-6-6" />
-              </svg>
+              <AppIcon name="chevron-right" :size="14" />
             </span>
           </div>
           <div class="mt-2 text-title font-semibold text-ink">
@@ -742,9 +711,7 @@ function goStudentDetail(row: StudentRow) {
               class="shrink-0 text-faint transition-all duration-150 group-hover:translate-x-0.5 group-hover:text-primary"
               aria-hidden="true"
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                <path d="m9 18 6-6-6-6" />
-              </svg>
+              <AppIcon name="chevron-right" :size="14" />
             </span>
           </div>
           <div class="mt-2 text-title font-semibold text-ink">
@@ -769,9 +736,7 @@ function goStudentDetail(row: StudentRow) {
               class="shrink-0 text-faint transition-all duration-150 group-hover:translate-x-0.5 group-hover:text-primary"
               aria-hidden="true"
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                <path d="m9 18 6-6-6-6" />
-              </svg>
+              <AppIcon name="chevron-right" :size="14" />
             </span>
           </div>
           <div class="mt-2 min-h-14">
@@ -1027,28 +992,5 @@ function goStudentDetail(row: StudentRow) {
       @close="quickOpen = false"
       @saved="onQuickSaved"
     />
-
-    <!-- 快捷记表现 Toast 提示 -->
-    <Transition name="qb-toast">
-      <div
-        v-if="toast"
-        data-test="quick-toast"
-        class="fixed inset-x-0 top-4 z-[60] mx-auto w-fit rounded-full bg-tile px-4 py-1.5 text-fine text-white shadow-lg"
-      >
-        {{ toast }}
-      </div>
-    </Transition>
   </div>
 </template>
-
-<style scoped>
-.qb-toast-enter-active,
-.qb-toast-leave-active {
-  transition: opacity 0.2s ease, transform 0.2s ease;
-}
-.qb-toast-enter-from,
-.qb-toast-leave-to {
-  opacity: 0;
-  transform: translateY(-6px);
-}
-</style>

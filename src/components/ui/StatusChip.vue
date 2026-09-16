@@ -7,7 +7,7 @@ const props = withDefaults(defineProps<{ tone?: "info" | "neutral" | "success" }
 
 const cls = computed(() => {
   if (props.tone === "success")
-    return "bg-[#e8f5ea] text-success";
+    return "bg-tag-positive-soft text-success";
   if (props.tone === "neutral") return "bg-parchment text-weak";
   return "bg-primary-soft text-primary";
 });

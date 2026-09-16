@@ -20,7 +20,7 @@
 | Agent 技术栈 | [docs/AGENT_FRAMEWORK_EVALUATION.md](docs/AGENT_FRAMEWORK_EVALUATION.md) | Rig + rmcp 双轨方案、能力清单 manifest、迁移路线 |
 | 日志 | [docs/LOGGING.md](docs/LOGGING.md) | 日志文件位置、记录点清单、新增日志写法、排查流程 |
 | 背景图库 | [docs/BACKGROUNDS.md](docs/BACKGROUNDS.md) | 首页大图/头像/课表背景：本地上传 + URL 缓存到本地、本地索引与切换、清理时机 |
-| 设计系统 | [docs/DESIGN_SYSTEM.md](docs/DESIGN_SYSTEM.md) | 颜色/字号/圆角/阴影 token 与组件规范，唯一事实源为 `src/style.css` 的 `@theme` |
+| 设计系统 | [docs/DESIGN_SYSTEM.md](docs/DESIGN_SYSTEM.md) | 颜色/字号/圆角/阴影 token、组件规范、交互基建唯一模式（弹层/确认/反馈/图标）与 design-token-guard 防退化门禁；token 唯一事实源为 `src/style.css` 的 `@theme`（图表色例外：`lib/chart-palette.ts`） |
 | 评价报告 | [docs/EVAL_REPORT.md](docs/EVAL_REPORT.md) | 作业台账（P2先行）+评价报告（P1随后）：区间聚合、AI双输出、存档打印 |
 | 桌面宠物 | [docs/DESKTOP_PET.md](docs/DESKTOP_PET.md) | 自定义宠物接入：宠物包规范、PetRuntime 适配器、Agent 事件桥、素材准备（矢量分层/分层贴图/序列帧/Live2D）、形象调试工作流 |
 

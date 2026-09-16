@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import AppButton from "./ui/AppButton.vue";
+import AppDialog from "./ui/AppDialog.vue";
+import AppIcon from "./ui/AppIcon.vue";
 import AppInput from "./ui/AppInput.vue";
 import AppLink from "./ui/AppLink.vue";
 import { STATUS_LABEL } from "../types";
@@ -174,12 +176,35 @@ function onClassFieldMouseDown(e: MouseEvent) {
   }
 }
 
-function onClassFieldKeydown(e: KeyboardEvent) {
-  if (e.key === "Escape") classMenuOpen.value = false;
-}
-
 onMounted(() => document.addEventListener("mousedown", onClassFieldMouseDown));
 onBeforeUnmount(() => document.removeEventListener("mousedown", onClassFieldMouseDown));
+
+/* ---------------- Esc 守卫：班级候选菜单展开时，第一下 Esc 只收菜单 ---------------- */
+
+/** 弹窗内容根：判定 Esc 落点是否在本弹窗内（嵌套弹层在上时不抢栈顶的 Esc） */
+const contentRoot = ref<HTMLElement | null>(null);
+
+/**
+ * 候选菜单可见时 Esc 不出弹窗：window 捕获先于 AppDialog 的 document 捕获，
+ * 在这里拦断传播并收起菜单；菜单收起后再按 Esc 才轮到 AppDialog 关弹窗。
+ */
+function onWindowKeydownCapture(e: KeyboardEvent) {
+  if (e.key !== "Escape" || !classMenuOpen.value || classCandidates.value.length === 0) return;
+  const target = e.target;
+  if (!(target instanceof Node) || !contentRoot.value?.contains(target)) return;
+  e.stopPropagation();
+  classMenuOpen.value = false;
+}
+
+watch(
+  () => props.open,
+  (open) => {
+    if (open) window.addEventListener("keydown", onWindowKeydownCapture, true);
+    else window.removeEventListener("keydown", onWindowKeydownCapture, true);
+  },
+  { immediate: true }
+);
+onBeforeUnmount(() => window.removeEventListener("keydown", onWindowKeydownCapture, true));
 
 watch(
   [() => props.open, () => props.initial],
@@ -301,19 +326,26 @@ function submit() {
 </script>
 
 <template>
-  <div
-    v-if="props.open"
-    class="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-8"
-    @click.self="emit('close')"
+  <!-- AppDialog 壳：遮罩 / Esc / 焦点圈定 / 过渡由壳承担；宽度按规格归档 md（原 720px 表单弹窗） -->
+  <AppDialog
+    :open="open"
+    :title="title"
+    width="md"
+    class="scroll-thin max-h-[92vh] overflow-y-auto"
+    @close="emit('close')"
   >
-    <div class="scroll-thin flex max-h-[92vh] w-[720px] max-w-full flex-col rounded-lg bg-canvas p-6 shadow-window overflow-y-auto">
-      <div class="mb-5 flex shrink-0 items-center justify-between">
-        <h2 class="text-tagline font-semibold text-ink">{{ props.title }}</h2>
-        <button type="button" class="inline-flex items-center text-caption text-weak hover:text-ink" @click="emit('close')">
-          关闭
-        </button>
-      </div>
+    <!-- 关闭 ✕：对齐面板右上角（原标题行「关闭」文字按钮统一为图标） -->
+    <button
+      type="button"
+      class="absolute right-6 top-6 flex h-6 w-6 items-center justify-center rounded-sm text-weak transition-colors hover:bg-parchment hover:text-ink"
+      aria-label="关闭"
+      @click="emit('close')"
+    >
+      <AppIcon name="close" :size="16" />
+    </button>
 
+    <!-- 内容根：兼作 Esc 守卫的落点判定范围 -->
+    <div ref="contentRoot" class="mt-5">
       <div class="grid grid-cols-2 gap-4">
         <label class="space-y-1.5">
           <span class="text-fine text-weak">姓名</span>
@@ -367,12 +399,11 @@ function submit() {
                 placeholder="输入或选择已有班级"
                 @focus="classMenuOpen = true"
                 @input="classMenuOpen = true"
-                @keydown="onClassFieldKeydown"
               />
-              <svg class="shrink-0" width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <svg class="shrink-0 text-weak" width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                 <path
                   d="M6 9l6 6 6-6"
-                  stroke="#7a7a7a"
+                  stroke="currentColor"
                   stroke-width="2"
                   stroke-linecap="round"
                   stroke-linejoin="round"
@@ -591,10 +622,10 @@ function submit() {
 
       <p v-if="error" class="mt-4 text-caption text-danger">{{ error }}</p>
 
-      <div class="mt-6 flex shrink-0 justify-end gap-3">
+      <div class="mt-6 flex justify-end gap-3">
         <AppButton variant="pearl" @click="emit('close')">取消</AppButton>
         <AppButton @click="submit">保存</AppButton>
       </div>
     </div>
-  </div>
+  </AppDialog>
 </template>

@@ -2,10 +2,14 @@
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import AppButton from "../components/ui/AppButton.vue";
 import AppCard from "../components/ui/AppCard.vue";
+import AppDialog from "../components/ui/AppDialog.vue";
+import AppIcon from "../components/ui/AppIcon.vue";
 import AppIconButton from "../components/ui/AppIconButton.vue";
 import AppInput from "../components/ui/AppInput.vue";
 import EmptyState from "../components/ui/EmptyState.vue";
 import ModelSwitcher from "../components/ui/ModelSwitcher.vue";
+import { confirmAction } from "../composables/useConfirm";
+import { useToast } from "../composables/useToast";
 import {
   AI_PROVIDERS,
   aiErrorMessage,
@@ -90,16 +94,9 @@ const activeProfile = computed(
 );
 const aiReady = computed(() => (activeProfile.value ? isAiConfigured(activeProfile.value) : false));
 
-/** 操作结果提示（保存 / 切换 / 删除），几秒后自动消失 */
-const savedMsg = ref("");
+/** 全局轻反馈：保存 / 切换 / 删除的结果统一顶部 toast（成功场景 success tone） */
+const toast = useToast();
 const switchError = ref("");
-let savedTimer: ReturnType<typeof setTimeout> | undefined;
-
-function flashSaved(msg: string) {
-  savedMsg.value = msg;
-  clearTimeout(savedTimer);
-  savedTimer = setTimeout(() => (savedMsg.value = ""), 4000);
-}
 
 function isActive(p: AiProfile): boolean {
   return activeProfile.value?.id === p.id;
@@ -130,7 +127,7 @@ function onSwitchProfile(p: AiProfile) {
     return;
   }
   profilesState.value = setActiveAiProfile(p.id);
-  flashSaved(`已切换到「${p.name || p.model}」`);
+  toast(`已切换到「${p.name || p.model}」`, { tone: "success" });
 }
 
 /** 切换胶囊里的「管理模型方案」：列表就在本页，滚过去即可 */
@@ -142,26 +139,30 @@ const listEl = ref<HTMLElement | null>(null);
 
 /* ---- 行内「⋯」菜单：编辑 / 删除 ---- */
 const rowMenuId = ref("");
-const confirmDeleteId = ref("");
 
 function toggleRowMenu(id: string) {
   rowMenuId.value = rowMenuId.value === id ? "" : id;
 }
 
-function onRequestDelete(p: AiProfile) {
+/** 删除方案：统一走全局危险确认弹层（行内两步确认已退役） */
+async function onRequestDelete(p: AiProfile) {
   rowMenuId.value = "";
-  confirmDeleteId.value = p.id;
-}
-
-function onConfirmDelete(p: AiProfile) {
+  const label = p.name || p.model;
+  const ok = await confirmAction({
+    title: `删除「${label}」？`,
+    message: "删除后不可恢复。",
+    tone: "danger",
+    confirmText: "删除",
+  });
+  if (!ok) return;
   const wasActive = isActive(p);
   profilesState.value = deleteAiProfile(p.id);
-  confirmDeleteId.value = "";
   const next = profilesState.value.profiles.find((x) => x.id === profilesState.value.activeId);
-  flashSaved(
+  toast(
     wasActive && next
-      ? `已删除「${p.name || p.model}」，当前方案换为「${next.name || next.model}」`
-      : `已删除「${p.name || p.model}」`
+      ? `已删除「${label}」，当前方案换为「${next.name || next.model}」`
+      : `已删除「${label}」`,
+    { tone: "success" }
   );
 }
 
@@ -174,7 +175,6 @@ function onDocClick(e: MouseEvent) {
 onMounted(() => document.addEventListener("click", onDocClick));
 onBeforeUnmount(() => {
   document.removeEventListener("click", onDocClick);
-  clearTimeout(savedTimer);
 });
 
 /* ---- 添加 / 编辑弹窗 ---- */
@@ -281,7 +281,9 @@ function onSaveModal() {
       showApiKey.value = false;
       profilesState.value = loadAiProfiles();
       modalOpen.value = false;
-      flashSaved(result === "verified" ? "已保存，校验通过" : "已保存（浏览器演示态不联网，未校验）");
+      toast(result === "verified" ? "已保存，校验通过" : "已保存（浏览器演示态不联网，未校验）", {
+        tone: "success",
+      });
     })
     .catch((err) => {
       // 校验不过不落盘，把原因亮出来
@@ -302,7 +304,12 @@ async function refresh() {
 onMounted(refresh);
 
 async function onClear() {
-  const ok = window.confirm("将清空全部学生与图片记录，且无法撤销。确认继续？");
+  const ok = await confirmAction({
+    title: "清空全部数据",
+    message: "将清空全部学生与图片记录，且无法撤销。",
+    tone: "danger",
+    confirmText: "清空",
+  });
   if (!ok) return;
   await clearAll();
   // 背景图库是本地索引 + 缓存文件，清数据时一并清掉，避免留下孤儿文件
@@ -338,9 +345,6 @@ async function onClear() {
           </div>
         </div>
 
-        <p v-if="savedMsg" data-test="ai-saved" class="mb-3 text-caption text-success">
-          {{ savedMsg }}
-        </p>
         <p v-if="switchError" data-test="ai-switch-error" class="mb-3 text-caption text-danger" role="alert">
           {{ switchError }}
         </p>
@@ -385,18 +389,7 @@ async function onClear() {
               <p class="mt-0.5 truncate text-caption text-weak">{{ profileMeta(p) }}</p>
             </div>
 
-            <!-- 删除二次确认：确认行原地替换操作区 -->
-            <div v-if="confirmDeleteId === p.id" class="flex shrink-0 items-center gap-2" data-test="ai-profile-confirm">
-              <span class="whitespace-nowrap text-caption text-danger">删除后不可恢复</span>
-              <AppButton variant="danger" data-test="ai-profile-del-confirm" @click="onConfirmDelete(p)">
-                删除
-              </AppButton>
-              <AppButton variant="pearl" data-test="ai-profile-del-cancel" @click="confirmDeleteId = ''">
-                取消
-              </AppButton>
-            </div>
-
-            <div v-else class="flex shrink-0 items-center gap-2">
+            <div class="flex shrink-0 items-center gap-2">
               <AppButton
                 v-if="!isActive(p)"
                 :variant="missingKey(p) ? 'pearl' : 'secondary'"
@@ -441,38 +434,33 @@ async function onClear() {
         </p>
       </AppCard>
 
-      <!-- 添加 / 编辑方案弹窗 -->
-      <div
-        v-if="modalOpen"
+      <!-- 添加 / 编辑方案弹窗：统一 AppDialog 壳（遮罩 / Esc / 焦点圈定由壳负责） -->
+      <AppDialog
+        :open="modalOpen"
+        :title="editingId ? '编辑模型' : '添加模型'"
+        width="md"
         data-test="ai-modal"
-        class="fixed inset-0 z-50 flex items-center justify-center bg-ink/45 p-6 backdrop-blur-sm"
-        @click.self="closeModal"
+        class="scroll-thin max-h-[calc(100vh-64px)] overflow-y-auto"
+        @close="closeModal"
       >
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="ai-modal-title"
-          class="scroll-thin max-h-[calc(100vh-64px)] w-[560px] overflow-y-auto rounded-lg bg-canvas p-6 shadow-window"
-        >
-          <div class="mb-1 flex items-center justify-between">
-            <h3 id="ai-modal-title" class="text-tagline font-semibold text-ink">
-              {{ editingId ? "编辑模型" : "添加模型" }}
-            </h3>
-            <AppIconButton label="关闭" @click="closeModal">✕</AppIconButton>
-          </div>
-          <p class="mb-4 text-caption text-weak">每个方案独立保存供应商、模型与密钥，互不影响。</p>
+        <!-- 原弹窗标题行右上角的关闭入口：壳不自带，保留在面板右上角 -->
+        <AppIconButton label="关闭" class="absolute right-4 top-4" @click="closeModal">
+          <AppIcon name="close" :size="14" />
+        </AppIconButton>
+        <p class="mt-3 mb-4 text-caption text-weak">每个方案独立保存供应商、模型与密钥，互不影响。</p>
 
-          <div class="space-y-4">
-            <div>
-              <label class="mb-1.5 block text-fine text-weak" for="ai-name">模型名称</label>
-              <input
-                id="ai-name"
-                v-model="form.name"
-                data-test="ai-name"
-                class="h-9 w-full rounded-sm border border-hairline bg-canvas px-3 text-caption text-ink outline-none transition-colors placeholder:text-weak focus:border-primary-focus"
-                placeholder="如：DeepSeek 日常主力 / 本地 Ollama 离线备用"
-              />
-            </div>
+        <div class="space-y-4">
+          <div>
+            <label class="mb-1.5 block text-fine text-weak" for="ai-name">模型名称</label>
+            <input
+              id="ai-name"
+              v-model="form.name"
+              data-test="ai-name"
+              autofocus
+              class="h-9 w-full rounded-sm border border-hairline bg-canvas px-3 text-caption text-ink outline-none transition-colors placeholder:text-weak focus:border-primary-focus"
+              placeholder="如：DeepSeek 日常主力 / 本地 Ollama 离线备用"
+            />
+          </div>
 
             <div>
               <label class="mb-1.5 block text-fine text-weak" for="ai-provider">供应商</label>
@@ -625,8 +613,7 @@ async function onClear() {
               {{ isTauri() ? "桌面端即刻可用。" : "浏览器演示态下不会真实联网。" }}
             </p>
           </div>
-        </div>
-      </div>
+      </AppDialog>
 
       <AppCard>
         <h3 class="mb-1 text-body font-semibold text-ink">必应壁纸</h3>

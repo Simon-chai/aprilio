@@ -5,6 +5,8 @@
  */
 import { computed, ref, watch } from "vue";
 import AppButton from "./ui/AppButton.vue";
+import AppDialog from "./ui/AppDialog.vue";
+import { confirmAction } from "../composables/useConfirm";
 import {
   addHomeworkRecord,
   deleteHomeworkRecord,
@@ -113,7 +115,13 @@ async function onSave() {
 }
 
 async function onDelete(record: StudentHomeworkRecord) {
-  if (!window.confirm(`删除 ${record.homework_date} ${record.subject} 这条作业记录？`)) return;
+  const ok = await confirmAction({
+    title: "删除作业记录",
+    message: `删除 ${record.homework_date} ${record.subject} 这条作业记录？`,
+    tone: "danger",
+    confirmText: "删除",
+  });
+  if (!ok) return;
   await deleteHomeworkRecord(record.id);
   setMessage("已删除");
   await refresh();
@@ -159,73 +167,74 @@ async function onDelete(record: StudentHomeworkRecord) {
       </div>
     </div>
 
-    <div
-      v-if="dialogOpen"
-      class="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4"
+    <!-- 作业记录表单弹窗：统一 AppDialog 壳（遮罩 / Esc / 焦点圈定由壳负责） -->
+    <AppDialog
+      :open="dialogOpen"
+      :title="editing ? '编辑作业' : '记作业'"
+      width="sm"
       data-test="homework-dialog"
+      @close="dialogOpen = false"
     >
-      <div class="w-full max-w-md rounded-lg bg-canvas p-5">
-        <h3 class="text-body font-semibold text-ink">{{ editing ? "编辑作业" : "记作业" }}</h3>
-        <div class="mt-4 space-y-3">
-          <label class="block text-caption text-weak">
-            日期
-            <input
-              v-model="form.homework_date"
-              type="date"
-              data-test="homework-date"
-              class="mt-1 h-9 w-full rounded-md border border-hairline bg-canvas px-2 text-caption text-ink outline-none focus:border-primary-focus"
-            />
-          </label>
-          <label class="block text-caption text-weak">
-            科目
-            <input
-              v-model="form.subject"
-              type="text"
-              placeholder="如 语文 / 数学"
-              data-test="homework-subject"
-              class="mt-1 h-9 w-full rounded-md border border-hairline bg-canvas px-2 text-caption text-ink outline-none focus:border-primary-focus"
-            />
-          </label>
-          <label class="block text-caption text-weak">
-            状态
-            <select
-              v-model="form.status"
-              data-test="homework-status"
-              class="mt-1 h-9 w-full rounded-md border border-hairline bg-canvas px-2 text-caption text-ink outline-none focus:border-primary-focus"
-            >
-              <option v-for="s in STATUS_OPTIONS" :key="s" :value="s">
-                {{ HOMEWORK_STATUS_LABEL[s] }}
-              </option>
-            </select>
-          </label>
-          <label class="block text-caption text-weak">
-            分数（可空，0~100）
-            <input
-              v-model="form.scoreText"
-              type="number"
-              min="0"
-              max="100"
-              placeholder="可空"
-              data-test="homework-score"
-              class="mt-1 h-9 w-full rounded-md border border-hairline bg-canvas px-2 text-caption text-ink outline-none focus:border-primary-focus"
-            />
-          </label>
-          <label class="block text-caption text-weak">
-            备注（可空，≤200字）
-            <input
-              v-model="form.comment"
-              type="text"
-              placeholder="如 书写工整、有两道错题"
-              data-test="homework-comment"
-              class="mt-1 h-9 w-full rounded-md border border-hairline bg-canvas px-2 text-caption text-ink outline-none focus:border-primary-focus"
-            />
-          </label>
-        </div>
-        <div class="mt-5 flex justify-end gap-2">
-          <AppButton variant="secondary" @click="dialogOpen = false">取消</AppButton>
-          <AppButton data-test="save-homework-btn" @click="onSave">保存</AppButton>
-        </div>
+      <div class="mt-4 space-y-3">
+        <label class="block text-caption text-weak">
+          日期
+          <input
+            v-model="form.homework_date"
+            type="date"
+            data-test="homework-date"
+            class="mt-1 h-9 w-full rounded-md border border-hairline bg-canvas px-2 text-caption text-ink outline-none focus:border-primary-focus"
+          />
+        </label>
+        <label class="block text-caption text-weak">
+          科目
+          <input
+            v-model="form.subject"
+            type="text"
+            placeholder="如 语文 / 数学"
+            data-test="homework-subject"
+            autofocus
+            class="mt-1 h-9 w-full rounded-md border border-hairline bg-canvas px-2 text-caption text-ink outline-none focus:border-primary-focus"
+          />
+        </label>
+        <label class="block text-caption text-weak">
+          状态
+          <select
+            v-model="form.status"
+            data-test="homework-status"
+            class="mt-1 h-9 w-full rounded-md border border-hairline bg-canvas px-2 text-caption text-ink outline-none focus:border-primary-focus"
+          >
+            <option v-for="s in STATUS_OPTIONS" :key="s" :value="s">
+              {{ HOMEWORK_STATUS_LABEL[s] }}
+            </option>
+          </select>
+        </label>
+        <label class="block text-caption text-weak">
+          分数（可空，0~100）
+          <input
+            v-model="form.scoreText"
+            type="number"
+            min="0"
+            max="100"
+            placeholder="可空"
+            data-test="homework-score"
+            class="mt-1 h-9 w-full rounded-md border border-hairline bg-canvas px-2 text-caption text-ink outline-none focus:border-primary-focus"
+          />
+        </label>
+        <label class="block text-caption text-weak">
+          备注（可空，≤200字）
+          <input
+            v-model="form.comment"
+            type="text"
+            placeholder="如 书写工整、有两道错题"
+            data-test="homework-comment"
+            class="mt-1 h-9 w-full rounded-md border border-hairline bg-canvas px-2 text-caption text-ink outline-none focus:border-primary-focus"
+          />
+        </label>
       </div>
-    </div>
+      <div class="mt-5 flex justify-end gap-2">
+        <AppButton variant="secondary" @click="dialogOpen = false">取消</AppButton>
+        <AppButton data-test="save-homework-btn" @click="onSave">保存</AppButton>
+      </div>
+    </AppDialog>
   </div>
 </template>

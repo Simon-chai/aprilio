@@ -2,11 +2,15 @@ import { flushPromises, mount } from "@vue/test-utils";
 import { createMemoryHistory, createRouter } from "vue-router";
 import { beforeEach, describe, expect, it } from "vitest";
 import StudentDetailView from "../src/views/StudentDetailView.vue";
+import ToastHost from "../src/components/ui/ToastHost.vue";
+import { useToastState } from "../src/composables/useToast";
 import { addBehaviorRecord } from "../src/lib/db";
 
 describe("StudentDetailView behavior tab integration", () => {
   beforeEach(() => {
     document.body.innerHTML = "";
+    // toast 队列是模块级单例：用例间清空，避免跨用例串味
+    useToastState().clearAll();
   });
 
   function createTestRouter() {
@@ -96,6 +100,8 @@ describe("StudentDetailView behavior tab integration", () => {
     const wrapper = mount(StudentDetailView, {
       global: { plugins: [router] },
     });
+    // toast 迁到全局 ToastHost（App.vue 常驻）：测试内手动挂宿主读取单例队列
+    const host = mount(ToastHost);
     await flushPromises();
 
     const addBtn = wrapper.find("[data-test='quick-behavior-btn']");
@@ -111,12 +117,12 @@ describe("StudentDetailView behavior tab integration", () => {
     document.body.querySelector<HTMLElement>("[data-test='save-btn']")!.click();
     await flushPromises();
 
-    const toast = wrapper.find("[data-test='quick-toast']");
-    expect(toast.exists()).toBe(true);
+    const toast = host.get("[data-test='quick-toast']");
     expect(toast.text()).toContain("已记录 林知远");
     expect(wrapper.text()).toContain("积极举手回答问题");
 
     wrapper.unmount();
+    host.unmount();
   });
 
   it("removes a behavior record via timeline delete event and shows toast", async () => {
@@ -137,6 +143,7 @@ describe("StudentDetailView behavior tab integration", () => {
     const wrapper = mount(StudentDetailView, {
       global: { plugins: [router] },
     });
+    const host = mount(ToastHost);
     await flushPromises();
 
     const timeline = wrapper.findComponent({ name: "StudentBehaviorTimeline" });
@@ -146,10 +153,10 @@ describe("StudentDetailView behavior tab integration", () => {
 
     // 记录已被删除：界面不再展示该评语，且出现删除 toast
     expect(wrapper.text()).not.toContain("待删除的学生档案评语");
-    const toast = wrapper.find("[data-test='quick-toast']");
-    expect(toast.exists()).toBe(true);
+    const toast = host.get("[data-test='quick-toast']");
     expect(toast.text()).toContain("已删除该条表现记录");
 
     wrapper.unmount();
+    host.unmount();
   });
 });

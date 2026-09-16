@@ -1,6 +1,8 @@
 import { flushPromises, mount } from "@vue/test-utils";
 import { beforeEach, describe, expect, it } from "vitest";
 import StudentTable from "../src/components/StudentTable.vue";
+import ToastHost from "../src/components/ui/ToastHost.vue";
+import { useToastState } from "../src/composables/useToast";
 import type { StudentRow } from "../src/types";
 
 const makeRow = (over: Partial<StudentRow> = {}): StudentRow => ({
@@ -24,6 +26,8 @@ const makeRow = (over: Partial<StudentRow> = {}): StudentRow => ({
 beforeEach(() => {
   // 快捷卡片 Teleport 到 body，测试间清理残留
   document.body.innerHTML = "";
+  // toast 队列是模块级单例：用例间清空，避免跨用例串味
+  useToastState().clearAll();
 });
 
 describe("StudentTable.vue quick record integration", () => {
@@ -56,6 +60,8 @@ describe("StudentTable.vue quick record integration", () => {
 
   it("shows a toast after saving a quick record", async () => {
     const w = mount(StudentTable, { props: { rows: [makeRow()] } });
+    // toast 迁到全局 ToastHost（App.vue 常驻）：测试内手动挂宿主读取单例队列
+    const host = mount(ToastHost);
 
     await w.get("[data-test='quick-record-btn']").trigger("click");
     await flushPromises();
@@ -69,10 +75,9 @@ describe("StudentTable.vue quick record integration", () => {
     document.body.querySelector<HTMLElement>("[data-test='save-btn']")!.click();
     await flushPromises();
 
-    // Toast 在 StudentTable 自身模板里（非 Teleport），从 wrapper 内查
-    const toast = w.find("[data-test='quick-toast']");
-    expect(toast.exists()).toBe(true);
+    const toast = host.get("[data-test='quick-toast']");
     expect(toast.text()).toContain("已记录 陈嘉树 作业情况");
     w.unmount();
+    host.unmount();
   });
 });

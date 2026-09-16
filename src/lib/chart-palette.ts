@@ -17,3 +17,17 @@ export const CHART_PALETTE = [
 export function chartColorOf(index: number): string {
   return CHART_PALETTE[((index % CHART_PALETTE.length) + CHART_PALETTE.length) % CHART_PALETTE.length];
 }
+
+/* —— 图表骨架色：canvas 读不到 CSS var，图表色以本文件为唯一事实源 —— */
+
+/** 图表主色（选中参考线 / 迷你走势折线），与 @theme 的 --color-primary 同值 */
+export const CHART_PRIMARY = "#0066cc";
+
+/** 图表弱化文字（纵轴刻度 / 班级均分参照线），与 @theme 的 --color-weak 同值 */
+export const CHART_TEXT_WEAK = "#7a7a7a";
+
+/** 坐标轴网格线（ScoreLineChart 纵向刻度线） */
+export const CHART_AXIS_LINE = "#e5e5e7";
+
+/** 坐标轴次要文字（横轴日期副标签） */
+export const CHART_AXIS_TEXT = "#a1a1a6";

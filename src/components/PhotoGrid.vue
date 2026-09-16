@@ -31,10 +31,10 @@ const emit = defineEmits<{ add: []; remove: [photo: Photo] }>();
           title="删除这张图片"
           @click="emit('remove', photo)"
         >
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+          <svg class="text-danger" width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
             <path
               d="M2.5 4h9M5.5 4V2.8h3V4M3.6 4l.5 7.2h5.8L10.4 4M6 6v3.4M8 6v3.4"
-              stroke="#d70015"
+              stroke="currentColor"
               stroke-width="1.3"
               stroke-linecap="round"
               stroke-linejoin="round"
@@ -54,8 +54,8 @@ const emit = defineEmits<{ add: []; remove: [photo: Photo] }>();
       class="flex h-[132px] flex-col items-center justify-center gap-1.5 rounded-sm border border-dashed border-hairline bg-pearl text-primary transition-colors hover:bg-parchment"
       @click="emit('add')"
     >
-      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-        <path d="M10 4.5V15.5M4.5 10H15.5" stroke="#0066cc" stroke-width="1.8" stroke-linecap="round" />
+      <svg class="text-primary" width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+        <path d="M10 4.5V15.5M4.5 10H15.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
       </svg>
       <span class="text-fine">添加图片</span>
     </button>

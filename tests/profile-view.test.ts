@@ -26,9 +26,17 @@ const profileMocks = vi.hoisted(() => {
 
 vi.mock("../src/lib/profile", () => profileMocks);
 
+// 未保存离开确认走全局 confirmAction 弹层：mock 掉宿主交互，直接给出确认结果
+vi.mock("../src/composables/useConfirm", () => ({
+  confirmAction: vi.fn(),
+}));
+
 import ProfileView from "../src/views/ProfileView.vue";
 import BackgroundPickerDialog from "../src/components/BackgroundPickerDialog.vue";
+import { confirmAction } from "../src/composables/useConfirm";
 import { DEFAULT_PROFILE, PROFILE_TITLES, type Profile } from "../src/types";
+
+const mockConfirm = vi.mocked(confirmAction);
 
 const mountedHosts: VueWrapper[] = [];
 
@@ -111,6 +119,8 @@ beforeEach(() => {
     .mockImplementation(async (next: Profile) => {
       profileMocks.profile.value = { ...next };
     });
+  // 未设置返回值时 confirmAction 解析为 undefined（falsy = 拦截离开），对齐原生 confirm 在 jsdom 的默认行为
+  mockConfirm.mockReset();
 });
 
 afterEach(() => {
@@ -474,14 +484,16 @@ describe("profile editor", () => {
     });
     await startLibraryUpload(wrapper);
 
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    // 未保存离开确认：取消 → 拦截导航，挂起的选图保留
+    mockConfirm.mockResolvedValue(false);
     await router.push("/other");
     expect(router.currentRoute.value.path).toBe("/profile");
     expect(profileMocks.discardSelectedProfileImage).not.toHaveBeenCalled();
     expect(wrapper.get("#profile-name").attributes("disabled")).toBeUndefined();
     expect(changeButtonOf(wrapper).attributes("disabled")).toBeUndefined();
 
-    confirm.mockReturnValue(true);
+    // 确认离开 → 放行，卸载清理挂起的选图
+    mockConfirm.mockResolvedValue(true);
     await router.push("/other");
     await flushPromises();
     expect(router.currentRoute.value.path).toBe("/other");
@@ -658,11 +670,12 @@ describe("profile editor", () => {
     await startLibraryUpload(wrapper);
     await wrapper.get("#profile-name").setValue("Pending draft");
 
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    // 未保存离开确认放行，但目标路由自身 beforeEnter 拦截 → 仍留在本页且草稿完好
+    mockConfirm.mockResolvedValue(true);
     await router.push("/blocked");
     await flushPromises();
 
-    expect(confirm).toHaveBeenCalledOnce();
+    expect(mockConfirm).toHaveBeenCalledOnce();
     expect(router.currentRoute.value.path).toBe("/profile");
     expect(profileMocks.discardSelectedProfileImage).not.toHaveBeenCalled();
     expect(wrapper.findAll("img")[2].attributes("src")).toBe("pending-avatar.png");

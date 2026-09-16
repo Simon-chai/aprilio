@@ -6,6 +6,13 @@
  */
 
 /**
+ * cropperjs canvas 填充色（纯白）：裁剪导出 JPEG 时选区外的透明区域用它铺底。
+ * 非样式 token——canvas API 读不到 CSS var，图表色走 chart-palette.ts 同理；
+ * .ts 文件不在 design-token-guard 扫描范围，色值集中登记在本文件。
+ */
+export const CROP_FILL_COLOR = "#ffffff";
+
+/**
  * 把图片文件读成 dataURL。
  * @param max 长边上限（px），超过则等比缩小
  * @param square 是否居中裁成正方（头像用，避免拉伸）

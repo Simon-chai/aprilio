@@ -3,11 +3,15 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { RouterLink, useRouter } from "vue-router";
 import AppButton from "../components/ui/AppButton.vue";
 import AppIconButton from "../components/ui/AppIconButton.vue";
+import AppIcon from "../components/ui/AppIcon.vue";
+import ConfirmDialog from "../components/ui/ConfirmDialog.vue";
+import EmptyState from "../components/ui/EmptyState.vue";
 import ClassFormDialog, { type ClassFormValue } from "../components/ClassFormDialog.vue";
 import StudentFormDialog from "../components/StudentFormDialog.vue";
 import ImportRosterDialog from "../components/ImportRosterDialog.vue";
 import ImportScoreDialog from "../components/ImportScoreDialog.vue";
 import { getPhotosDir, photoUrl } from "../lib/photos";
+import { confirmAction } from "../composables/useConfirm";
 import { onPageAction } from "../agent/page-action-bus";
 import { clearPageContext, reportPageContext } from "../agent/page-context-bus";
 import type { ImportRosterMode } from "../agent/page-actions/classes-import-roster";
@@ -54,8 +58,6 @@ const renameDialogOpen = ref(false);
 const renamingClassName = ref<string | null>(null);
 const deleteDialogOpen = ref(false);
 const deletingClassName = ref<string | null>(null);
-const archiveDialogOpen = ref(false);
-const archivingClassName = ref<string | null>(null);
 /** 列表筛选：在用班级 / 历史带过的班 */
 const classTab = ref<"active" | "archived">("active");
 
@@ -226,21 +228,16 @@ async function handleRenameClass(value: ClassFormValue) {
   await refresh();
 }
 
-function openArchiveDialog(name: string) {
-  archivingClassName.value = name;
-  archiveDialogOpen.value = true;
-}
-
-function closeArchiveDialog() {
-  archiveDialogOpen.value = false;
-  archivingClassName.value = null;
-}
-
-async function handleArchiveClass() {
-  const name = archivingClassName.value;
-  if (!name) return;
+/** 归档确认（命令式弹层）：确认后移入「历史带过的班」，数据只读保留（与班级详情页同一文案模板） */
+async function handleArchiveClass(name: string) {
+  const ok = await confirmAction({
+    title: `归档班级「${name}」`,
+    message:
+      "归档后，班级会从「在用班级」移出，进入「历史带过的班」；学生、成绩、表现、照片、评语与课表全部保留，只读可查，随时可以恢复。",
+    confirmText: "归档",
+  });
+  if (!ok) return;
   await archiveClass(name);
-  closeArchiveDialog();
   await refresh();
 }
 
@@ -280,15 +277,7 @@ async function handleDeleteClass(recreate: boolean) {
         to="/home"
         class="flex items-center gap-1.5 transition-transform active:scale-[0.95]"
       >
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path
-            d="M15 5l-7 7 7 7"
-            stroke="#0066cc"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          />
-        </svg>
+        <AppIcon name="arrow-left" :size="20" class="text-primary" />
         <span class="text-body text-primary">首页</span>
       </RouterLink>
     </header>
@@ -369,15 +358,7 @@ async function handleDeleteClass(recreate: boolean) {
           >
             <div class="flex items-center gap-4">
               <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-[11px] bg-parchment">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                  <rect x="4" y="7" width="16" height="13" rx="2" stroke="#0066cc" stroke-width="1.8" />
-                  <path
-                    d="M12 7V4.5M12 4.5l7 2.5-7 2.5L5 7l7-2.5z"
-                    stroke="#0066cc"
-                    stroke-width="1.8"
-                    stroke-linejoin="round"
-                  />
-                </svg>
+                <AppIcon name="podium" :size="24" class="text-primary" />
               </div>
               <!-- 班级名 + 简略信息独占一列，名称本身即改名入口（低频操作不占版面） -->
               <div class="min-w-0 flex-1">
@@ -392,13 +373,11 @@ async function handleDeleteClass(recreate: boolean) {
                     <span class="truncate text-tagline font-semibold -tracking-[0.3px] text-ink transition-colors group-hover/name:text-primary">
                       {{ g.name }}
                     </span>
-                    <svg
+                    <AppIcon
+                      name="edit"
+                      :size="12"
                       class="shrink-0 text-faint opacity-0 transition-opacity duration-150 group-hover/name:opacity-100"
-                      width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"
-                    >
-                      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                    </svg>
+                    />
                     <!-- 悬浮说明：WebView 原生 title 不可靠，自绘 tooltip -->
                     <span
                       role="tooltip"
@@ -425,11 +404,7 @@ async function handleDeleteClass(recreate: boolean) {
                   data-test="card-menu-btn"
                   @click.stop.prevent="toggleCardMenu(g.name)"
                 >
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                    <circle cx="5" cy="12" r="1.7" />
-                    <circle cx="12" cy="12" r="1.7" />
-                    <circle cx="19" cy="12" r="1.7" />
-                  </svg>
+                  <AppIcon name="more-horiz" :size="15" />
                 </AppIconButton>
                 <div
                   v-if="cardMenuFor === g.name"
@@ -441,12 +416,9 @@ async function handleDeleteClass(recreate: boolean) {
                     type="button"
                     data-test="card-menu-archive"
                     class="inline-flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-caption text-muted transition-colors hover:bg-pearl hover:text-ink"
-                    @click.stop.prevent="closeCardMenu(); openArchiveDialog(g.name)"
+                    @click.stop.prevent="closeCardMenu(); handleArchiveClass(g.name)"
                   >
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                      <rect x="3" y="4" width="18" height="4" rx="1" />
-                      <path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4" />
-                    </svg>
+                    <AppIcon name="archive" :size="13" />
                     归档班级
                   </button>
                   <button
@@ -455,10 +427,7 @@ async function handleDeleteClass(recreate: boolean) {
                     class="inline-flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-caption text-danger transition-colors hover:bg-danger-soft"
                     @click.stop.prevent="closeCardMenu(); openDeleteDialog(g.name)"
                   >
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                      <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                      <path d="M10 11v6M14 11v6" />
-                    </svg>
+                    <AppIcon name="trash" :size="13" />
                     删除班级
                   </button>
                 </div>
@@ -481,9 +450,7 @@ async function handleDeleteClass(recreate: boolean) {
                 class="flex items-center gap-1 text-caption text-primary transition-transform duration-150 group-hover:translate-x-0.5"
               >
                 进入班级
-                <svg width="11" height="11" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                  <path d="M6 3.5l4.5 4.5L6 12.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
-                </svg>
+                <AppIcon name="chevron-right" :size="11" />
               </span>
               <button
                 v-else
@@ -499,13 +466,17 @@ async function handleDeleteClass(recreate: boolean) {
         </div>
       </div>
 
-      <p v-else-if="classTab === 'archived'" class="mt-10 text-caption text-weak">
-        还没有归档的班级。归档后，班级会从「在用班级」移到这里，数据只读保留、可随时恢复。
-      </p>
+      <EmptyState
+        v-else-if="classTab === 'archived'"
+        title="还没有归档的班级"
+        description="归档后，班级会从「在用班级」移到这里，数据只读保留、可随时恢复"
+      />
 
-      <p v-else class="mt-10 text-caption text-weak">
-        还没有学生记录 —— 点击「导入花名册」图标批量建档，或进入班级后手动添加学生。
-      </p>
+      <EmptyState
+        v-else
+        title="还没有学生记录"
+        description="点击「导入花名册」图标批量建档，或进入班级后手动添加学生"
+      />
 
       <!-- 最近记录 -->
       <template v-if="recent.length">
@@ -528,25 +499,7 @@ async function handleDeleteClass(recreate: boolean) {
               v-else
               class="flex h-[180px] w-full items-center justify-center rounded-sm bg-parchment"
             >
-              <svg width="28" height="28" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                <rect
-                  x="1.8"
-                  y="2.8"
-                  width="12.4"
-                  height="10.4"
-                  rx="2.2"
-                  stroke="#cccccc"
-                  stroke-width="1.4"
-                />
-                <circle cx="5.7" cy="6.3" r="1.15" fill="#cccccc" />
-                <path
-                  d="M2.3 11.7l3.4-3.2 2.6 2.4 2.4-2.2 3 2.9"
-                  stroke="#cccccc"
-                  stroke-width="1.4"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                />
-              </svg>
+              <AppIcon name="photo" :size="28" class="text-faint" />
             </div>
             <p class="mt-3 text-caption font-semibold text-ink">{{ r.title }}</p>
             <p class="mt-0.5 text-fine text-weak">{{ r.time }}</p>
@@ -597,43 +550,20 @@ async function handleDeleteClass(recreate: boolean) {
       @submit="handleRenameClass"
     />
 
-    <!-- 归档确认：从班级管理移出，进入历史带过的班，数据只读可恢复 -->
-    <div
-      v-if="archiveDialogOpen"
-      class="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-8"
-      @click.self="closeArchiveDialog"
+    <!-- 删除班级确认（ConfirmDialog 组件形态）：普通删除进回收站，或一键删除并重建同名空班级 -->
+    <ConfirmDialog
+      :open="deleteDialogOpen"
+      :title="`删除班级「${deletingClassName}」`"
+      message="班级下的学生档案、照片与表现记录将一并移入回收站，保留 7 天，期间可随时恢复；超过 7 天将彻底删除。"
+      tone="danger"
+      data-test="delete-class-dialog"
+      @cancel="closeDeleteDialog"
     >
-      <div class="w-[440px] max-w-full rounded-lg bg-canvas p-6 shadow-window" data-test="archive-class-dialog">
-        <h2 class="text-tagline font-semibold text-ink">
-          归档班级「{{ archivingClassName }}」
-        </h2>
-        <p class="mt-3 text-caption leading-relaxed text-muted">
-          归档后，班级会从「在用班级」移出，进入「历史带过的班」；学生、成绩、表现、照片、评语与课表全部保留，只读可查，随时可以恢复。
-        </p>
+      <template #footer>
         <div class="mt-6 flex justify-end gap-3">
-          <AppButton variant="pearl" @click="closeArchiveDialog">取消</AppButton>
-          <AppButton variant="primary" data-test="confirm-archive-btn" @click="handleArchiveClass">
-            归档
+          <AppButton variant="pearl" data-test="confirm-cancel-btn" @click="closeDeleteDialog">
+            取消
           </AppButton>
-        </div>
-      </div>
-    </div>
-
-    <!-- 删除班级确认：普通删除进回收站，或一键删除并重建同名空班级 -->
-    <div
-      v-if="deleteDialogOpen"
-      class="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-8"
-      @click.self="closeDeleteDialog"
-    >
-      <div class="w-[440px] max-w-full rounded-lg bg-canvas p-6 shadow-window" data-test="delete-class-dialog">
-        <h2 class="text-tagline font-semibold text-ink">
-          删除班级「{{ deletingClassName }}」
-        </h2>
-        <p class="mt-3 text-caption leading-relaxed text-muted">
-          班级下的学生档案、照片与表现记录将一并移入回收站，保留 7 天，期间可随时恢复；超过 7 天将彻底删除。
-        </p>
-        <div class="mt-6 flex justify-end gap-3">
-          <AppButton variant="pearl" @click="closeDeleteDialog">取消</AppButton>
           <AppButton variant="danger" data-test="confirm-delete-btn" @click="handleDeleteClass(false)">
             删除
           </AppButton>
@@ -641,7 +571,7 @@ async function handleDeleteClass(recreate: boolean) {
             删除并重建
           </AppButton>
         </div>
-      </div>
-    </div>
+      </template>
+    </ConfirmDialog>
   </div>
 </template>

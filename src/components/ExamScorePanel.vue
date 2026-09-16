@@ -10,19 +10,19 @@
  * 「导入成绩」对话框在本组件内打开，导入完成自动刷新。
  */
 import { computed, onMounted, ref, watch } from "vue";
-import { confirm } from "@tauri-apps/plugin-dialog";
 import AppButton from "./ui/AppButton.vue";
+import AppDialog from "./ui/AppDialog.vue";
 import AppIconButton from "./ui/AppIconButton.vue";
 import EmptyState from "./ui/EmptyState.vue";
 import ImportScoreDialog from "./ImportScoreDialog.vue";
 import SubjectScoreBars from "./SubjectScoreBars.vue";
+import { confirmAction } from "../composables/useConfirm";
 import {
   deleteExam,
   deleteExamScore,
   getClassScoreOverview,
   getClassScoreTrend,
   getExamScores,
-  isTauri,
   listExamsByClass,
   updateExam,
   upsertExamScore,
@@ -547,10 +547,12 @@ function resetLevelConfig() {
 async function onDeleteExam() {
   const exam = selectedExam.value;
   if (!exam) return;
-  const message = `删除考试「${exam.name}」（${exam.exam_date}）？该批次的所有成绩将一并删除，且不可恢复。`;
-  const ok = isTauri()
-    ? await confirm(message, { title: "删除考试", kind: "warning" })
-    : window.confirm(message);
+  const ok = await confirmAction({
+    title: "删除考试",
+    message: `删除考试「${exam.name}」（${exam.exam_date}）？该批次的所有成绩将一并删除，且不可恢复。`,
+    tone: "danger",
+    confirmText: "删除",
+  });
   if (!ok) return;
   await deleteExam(exam.id);
   selectedExamId.value = null;
@@ -802,7 +804,7 @@ function fmtDate(d: string): string {
             <button
               type="button"
               data-test="delete-exam-btn"
-              class="rounded-md px-2 py-1 text-fine text-weak hover:bg-[#fdeef0] hover:text-danger transition-colors"
+              class="rounded-md px-2 py-1 text-fine text-weak hover:bg-danger-soft hover:text-danger transition-colors"
               @click="onDeleteExam"
             >
               删除考试
@@ -1101,60 +1103,55 @@ function fmtDate(d: string): string {
     </template>
 
     <!-- 编辑考试信息 -->
-    <div
-      v-if="editOpen"
-      class="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-8"
-      @click.self="editOpen = false"
-    >
-      <div class="w-[380px] max-w-full rounded-lg bg-canvas p-6 shadow-window">
-        <h3 class="text-tagline font-semibold text-ink">编辑考试信息</h3>
-        <div class="mt-4 space-y-3">
-          <label class="block">
-            <span class="text-caption text-weak">考试名</span>
-            <input
-              v-model="editName"
-              data-test="edit-exam-name"
-              class="mt-1 h-9 w-full rounded-sm border border-hairline bg-canvas px-3 text-caption text-ink outline-none focus:border-primary-focus"
-            />
-          </label>
-          <label class="block">
-            <span class="text-caption text-weak">考试时间</span>
-            <!-- 原生日期选择器：点击日历图标即可选日期，无需手敲 YYYY-MM-DD -->
-            <input
-              v-model="editDate"
-              data-test="edit-exam-date"
-              type="date"
-              class="mt-1 h-9 w-full rounded-sm border border-hairline bg-canvas px-3 text-caption text-ink outline-none focus:border-primary-focus"
-            />
-          </label>
-          <label class="block">
-            <span class="text-caption text-weak">考试种类</span>
-            <select
-              v-model="editType"
-              data-test="edit-exam-type"
-              class="mt-1 h-9 w-full rounded-sm border border-hairline bg-canvas px-3 text-caption text-ink outline-none focus:border-primary-focus"
-            >
-              <option value="major">大考（期中 / 期末）</option>
-              <option value="minor">小考（单元测试 / 月考等）</option>
-            </select>
-          </label>
-        </div>
-        <div class="mt-5 flex items-center justify-end gap-3">
-          <AppButton variant="pearl" @click="editOpen = false">取消</AppButton>
-          <AppButton data-test="save-exam-btn" @click="saveExamEdit">保存</AppButton>
-        </div>
+    <AppDialog :open="editOpen" title="编辑考试信息" width="sm" @close="editOpen = false">
+      <div class="mt-4 space-y-3">
+        <label class="block">
+          <span class="text-caption text-weak">考试名</span>
+          <input
+            v-model="editName"
+            data-test="edit-exam-name"
+            autofocus
+            class="mt-1 h-9 w-full rounded-sm border border-hairline bg-canvas px-3 text-caption text-ink outline-none focus:border-primary-focus"
+          />
+        </label>
+        <label class="block">
+          <span class="text-caption text-weak">考试时间</span>
+          <!-- 原生日期选择器：点击日历图标即可选日期，无需手敲 YYYY-MM-DD -->
+          <input
+            v-model="editDate"
+            data-test="edit-exam-date"
+            type="date"
+            class="mt-1 h-9 w-full rounded-sm border border-hairline bg-canvas px-3 text-caption text-ink outline-none focus:border-primary-focus"
+          />
+        </label>
+        <label class="block">
+          <span class="text-caption text-weak">考试种类</span>
+          <select
+            v-model="editType"
+            data-test="edit-exam-type"
+            class="mt-1 h-9 w-full rounded-sm border border-hairline bg-canvas px-3 text-caption text-ink outline-none focus:border-primary-focus"
+          >
+            <option value="major">大考（期中 / 期末）</option>
+            <option value="minor">小考（单元测试 / 月考等）</option>
+          </select>
+        </label>
       </div>
-    </div>
+      <div class="mt-5 flex items-center justify-end gap-3">
+        <AppButton variant="pearl" @click="editOpen = false">取消</AppButton>
+        <AppButton data-test="save-exam-btn" @click="saveExamEdit">保存</AppButton>
+      </div>
+    </AppDialog>
 
     <!-- 改分纠错：修改 / 清空单科成绩 -->
-    <div
-      v-if="correctOpen && correctTarget"
-      class="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-8"
-      @click.self="correctOpen = false"
+    <AppDialog
+      :open="correctOpen && correctTarget !== null"
+      title="修改成绩"
+      width="sm"
+      data-test="correct-score-dialog"
+      @close="correctOpen = false"
     >
-      <div class="w-[400px] max-w-full rounded-lg bg-canvas p-6 shadow-window" data-test="correct-score-dialog">
-        <h3 class="text-tagline font-semibold text-ink">修改成绩</h3>
-        <p class="mt-1 text-fine text-weak">
+      <template v-if="correctTarget">
+        <p class="mt-3 text-fine text-weak">
           {{ correctTarget.studentName }} · {{ correctTarget.subject }}
           <span class="ml-2">当前：{{ correctTarget.current }}</span>
         </p>
@@ -1164,6 +1161,7 @@ function fmtDate(d: string): string {
           <input
             v-model="correctValue"
             data-test="correct-score-input"
+            autofocus
             class="mt-1 h-9 w-full rounded-sm border border-hairline bg-canvas px-3 text-caption text-ink outline-none focus:border-primary-focus"
             placeholder="如 87.5；缺考等文字也可"
             @keyup.enter="saveCorrect"
@@ -1189,94 +1187,93 @@ function fmtDate(d: string): string {
             </AppButton>
           </div>
         </div>
-      </div>
-    </div>
+      </template>
+    </AppDialog>
 
     <!-- 等级映射配置：分数 → 等级，成绩只存分数、等级由此派生 -->
-    <div
-      v-if="levelOpen"
-      class="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-8"
-      @click.self="levelOpen = false"
+    <AppDialog
+      :open="levelOpen"
+      title="等级映射"
+      width="md"
+      data-test="level-config-dialog"
+      @close="levelOpen = false"
     >
-      <div class="w-[420px] max-w-full rounded-lg bg-canvas p-6 shadow-window" data-test="level-config-dialog">
-        <h3 class="text-tagline font-semibold text-ink">等级映射</h3>
-        <p class="mt-1 text-fine text-weak">
-          成绩只记录真实分数，等级由下面的分数线自动判定。改完立即对班级统计与个人成绩生效。
-        </p>
+      <p class="mt-3 text-fine text-weak">
+        成绩只记录真实分数，等级由下面的分数线自动判定。改完立即对班级统计与个人成绩生效。
+      </p>
 
-        <!-- 显示等级开关：只改展示口径（等级名 / 档位分档图表），落库的仍是真实分数 -->
-        <div
-          class="mt-4 flex items-center justify-between gap-3 rounded-md bg-pearl px-3 py-2.5"
-          data-test="show-level-row"
+      <!-- 显示等级开关：只改展示口径（等级名 / 档位分档图表），落库的仍是真实分数 -->
+      <div
+        class="mt-4 flex items-center justify-between gap-3 rounded-md bg-pearl px-3 py-2.5"
+        data-test="show-level-row"
+      >
+        <div class="min-w-0">
+          <p class="text-caption font-medium text-ink">显示等级</p>
+          <p class="mt-0.5 text-fine text-weak">
+            打开后成绩只显示等级、不显示具体分数，柱状图与折线图也按等级分档展示
+          </p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          data-test="show-level-toggle"
+          :aria-checked="draftShowLevel"
+          class="relative h-5 w-9 shrink-0 rounded-pill transition-colors"
+          :class="draftShowLevel ? 'bg-primary' : 'bg-divider'"
+          @click="draftShowLevel = !draftShowLevel"
         >
-          <div class="min-w-0">
-            <p class="text-caption font-medium text-ink">显示等级</p>
-            <p class="mt-0.5 text-fine text-weak">
-              打开后成绩只显示等级、不显示具体分数，柱状图与折线图也按等级分档展示
-            </p>
-          </div>
-          <button
-            type="button"
-            role="switch"
-            data-test="show-level-toggle"
-            :aria-checked="draftShowLevel"
-            class="relative h-5 w-9 shrink-0 rounded-pill transition-colors"
-            :class="draftShowLevel ? 'bg-primary' : 'bg-divider'"
-            @click="draftShowLevel = !draftShowLevel"
-          >
-            <span
-              class="absolute top-0.5 h-4 w-4 rounded-full bg-canvas shadow-sm transition-[left]"
-              :style="{ left: draftShowLevel ? '18px' : '2px' }"
-            />
-          </button>
-        </div>
+          <span
+            class="absolute top-0.5 h-4 w-4 rounded-full bg-canvas shadow-sm transition-[left]"
+            :style="{ left: draftShowLevel ? '18px' : '2px' }"
+          />
+        </button>
+      </div>
 
-        <div class="mt-4 space-y-2">
-          <div
-            v-for="(band, i) in levelDraft"
-            :key="band.key"
-            class="flex items-center gap-2"
-            :data-test="`level-band-${band.key}`"
-          >
-            <input
-              v-model="band.label"
-              :data-test="`level-label-${band.key}`"
-              class="h-9 w-24 rounded-sm border border-hairline bg-canvas px-3 text-caption text-ink outline-none focus:border-primary-focus"
-            />
-            <span class="text-caption text-weak">≥</span>
-            <input
-              v-model.number="band.min"
-              :data-test="`level-min-${band.key}`"
-              type="number"
-              min="0"
-              max="100"
-              class="h-9 w-20 rounded-sm border border-hairline bg-canvas px-3 text-caption text-ink outline-none focus:border-primary-focus"
-            />
-            <span class="text-caption text-weak">分</span>
-            <span class="ml-auto text-fine text-faint">{{ i === 0 ? "最高档" : i === levelDraft.length - 1 ? "最低档" : "" }}</span>
-          </div>
-        </div>
-
-        <p class="mt-3 text-fine text-faint">
-          提示：导入等级制成绩单时，「优/良/合格…」会按这里的分档折算成代表分落库。
-        </p>
-
-        <div class="mt-5 flex items-center justify-between">
-          <button
-            type="button"
-            data-test="reset-level-btn"
-            class="rounded-md px-2 py-1 text-fine text-weak transition-colors hover:text-ink"
-            @click="resetLevelConfig"
-          >
-            恢复默认
-          </button>
-          <div class="flex items-center gap-3">
-            <AppButton variant="pearl" @click="levelOpen = false">取消</AppButton>
-            <AppButton data-test="save-level-btn" @click="saveLevelConfig">保存</AppButton>
-          </div>
+      <div class="mt-4 space-y-2">
+        <div
+          v-for="(band, i) in levelDraft"
+          :key="band.key"
+          class="flex items-center gap-2"
+          :data-test="`level-band-${band.key}`"
+        >
+          <input
+            v-model="band.label"
+            :data-test="`level-label-${band.key}`"
+            class="h-9 w-24 rounded-sm border border-hairline bg-canvas px-3 text-caption text-ink outline-none focus:border-primary-focus"
+          />
+          <span class="text-caption text-weak">≥</span>
+          <input
+            v-model.number="band.min"
+            :data-test="`level-min-${band.key}`"
+            type="number"
+            min="0"
+            max="100"
+            class="h-9 w-20 rounded-sm border border-hairline bg-canvas px-3 text-caption text-ink outline-none focus:border-primary-focus"
+          />
+          <span class="text-caption text-weak">分</span>
+          <span class="ml-auto text-fine text-faint">{{ i === 0 ? "最高档" : i === levelDraft.length - 1 ? "最低档" : "" }}</span>
         </div>
       </div>
-    </div>
+
+      <p class="mt-3 text-fine text-faint">
+        提示：导入等级制成绩单时，「优/良/合格…」会按这里的分档折算成代表分落库。
+      </p>
+
+      <div class="mt-5 flex items-center justify-between">
+        <button
+          type="button"
+          data-test="reset-level-btn"
+          class="rounded-md px-2 py-1 text-fine text-weak transition-colors hover:text-ink"
+          @click="resetLevelConfig"
+        >
+          恢复默认
+        </button>
+        <div class="flex items-center gap-3">
+          <AppButton variant="pearl" @click="levelOpen = false">取消</AppButton>
+          <AppButton data-test="save-level-btn" @click="saveLevelConfig">保存</AppButton>
+        </div>
+      </div>
+    </AppDialog>
 
     <!-- 导入成绩对话框 -->
     <ImportScoreDialog

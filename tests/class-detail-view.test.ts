@@ -1,6 +1,6 @@
 import { flushPromises, mount } from "@vue/test-utils";
 import { createMemoryHistory, createRouter } from "vue-router";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ClassDetailView from "../src/views/ClassDetailView.vue";
 import StudentDetailView from "../src/views/StudentDetailView.vue";
 import ExamScorePanel from "../src/components/ExamScorePanel.vue";
@@ -8,8 +8,25 @@ import ImportRosterDialog from "../src/components/ImportRosterDialog.vue";
 import StudentFormDialog from "../src/components/StudentFormDialog.vue";
 import QuickBehaviorPopover from "../src/components/QuickBehaviorPopover.vue";
 import AppButton from "../src/components/ui/AppButton.vue";
-import { deleteStudent, listBehaviorDimensions, addBehaviorRecord, listBehaviorRecordsByClass, listStudents } from "../src/lib/db";
+import {
+  deleteStudent,
+  listBehaviorDimensions,
+  addBehaviorRecord,
+  listBehaviorRecordsByClass,
+  listStudents,
+  createClass,
+  deleteClass,
+  getClassMeta,
+  listClasses,
+} from "../src/lib/db";
+import { confirmAction } from "../src/composables/useConfirm";
 import { localDateStr } from "../src/lib/format";
+
+// 班级详情页的归档/删除确认已迁移为 confirmAction 命令式弹层：
+// mock 掉以控制确认分支，断言调用参数（与 ClassesView 同一文案模板）
+vi.mock("../src/composables/useConfirm", () => ({
+  confirmAction: vi.fn(),
+}));
 
 describe("ClassDetailView.vue", () => {
   function createTestRouter() {
@@ -476,5 +493,116 @@ describe("ClassDetailView.vue", () => {
     expect(popover.props("open")).toBe(true);
     expect((popover.props("student") as StudentRow).grade_class).toBe("三年级二班");
     expect((popover.props("students") as StudentRow[]).length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe("ClassDetailView 归档 / 删除班级确认（confirmAction 统一模板）", () => {
+  const CONFIRM_CLASS = "详情页确认测试班";
+
+  function createConfirmRouter() {
+    return createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: "/classes", name: "classes", component: { template: "<div>Classes</div>" } },
+        {
+          path: "/classes/:name",
+          name: "class-detail",
+          component: ClassDetailView,
+          props: true,
+        },
+        {
+          path: "/students/:id",
+          name: "student-detail",
+          component: StudentDetailView,
+          props: true,
+        },
+      ],
+    });
+  }
+
+  beforeEach(() => {
+    vi.mocked(confirmAction).mockReset();
+  });
+
+  afterEach(async () => {
+    await deleteClass(CONFIRM_CLASS);
+  });
+
+  async function mountConfirmView() {
+    const router = createConfirmRouter();
+    await router.push(`/classes/${CONFIRM_CLASS}`);
+    await router.isReady();
+    const wrapper = mount(ClassDetailView, {
+      props: { name: CONFIRM_CLASS },
+      global: { plugins: [router] },
+    });
+    await flushPromises();
+    return { router, wrapper };
+  }
+
+  it("归档班级走 confirmAction，文案与 ClassesView 归档入口同一模板", async () => {
+    await createClass(CONFIRM_CLASS);
+    vi.mocked(confirmAction).mockResolvedValue(true);
+    const { router, wrapper } = await mountConfirmView();
+
+    await wrapper.get("[data-test='archive-class-btn']").trigger("click");
+    await flushPromises();
+
+    expect(vi.mocked(confirmAction)).toHaveBeenCalledWith({
+      title: `归档班级「${CONFIRM_CLASS}」`,
+      message:
+        "归档后，班级会从「在用班级」移出，进入「历史带过的班」；学生、成绩、表现、照片、评语与课表全部保留，只读可查，随时可以恢复。",
+      confirmText: "归档",
+    });
+    expect((await getClassMeta(CONFIRM_CLASS)).archived_at).toBeTruthy();
+    // 归档成功后回到班级管理页
+    expect(router.currentRoute.value.name).toBe("classes");
+    wrapper.unmount();
+  });
+
+  it("取消归档不落库，停留在班级详情", async () => {
+    await createClass(CONFIRM_CLASS);
+    vi.mocked(confirmAction).mockResolvedValue(false);
+    const { router, wrapper } = await mountConfirmView();
+
+    await wrapper.get("[data-test='archive-class-btn']").trigger("click");
+    await flushPromises();
+
+    expect((await getClassMeta(CONFIRM_CLASS)).archived_at).toBeNull();
+    expect(router.currentRoute.value.name).toBe("class-detail");
+    wrapper.unmount();
+  });
+
+  it("删除班级走 confirmAction danger 文案，确认后进回收站并回班级管理", async () => {
+    await createClass(CONFIRM_CLASS);
+    vi.mocked(confirmAction).mockResolvedValue(true);
+    const { router, wrapper } = await mountConfirmView();
+
+    await wrapper.get("[data-test='delete-class-btn']").trigger("click");
+    await flushPromises();
+
+    expect(vi.mocked(confirmAction)).toHaveBeenCalledWith({
+      title: `删除班级「${CONFIRM_CLASS}」`,
+      message:
+        "班级下的学生档案、照片与表现记录将一并移入回收站，保留 7 天，期间可随时恢复；超过 7 天将彻底删除。",
+      confirmText: "删除",
+      tone: "danger",
+    });
+    // 删除后进回收站，不再出现在班级列表
+    expect((await listClasses()).some((c) => c.name === CONFIRM_CLASS)).toBe(false);
+    expect(router.currentRoute.value.name).toBe("classes");
+    wrapper.unmount();
+  });
+
+  it("取消删除不落库", async () => {
+    await createClass(CONFIRM_CLASS);
+    vi.mocked(confirmAction).mockResolvedValue(false);
+    const { wrapper } = await mountConfirmView();
+
+    await wrapper.get("[data-test='delete-class-btn']").trigger("click");
+    await flushPromises();
+
+    expect((await listClasses()).some((c) => c.name === CONFIRM_CLASS)).toBe(true);
+    wrapper.unmount();
   });
 });

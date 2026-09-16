@@ -1,7 +1,13 @@
-import { mount } from "@vue/test-utils";
-import { describe, expect, it } from "vitest";
+import { flushPromises, mount } from "@vue/test-utils";
+import { describe, expect, it, vi } from "vitest";
 import StudentBehaviorTimeline from "../src/components/StudentBehaviorTimeline.vue";
+import { confirmAction } from "../src/composables/useConfirm";
 import type { StudentBehaviorRecord } from "../src/types";
+
+// 破坏性确认统一走全局 confirmAction 弹层：mock 掉宿主交互，直接给出确认结果
+vi.mock("../src/composables/useConfirm", () => ({
+  confirmAction: vi.fn(),
+}));
 
 const mockRecords: StudentBehaviorRecord[] = [
   {
@@ -140,25 +146,38 @@ describe("StudentBehaviorTimeline.vue", () => {
     expect(wrapper.text()).toContain("主动协助打扫卫生角");
   });
 
-  it("emits remove after two-step confirm inside comment tooltip", async () => {
+  it("emits remove on a single delete click when the confirm resolves true", async () => {
+    vi.mocked(confirmAction).mockResolvedValue(true);
     const wrapper = mount(StudentBehaviorTimeline, {
       props: { records: mockRecords },
     });
 
     // 组内按 id 倒序，items[0] 为 id 2
     const items = wrapper.findAll("[data-test='timeline-item']");
-    const delBtn = () => items[0].find("[data-test='comment-delete-btn']");
-    expect(delBtn().text()).toBe("删除");
+    const delBtn = items[0].find("[data-test='comment-delete-btn']");
+    expect(delBtn.text()).toBe("删除");
 
-    // 第一次点击：进入待确认态，不触发 remove
-    await delBtn().trigger("click");
-    expect(wrapper.emitted("remove")).toBeFalsy();
-    expect(delBtn().text()).toBe("确认删除");
-
-    // 第二次点击：触发 remove 并复位
-    await delBtn().trigger("click");
+    // 单次点击即弹全局确认，确认后上抛 remove（armed 两步模式已退役）
+    await delBtn.trigger("click");
+    await flushPromises();
+    expect(vi.mocked(confirmAction)).toHaveBeenCalledWith(
+      expect.objectContaining({ tone: "danger", confirmText: "删除" }),
+    );
     expect(wrapper.emitted("remove")?.[0]).toEqual([2]);
-    expect(delBtn().text()).toBe("删除");
+    expect(delBtn.text()).toBe("删除");
+  });
+
+  it("keeps the record when the delete confirm is cancelled", async () => {
+    vi.mocked(confirmAction).mockResolvedValue(false);
+    const wrapper = mount(StudentBehaviorTimeline, {
+      props: { records: mockRecords },
+    });
+
+    const items = wrapper.findAll("[data-test='timeline-item']");
+    await items[0].find("[data-test='comment-delete-btn']").trigger("click");
+    await flushPromises();
+
+    expect(wrapper.emitted("remove")).toBeFalsy();
   });
 
   it("emits add event when clicking empty add button", async () => {

@@ -5,6 +5,8 @@
  */
 import { computed, ref, watch } from "vue";
 import AppButton from "./ui/AppButton.vue";
+import AppDialog from "./ui/AppDialog.vue";
+import AppIcon from "./ui/AppIcon.vue";
 import {
   clearTimetableSlots,
   findOrCreateTimetable,
@@ -375,18 +377,27 @@ defineExpose({ loadText, loadTable });
 </script>
 
 <template>
-  <div
-    v-if="props.open"
-    class="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-8"
-    @click.self="emit('close')"
+  <!-- AppDialog 壳：遮罩 / Esc / 焦点圈定 / 过渡由壳承担；导入向导防误关 → 遮罩点击不关闭。
+       面板透传 flex 纵向布局：中间内容区滚动，标题与底部操作区固定 -->
+  <AppDialog
+    :open="open"
+    title="导入课表"
+    width="lg"
+    :close-on-overlay="false"
+    class="flex max-h-full flex-col"
+    @close="emit('close')"
   >
-    <div class="flex max-h-full w-[780px] max-w-full flex-col rounded-lg bg-canvas p-6 shadow-window">
-      <div class="mb-4 flex shrink-0 items-center justify-between">
-        <h2 class="text-tagline font-semibold text-ink">导入课表</h2>
-        <button class="text-caption text-weak hover:text-ink" @click="emit('close')">关闭</button>
-      </div>
+    <!-- 关闭 ✕：对齐面板右上角（原标题行「关闭」文字按钮统一为图标） -->
+    <button
+      type="button"
+      class="absolute right-6 top-6 flex h-6 w-6 items-center justify-center rounded-sm text-weak transition-colors hover:bg-parchment hover:text-ink"
+      aria-label="关闭"
+      @click="emit('close')"
+    >
+      <AppIcon name="close" :size="16" />
+    </button>
 
-      <div class="scroll-thin relative min-h-0 flex-1 overflow-y-auto pr-1">
+    <div class="scroll-thin relative mt-4 min-h-0 flex-1 overflow-y-auto pr-1">
         <!-- 目标班级 + 文件：与导入花名册同款单行布局，控件不换行，文件名放不下时截断 -->
         <div class="flex items-center gap-3">
           <label class="flex shrink-0 items-center gap-2 whitespace-nowrap text-caption text-ink">
@@ -408,7 +419,7 @@ defineExpose({ loadText, loadTable });
           </span>
         </div>
 
-        <p v-if="error" class="mt-4 rounded-md bg-[#fdeef0] p-3 text-caption text-danger">{{ error }}</p>
+        <p v-if="error" class="mt-4 rounded-md bg-danger-soft p-3 text-caption text-danger">{{ error }}</p>
 
         <template v-if="table && layout">
           <!-- 识别状态 -->
@@ -596,6 +607,5 @@ defineExpose({ loadText, loadTable });
           {{ importing ? "导入中…" : "开始导入" }}
         </AppButton>
       </div>
-    </div>
-  </div>
+  </AppDialog>
 </template>

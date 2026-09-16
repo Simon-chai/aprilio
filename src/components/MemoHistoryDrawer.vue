@@ -9,7 +9,9 @@
  * - 筛选：类型胶囊 / 只看未完成 / 关键词 / 时间范围（全部 / 近 90 天）
  * - 勾选完成与删除即时落库；数据源仍是 calendar_events 一张表
  */
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
+import AppDialog from "./ui/AppDialog.vue";
+import AppIcon from "./ui/AppIcon.vue";
 import MemoTitle from "./MemoTitle.vue";
 import {
   deleteCalendarEvent,
@@ -180,43 +182,36 @@ async function removeEvent(event: CalendarEvent) {
   await deleteCalendarEvent(event.id);
   events.value = events.value.filter((e) => e.id !== event.id);
 }
-
-/* ---------------- Esc 关闭 ---------------- */
-
-function onKeydown(e: KeyboardEvent) {
-  if (e.key === "Escape" && props.open) emit("close");
-}
-
-onMounted(() => document.addEventListener("keydown", onKeydown));
-onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
 </script>
 
 <template>
-  <div
-    v-if="props.open"
+  <!-- AppDialog 壳：右侧抽屉形态 variant="drawer" + width="sm"（原 440px 就近归档）；
+       遮罩 / Esc / 焦点圈定 / 右滑入过渡由壳承担 -->
+  <AppDialog
+    :open="open"
+    title="历史备忘"
+    description="课表里记过的备忘都在这里，按日期倒序"
+    variant="drawer"
+    width="sm"
     data-test="memo-history-drawer"
-    class="fixed inset-0 z-50 flex justify-end bg-black/30"
-    @click.self="emit('close')"
+    class="flex flex-col"
+    @close="emit('close')"
   >
-    <aside class="flex h-full w-[440px] max-w-full flex-col bg-canvas shadow-window">
-      <!-- 头部 -->
-      <header class="flex shrink-0 items-center justify-between border-b border-divider px-5 py-4">
-        <div class="min-w-0">
-          <h2 class="text-tagline font-semibold text-ink">历史备忘</h2>
-          <p class="mt-0.5 text-fine text-weak">课表里记过的备忘都在这里，按日期倒序</p>
-        </div>
-        <button
-          type="button"
-          data-test="memo-history-close"
-          class="shrink-0 text-caption text-weak hover:text-ink"
-          @click="emit('close')"
-        >
-          关闭
-        </button>
-      </header>
+    <!-- 关闭 ✕：对齐面板右上角 -->
+    <button
+      type="button"
+      data-test="memo-history-close"
+      class="absolute right-6 top-6 flex h-6 w-6 items-center justify-center rounded-sm text-weak transition-colors hover:bg-parchment hover:text-ink"
+      aria-label="关闭"
+      @click="emit('close')"
+    >
+      <AppIcon name="close" :size="16" />
+    </button>
 
+    <!-- 筛选 + 列表：占满抽屉剩余高度，仅列表区滚动 -->
+    <div class="mt-5 flex min-h-0 flex-1 flex-col">
       <!-- 筛选 -->
-      <div class="shrink-0 space-y-2 border-b border-divider px-5 py-3">
+      <div class="shrink-0 space-y-2 border-b border-divider pb-3">
         <div class="flex flex-wrap items-center gap-1.5">
           <button
             v-for="t in CALENDAR_EVENT_TYPES"
@@ -269,7 +264,7 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
       </div>
 
       <!-- 列表 -->
-      <div class="scroll-thin min-h-0 flex-1 overflow-y-auto px-5 py-3">
+      <div class="scroll-thin min-h-0 flex-1 overflow-y-auto pt-3">
         <p v-if="loading" class="py-10 text-center text-caption text-weak">加载中…</p>
         <p v-else-if="!groups.length" class="py-10 text-center text-caption text-weak">
           没有符合条件的备忘
@@ -291,8 +286,8 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
                   :aria-label="e.done ? '标记为待办' : '标记为已完成'"
                   @click="toggleEvent(e)"
                 >
-                  <svg v-if="e.done" width="8" height="8" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                    <path d="M3 8.5l3.5 3.5L13 4.5" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" />
+                  <svg v-if="e.done" class="text-white" width="8" height="8" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <path d="M3 8.5l3.5 3.5L13 4.5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" />
                   </svg>
                 </button>
                 <span
@@ -325,6 +320,6 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
           </section>
         </div>
       </div>
-    </aside>
-  </div>
+    </div>
+  </AppDialog>
 </template>

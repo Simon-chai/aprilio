@@ -2,9 +2,17 @@ import { flushPromises, mount } from "@vue/test-utils";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DOMWrapper } from "@vue/test-utils";
 import RecycleBinView from "../src/views/RecycleBinView.vue";
+import { confirmAction } from "../src/composables/useConfirm";
 import { createStudent, deleteStudent, listRecycleItems, listStudents, restoreRecycleItem } from "../src/lib/db";
 import type { RecycleItem, StudentInput } from "../src/types";
 import type { VueWrapper } from "@vue/test-utils";
+
+// 破坏性确认统一走全局 confirmAction 弹层：mock 掉宿主交互，直接给出确认结果
+vi.mock("../src/composables/useConfirm", () => ({
+  confirmAction: vi.fn(),
+}));
+
+const mockConfirm = vi.mocked(confirmAction);
 
 function buildInput(overrides: Partial<StudentInput> = {}): StudentInput {
   return {
@@ -64,7 +72,7 @@ describe("RecycleBinView.vue", () => {
   });
 
   it("purge button permanently removes the item after confirm", async () => {
-    vi.stubGlobal("confirm", () => true);
+    mockConfirm.mockResolvedValue(true);
     const id = await createStudent(buildInput({ name: "视图清除生", student_no: "RB_VIEW_003" }));
     await deleteStudent(id);
 
@@ -82,7 +90,7 @@ describe("RecycleBinView.vue", () => {
   });
 
   it("purge keeps the item when the user cancels the confirm dialog", async () => {
-    vi.stubGlobal("confirm", () => false);
+    mockConfirm.mockResolvedValue(false);
     const id = await createStudent(buildInput({ name: "视图取消生", student_no: "RB_VIEW_004" }));
     await deleteStudent(id);
 

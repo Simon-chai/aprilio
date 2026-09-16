@@ -40,7 +40,7 @@ describe("QuickBehaviorPopover.vue", () => {
       "课堂表现",
       "劳动情况",
     ]);
-    expect(w.get("[data-test='polarity-praise']").classes()).toContain("bg-[#e8f5e9]");
+    expect(w.get("[data-test='polarity-praise']").classes()).toContain("bg-praise-soft");
     w.unmount();
   });
 
@@ -68,7 +68,7 @@ describe("QuickBehaviorPopover.vue", () => {
 
     await w.get("[data-test='polarity-neutral']").trigger("click");
     await flushPromises();
-    expect(w.get("[data-test='polarity-neutral']").classes()).toContain("bg-[#e8e8ed]");
+    expect(w.get("[data-test='polarity-neutral']").classes()).toContain("bg-neutral-soft");
     const texts = w.findAll("[data-test='preset-bubble']").map((b) => b.text()).join();
     expect(texts).toContain("作业按时完成，整体表现平稳");
 

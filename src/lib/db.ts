@@ -4124,6 +4124,34 @@ export async function listTeacherEventsInRange(
   );
 }
 
+/**
+ * 全局搜索（Ctrl+F）：按关键词在日程事件的 AI 标题与正文里模糊匹配，
+ * 按日期倒序返回前 limit 条（标题命中与正文命中同等对待）。
+ */
+export async function searchCalendarEvents(keyword: string, limit = 8): Promise<CalendarEvent[]> {
+  const kw = keyword.trim();
+  if (!kw) return [];
+  const max = limit > 0 ? Math.floor(limit) : 8;
+  if (!isTauri()) {
+    const k = kw.toLowerCase();
+    return mem()
+      .calendarEvents.filter((e) =>
+        `${e.title ?? ""} ${e.content}`.toLowerCase().includes(k)
+      )
+      .sort((a, b) => b.event_date.localeCompare(a.event_date) || b.id - a.id)
+      .slice(0, max)
+      .map((e) => ({ ...e }));
+  }
+  const db = await getDb();
+  return db.select<CalendarEvent[]>(
+    `SELECT * FROM calendar_events
+      WHERE title LIKE ? OR content LIKE ?
+      ORDER BY event_date DESC, id DESC
+      LIMIT ?`,
+    [`%${kw}%`, `%${kw}%`, max]
+  );
+}
+
 /** 切换日程事件完成状态 */
 export async function setCalendarEventDone(id: number, done: boolean): Promise<void> {
   if (!isTauri()) {

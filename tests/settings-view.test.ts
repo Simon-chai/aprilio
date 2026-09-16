@@ -1,14 +1,35 @@
 import { flushPromises, mount } from "@vue/test-utils";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import SettingsView from "../src/views/SettingsView.vue";
+import ToastHost from "../src/components/ui/ToastHost.vue";
+import { confirmAction } from "../src/composables/useConfirm";
+import { useToastState } from "../src/composables/useToast";
 import { maskApiKey, type AiProfile } from "../src/lib/ai";
 
 const TEST_KEY = "sk-test-secret-1234";
 const PROFILES_KEY = "aprilio.ai.profiles.v1";
 
+// 破坏性确认统一走全局 confirmAction 弹层：mock 掉宿主交互，直接给出确认结果
+vi.mock("../src/composables/useConfirm", () => ({
+  confirmAction: vi.fn(),
+}));
+
+const mockConfirm = vi.mocked(confirmAction);
+
 beforeEach(() => {
   localStorage.clear();
+  mockConfirm.mockReset();
+  // toast 队列是模块级单例：用例间清空，避免跨用例串味
+  useToastState().clearAll();
 });
+
+/** 挂 ToastHost 读取全局 toast 条目文案（用完 unmount，顺带清空队列） */
+function toastTexts(host: ReturnType<typeof mount>): string {
+  return host
+    .findAll('[data-test="quick-toast"]')
+    .map((t) => t.text())
+    .join();
+}
 
 function keyInput(wrapper: ReturnType<typeof mount>) {
   return wrapper.find("#ai-key input");
@@ -126,12 +147,15 @@ describe("SettingsView 模型方案列表与一键切换", () => {
     seedProfiles([PROFILE_A, PROFILE_B], "p-a");
     const wrapper = mountSettings();
     await flushPromises();
+    // 切换结果反馈统一走全局 toast：挂 ToastHost 查条目
+    const host = mount(ToastHost);
 
     // 只有非当前方案有「设为当前」按钮，第一颗是 p-b 的
     await wrapper.get('[data-test="ai-profile-switch"]').trigger("click");
     await flushPromises();
 
-    expect(wrapper.get('[data-test="ai-saved"]').text()).toContain("已切换到");
+    expect(toastTexts(host)).toContain("已切换到");
+    host.unmount();
     const state = JSON.parse(localStorage.getItem(PROFILES_KEY) ?? "{}");
     expect(state.activeId).toBe("p-b");
     // 选中态皮肤跟过去
@@ -171,6 +195,7 @@ describe("SettingsView 添加 / 编辑 / 删除方案", () => {
 
   it("adds a profile through the modal and makes it active on first save", async () => {
     const wrapper = mountSettings();
+    const host = mount(ToastHost);
     await flushPromises();
 
     await wrapper.get('[data-test="ai-profile-add"]').trigger("click");
@@ -184,8 +209,9 @@ describe("SettingsView 添加 / 编辑 / 删除方案", () => {
     await modal.get('[data-test="ai-save"]').trigger("click");
     await flushPromises();
 
-    // 浏览器演示态不联网：退化为直接保存，提示未校验；弹窗收起
-    expect(wrapper.get('[data-test="ai-saved"]').text()).toContain("未校验");
+    // 浏览器演示态不联网：退化为直接保存，toast 提示未校验；弹窗收起
+    expect(toastTexts(host)).toContain("未校验");
+    host.unmount();
     expect(wrapper.find('[data-test="ai-modal"]').exists()).toBe(false);
 
     const state = JSON.parse(localStorage.getItem(PROFILES_KEY) ?? "{}");
@@ -251,36 +277,37 @@ describe("SettingsView 添加 / 编辑 / 删除方案", () => {
     expect(wrapper.get('[data-test="ai-models-fetch"]').attributes("disabled")).toBeDefined();
   });
 
-  it("deletes a profile with inline confirmation and falls back the active one", async () => {
+  it("deletes a profile after the danger confirm and falls back the active one", async () => {
+    mockConfirm.mockResolvedValue(true);
     seedProfiles([PROFILE_A, PROFILE_B], "p-a");
     const wrapper = mountSettings();
+    const host = mount(ToastHost);
     await flushPromises();
 
-    // 第一张卡是当前方案 p-a：打开 ⋯ 菜单 → 删除 → 原地确认
+    // 第一张卡是当前方案 p-a：打开 ⋯ 菜单 → 删除 → 全局危险确认（mock 通过）
     await wrapper.get('[data-test="ai-profile-menu"]').trigger("click");
     await wrapper.get('[data-test="ai-profile-delete"]').trigger("click");
-
-    expect(wrapper.get('[data-test="ai-profile-confirm"]').text()).toContain("不可恢复");
-    await wrapper.get('[data-test="ai-profile-del-confirm"]').trigger("click");
     await flushPromises();
 
+    expect(mockConfirm).toHaveBeenCalledTimes(1);
     expect(wrapper.findAll('[data-test="ai-profile"]')).toHaveLength(1);
-    expect(wrapper.get('[data-test="ai-saved"]').text()).toContain("已删除");
+    expect(toastTexts(host)).toContain("已删除");
+    host.unmount();
     // 删的是当前方案 → 回落到剩余的首个已配置方案 p-b
     const state = JSON.parse(localStorage.getItem(PROFILES_KEY) ?? "{}");
     expect(state.activeId).toBe("p-b");
   });
 
-  it("cancels the inline delete confirmation without touching data", async () => {
+  it("keeps the profile when the danger confirm is cancelled", async () => {
+    mockConfirm.mockResolvedValue(false);
     seedProfiles([PROFILE_A, PROFILE_B], "p-a");
     const wrapper = mountSettings();
     await flushPromises();
 
     await wrapper.get('[data-test="ai-profile-menu"]').trigger("click");
     await wrapper.get('[data-test="ai-profile-delete"]').trigger("click");
-    await wrapper.get('[data-test="ai-profile-del-cancel"]').trigger("click");
+    await flushPromises();
 
-    expect(wrapper.find('[data-test="ai-profile-confirm"]').exists()).toBe(false);
     expect(wrapper.findAll('[data-test="ai-profile"]')).toHaveLength(2);
     expect(JSON.parse(localStorage.getItem(PROFILES_KEY) ?? "{}").activeId).toBe("p-a");
   });

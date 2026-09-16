@@ -40,7 +40,7 @@ const emit = defineEmits<{ click: [] }>();
 const CHIP: Record<Tone, string> = {
   primary: "grad-border text-primary hover:shadow-[var(--shadow-halo)]",
   onDark: "border-white/25 bg-white/10 text-white/85 hover:bg-white/20 hover:text-white",
-  onDarkSolid: "border-transparent bg-primary-on-dark text-ink hover:bg-[#4da5ff]",
+  onDarkSolid: "border-transparent bg-primary-on-dark text-ink hover:bg-primary-on-dark-hover",
   danger: "grad-border-danger text-danger hover:shadow-[var(--shadow-halo-danger)]",
   muted: "border-hairline bg-canvas text-muted hover:border-faint hover:bg-pearl hover:text-ink",
 };

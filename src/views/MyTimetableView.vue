@@ -37,6 +37,7 @@ import {
 } from "../lib/db";
 import { fromDateStr, mondayOf, toDateStr } from "../lib/calendar";
 import { summarizeMemoTitle } from "../lib/memo-ai";
+import { useToast } from "../composables/useToast";
 import { ensureProfile, profile, timetableBgSurfaceClass, timetableBgSurfaceStyle } from "../lib/profile";
 import {
   CALENDAR_EVENT_META,
@@ -63,6 +64,9 @@ import type {
 } from "../types";
 
 const router = useRouter();
+
+/** 全局轻反馈（ToastHost 挂在 App.vue）：备忘保存成功提示 */
+const toast = useToast();
 
 const SEMESTER = currentSemester();
 const TODAY = weekdayToday();
@@ -209,6 +213,7 @@ async function addEvent(closeAfter = false) {
     savedId = await addCalendarEvent(null, cell.date, content, newEventType.value, cell.period);
     draftByCell.value = { ...draftByCell.value, [key]: "" };
     await reloadEvents();
+    toast("已保存");
   } finally {
     eventSaving.value = false;
   }
@@ -566,7 +571,7 @@ onBeforeUnmount(() => {
             >
               <span class="whitespace-nowrap">{{ dateHeader(date) }} {{ WEEKDAY_LABELS[i] }}</span>
               <!-- 全天 / 日报事件（不绑节次）：最多展示 2 条，溢出收数。
-                   文字用 text-weak：text-faint（#ccc）在白底上几乎看不见 -->
+                   文字用 text-weak：text-faint 更浅一档，白底上几乎看不见 -->
               <span
                 v-for="e in dayEvents(date).slice(0, 2)"
                 :key="e.id"
@@ -614,8 +619,8 @@ onBeforeUnmount(() => {
                       :aria-label="e.done ? '标记为待办' : '标记为已完成'"
                       @click="toggleEvent(e)"
                     >
-                      <svg v-if="e.done" width="8" height="8" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                        <path d="M3 8.5l3.5 3.5L13 4.5" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" />
+                      <svg v-if="e.done" class="text-white" width="8" height="8" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                        <path d="M3 8.5l3.5 3.5L13 4.5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" />
                       </svg>
                     </button>
                     <span
@@ -781,8 +786,8 @@ onBeforeUnmount(() => {
                         :aria-label="e.done ? '标记为待办' : '标记为已完成'"
                         @click="toggleEvent(e)"
                       >
-                        <svg v-if="e.done" width="8" height="8" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                          <path d="M3 8.5l3.5 3.5L13 4.5" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" />
+                        <svg v-if="e.done" class="text-white" width="8" height="8" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                          <path d="M3 8.5l3.5 3.5L13 4.5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" />
                         </svg>
                       </button>
                       <span
