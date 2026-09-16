@@ -98,6 +98,7 @@ export const NAV_TARGETS: NavTarget[] = [
   { key: "classes", routeName: "classes", label: "班级管理", description: "按班级浏览与组织学生：学生列表、搜索、新增与花名册导入" },
   { key: "photos", routeName: "photos", label: "照片墙", description: "全部照片记录" },
   { key: "timetable", routeName: "timetable", label: "我的课表", description: "按科目聚合的个人任课课表（不绑教师名）" },
+  { key: "classroom", routeName: "classroom", label: "课堂模式", description: "全屏上课界面：智能点名、座位大屏、小组积分与下课小结" },
   { key: "recycle-bin", routeName: "recycle-bin", label: "回收站", description: "已删除数据的暂存区，保留 7 天可恢复" },
   { key: "profile", routeName: "profile", label: "个人资料", description: "教师姓名、格言、头像与大图" },
   { key: "settings", routeName: "settings", label: "数据与设置", description: "AI 模型配置与数据管理" },

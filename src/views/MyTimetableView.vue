@@ -36,6 +36,7 @@ import {
   setCalendarEventTitle,
 } from "../lib/db";
 import { fromDateStr, mondayOf, toDateStr } from "../lib/calendar";
+import { startDetectedLesson } from "../classroom/session";
 import { summarizeMemoTitle } from "../lib/memo-ai";
 import { useToast } from "../composables/useToast";
 import { ensureProfile, profile, timetableBgSurfaceClass, timetableBgSurfaceStyle } from "../lib/profile";
@@ -256,6 +257,24 @@ function goClass(className: string) {
   router.push({ name: "class-detail", params: { name: className } });
 }
 
+/** 「上课了」：当前节次命中我的课 → 直接开课进课堂模式；无命中 → 启动页手动开临时课堂 */
+async function startClass() {
+  try {
+    const started = await startDetectedLesson();
+    if (!started) {
+      await router.push({ name: "classroom" });
+      return;
+    }
+    if (started.skipped.length) {
+      toast(`以下活动未安装，已跳过：${started.skipped.join("、")}`, { tone: "error" });
+    }
+    await router.push({ name: "classroom", query: { session: String(started.session.id) } });
+  } catch (e) {
+    console.error("[timetable] 开课失败", e);
+    toast(e instanceof Error ? e.message : "开课失败，请重试", { tone: "error" });
+  }
+}
+
 async function reloadSlots(): Promise<void> {
   try {
     rows.value = await listTimetableSlotsWithClass(SEMESTER);
@@ -310,6 +329,7 @@ onBeforeUnmount(() => {
           </span>
         </div>
         <div class="flex items-center gap-2 shrink-0">
+          <AppButton data-test="start-class" @click="startClass">上课了</AppButton>
           <AppButton
             variant="pearl"
             data-test="history-memo-btn"

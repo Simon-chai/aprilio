@@ -29,6 +29,11 @@ describe("schema DDL parity (lib.rs migrations ↔ db.ts ensureSchema)", () => {
     expect(tsTables).toContain("timetables");
     expect(tsTables).toContain("timetable_exceptions");
     expect(tsTables).toContain("calendar_events");
+    // 课堂模式 v9 四表（会话 × 事件流 × 座位 × 活动组合）
+    for (const table of ["lesson_sessions", "lesson_events", "seatings", "classroom_activity_sets"]) {
+      expect(rustTables).toContain(table);
+      expect(tsTables).toContain(table);
+    }
     expect(rustTables).toEqual(tsTables);
   });
 

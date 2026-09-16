@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import { createMemoryHistory, createRouter } from "vue-router";
 import queryDataTool from "../src/agent/tools/query";
 
@@ -157,5 +157,174 @@ describe("query_data tool", () => {
 
     expect(res.ok).toBe(true);
     expect(res.summary).toMatch(/\(学生ID: \d+\)/);
+  });
+});
+
+/** 课堂摘要行（query_data lessons 的返回单元，此处按测试需要的字段收窄声明） */
+interface LessonRow {
+  session_id: number;
+  class_name: string;
+  subject: string;
+  lesson_date: string;
+  period: number | null;
+  status: string;
+  digest_source: string;
+  picks: Array<{ student_id: number; student_name: string; count: number }>;
+  praise_count: number;
+  improve_count: number;
+  groups: Array<{ group_no: number; score: number }>;
+  absent: Array<{ student_id: number; student_name: string }>;
+}
+
+describe("query_data lessons entity（课堂会话 × 事件摘要）", () => {
+  // 演示种子里的班级/学生：1 林知远、2 苏晚、3 陈嘉树（三年级二班 / 四年级一班）
+  const CLASS = "三年级二班";
+
+  afterAll(async () => {
+    const { clearAll } = await import("../src/lib/db");
+    await clearAll();
+  });
+
+  it("aggregates a live lesson's picks, behaviors, group points and absences", async () => {
+    const { appendLessonEvent, openLessonSession } = await import("../src/lib/db");
+    const date = "2026-09-17";
+    const { session } = await openLessonSession({
+      class_name: CLASS,
+      subject: "数学",
+      lesson_date: date,
+      period: 3,
+      activities: [{ type: "picker" }, { type: "seating" }, { type: "group-race" }],
+    });
+
+    for (const studentId of [1, 1, 2]) {
+      await appendLessonEvent({ session_id: session.id, activity: "picker", kind: "pick", student_id: studentId });
+    }
+    await appendLessonEvent({
+      session_id: session.id,
+      activity: "seating",
+      kind: "behavior",
+      student_id: 1,
+      payload: { dimension_id: 1, type: "praise", via: "seating" },
+    });
+    await appendLessonEvent({
+      session_id: session.id,
+      activity: "seating",
+      kind: "behavior",
+      student_id: 2,
+      payload: { dimension_id: 3, type: "improve", via: "seating" },
+    });
+    for (const [groupNo, delta] of [
+      [1, 2],
+      [1, 3],
+      [2, 1],
+    ]) {
+      await appendLessonEvent({
+        session_id: session.id,
+        activity: "group-race",
+        kind: "group_point",
+        payload: { group_no: groupNo, delta },
+      });
+    }
+    await appendLessonEvent({
+      session_id: session.id,
+      activity: "seating",
+      kind: "attendance",
+      student_id: 3,
+      payload: { absent: true },
+    });
+    // 未知 kind（未来活动）必须安全跳过，不影响其余聚合
+    await appendLessonEvent({
+      session_id: session.id,
+      activity: "countdown",
+      kind: "countdown_run",
+      payload: { run: 1 },
+    });
+
+    // 口语班级名「三年二班」应命中「三年级二班」的会话
+    const res = await tool.execute({ entity: "lessons", class_name: "三年二班", date }, ctx);
+
+    expect(res.ok).toBe(true);
+    expect(res.summary).toContain("课堂查询：命中 1 场");
+    const rows = res.data as LessonRow[];
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      session_id: session.id,
+      class_name: CLASS,
+      subject: "数学",
+      period: 3,
+      status: "live",
+      digest_source: "events",
+    });
+    expect(rows[0].picks).toEqual([
+      { student_id: 1, student_name: "林知远", count: 2 },
+      { student_id: 2, student_name: "苏晚", count: 1 },
+    ]);
+    expect(rows[0].praise_count).toBe(1);
+    expect(rows[0].improve_count).toBe(1);
+    expect(rows[0].groups).toEqual([
+      { group_no: 1, score: 5 },
+      { group_no: 2, score: 1 },
+    ]);
+    expect(rows[0].absent).toEqual([{ student_id: 3, student_name: "陈嘉树" }]);
+    expect(res.summary).toContain("林知远×2");
+    expect(res.summary).toContain("第1组 5 分");
+  });
+
+  it("prefers the stats snapshot of an ended session over the event stream", async () => {
+    const { appendLessonEvent, endLessonSession, openLessonSession } = await import("../src/lib/db");
+    const date = "2026-09-18";
+    const { session } = await openLessonSession({
+      class_name: CLASS,
+      subject: "语文",
+      lesson_date: date,
+      period: 4,
+      activities: [{ type: "picker" }],
+    });
+    await appendLessonEvent({ session_id: session.id, activity: "picker", kind: "pick", student_id: 2 });
+    await endLessonSession(session.id, {
+      stats: {
+        picks: [{ student_id: 4, student_name: "周砚", count: 9 }],
+        pick_coverage: 0.5,
+        praise_count: 7,
+        improve_count: 2,
+        absent: [{ student_id: 5, student_name: "何听雨" }],
+        groups: [{ group_no: 1, score: 42 }],
+        silent: [],
+        duration_min: 40,
+      },
+      digest_md: "数据版小结",
+      digest_source: "data",
+    });
+
+    const res = await tool.execute({ entity: "lessons", class_name: CLASS, date }, ctx);
+
+    expect(res.ok).toBe(true);
+    const row = (res.data as LessonRow[])[0];
+    expect(row).toMatchObject({ session_id: session.id, status: "ended", digest_source: "stats" });
+    expect(row.picks).toEqual([{ student_id: 4, student_name: "周砚", count: 9 }]);
+    expect(row.praise_count).toBe(7);
+    expect(row.improve_count).toBe(2);
+    expect(row.groups).toEqual([{ group_no: 1, score: 42 }]);
+    expect(row.absent).toEqual([{ student_id: 5, student_name: "何听雨" }]);
+    expect(res.summary).toContain("摘要来源：下课快照");
+  });
+
+  it("lists sessions across a date window and returns empty rows for an unknown class", async () => {
+    const window = await tool.execute({ entity: "lessons", start: "2026-09-17", end: "2026-09-18" }, ctx);
+    expect(window.ok).toBe(true);
+    expect((window.data as LessonRow[]).length).toBe(2);
+
+    const empty = await tool.execute({ entity: "lessons", class_name: "六年级八班", date: "2026-09-17" }, ctx);
+    expect(empty.ok).toBe(true);
+    expect(empty.data).toEqual([]);
+    expect(empty.summary).toContain("命中 0 场");
+    expect(empty.summary).toContain("没有符合条件的课堂记录");
+  });
+
+  it("keeps the unknown-entity error message listing lessons", async () => {
+    const res = await tool.execute({ entity: "orders" }, ctx);
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain("未知查询实体");
+    expect(res.error).toContain("lessons");
   });
 });

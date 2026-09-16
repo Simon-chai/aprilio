@@ -51,6 +51,13 @@ export function currentSemester(date = new Date()): string {
   return `${y - 1}-${y}-2`;
 }
 
+/** 学期号推导（按指定日期）：同 currentSemester，供历史日期/课堂会话落库用 */
+export function semesterOfDate(date: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(date);
+  if (!m) throw new Error("日期格式应为 YYYY-MM-DD");
+  return currentSemester(new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+}
+
 /** 学期展示标签：2026-2027-1 → 「2026–2027 秋季学期」；非学期号原样返回 */
 export function semesterLabel(semester: string): string {
   const match = /^(\d{4})-(\d{4})-([12])$/.exec(semester);

@@ -59,6 +59,13 @@
   --color-tag-negative: #a25e00; /* 负面倾向文字（琥珀，弱于 danger 的告警感） */
   --color-tag-negative-soft: #faf1e0; /* 负面倾向底色 */
 
+  /* 课堂模式沉浸底（黑板绿 = mint 的深色落点）：色值集中在此，UI 只用 .classroom-immersive */
+  --color-chalkboard: #1d3b32; /* 沉浸底主色（渐变上部） */
+  --color-chalkboard-deep: #112620; /* 沉浸底纵深落点（渐变下部） */
+  --chalkboard-glow-soft: rgba(79, 174, 142, 0.22); /* 顶部氛围光晕（黑板绿提亮同源色） */
+  --color-praise-on-dark: #4ec26f; /* 沉浸底上的表扬绿（比 praise 亮，深底才可读） */
+  --color-improve-on-dark: #f0a63e; /* 沉浸底上的待改进橙（比 improve 亮，深底才可读） */
+
   /* 字体 */
   --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", "PingFang SC",
     "Microsoft YaHei", sans-serif;
@@ -204,6 +211,13 @@
   /* 主按钮渐变实底（叠在 bg-primary 之上，保证渐变未加载时仍有主色） */
   .btn-grad {
     background-image: var(--grad-primary);
+  }
+
+  /* 课堂模式沉浸底：顶部氛围光晕 + 黑板绿纵深渐变（色值全部走 @theme token） */
+  .classroom-immersive {
+    background:
+      radial-gradient(120% 70% at 50% 0%, var(--chalkboard-glow-soft), transparent 62%),
+      linear-gradient(180deg, var(--color-chalkboard), var(--color-chalkboard-deep));
   }
 
   /* Tab 选中：底部渐变能量线（贴合按钮底边，与容器的 border-b 发丝线相接；

@@ -5,6 +5,7 @@ import ClassDetailView from "../views/ClassDetailView.vue";
 import PhotosView from "../views/PhotosView.vue";
 import RecycleBinView from "../views/RecycleBinView.vue";
 import MyTimetableView from "../views/MyTimetableView.vue";
+import ClassroomView from "../views/ClassroomView.vue";
 import SettingsView from "../views/SettingsView.vue";
 import StudentDetailView from "../views/StudentDetailView.vue";
 import ProfileView from "../views/ProfileView.vue";
@@ -31,6 +32,8 @@ export const router = createRouter({
     },
     { path: "/photos", name: "photos", component: PhotosView },
     { path: "/timetable", name: "timetable", component: MyTimetableView },
+    // 课堂模式：全屏沉浸（无侧边栏，同首页口径）；query.session 可直达指定会话
+    { path: "/classroom", name: "classroom", component: ClassroomView },
     { path: "/recycle-bin", name: "recycle-bin", component: RecycleBinView },
     { path: "/profile", name: "profile", component: ProfileView },
     { path: "/settings", name: "settings", component: SettingsView },

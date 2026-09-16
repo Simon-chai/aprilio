@@ -16,6 +16,8 @@ async function makeRouter(): Promise<Router> {
       { path: "/students/:id", name: "student-detail", component: Blank, props: true },
       { path: "/photos", name: "photos", component: Blank },
       { path: "/timetable", name: "timetable", component: Blank },
+      // 课堂模式（/classroom 由课堂任务在 src/router/index.ts 交付，此处测试路由对齐同一张表）
+      { path: "/classroom", name: "classroom", component: Blank },
       { path: "/recycle-bin", name: "recycle-bin", component: Blank },
       { path: "/profile", name: "profile", component: Blank },
       { path: "/settings", name: "settings", component: Blank },

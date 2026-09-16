@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { RouterLink } from "vue-router";
+import { RouterLink, useRouter } from "vue-router";
 import { onPageAction } from "../agent/page-action-bus";
+import { startDetectedLesson } from "../classroom/session";
+import { useToast } from "../composables/useToast";
 import FeatureIcon from "../components/FeatureIcon.vue";
 import appIcon from "../assets/app-icon.png";
 import BackgroundPickerDialog from "../components/BackgroundPickerDialog.vue";
@@ -57,6 +59,9 @@ import type {
 } from "../types";
 
 const PAGES = 2;
+
+const router = useRouter();
+const toast = useToast();
 
 const viewport = ref<HTMLElement | null>(null);
 /** 番茄钟沉浸层打开时禁掉滚轮/按键翻页（需在 usePagedScroll 之前声明） */
@@ -159,6 +164,26 @@ async function applyPanelBg(file: string): Promise<void> {
 async function clearPanelBg(): Promise<void> {
   if (!profile.value.timetable_bg) return;
   await saveProfileChanges({ ...profile.value, timetable_bg: "" }).catch(() => undefined);
+}
+
+/* ---------------- 课表面板「上课了」：节次命中直接开课，无命中跳课堂模式启动页 ---------------- */
+
+async function startClass() {
+  panelOpen.value = false;
+  try {
+    const started = await startDetectedLesson();
+    if (!started) {
+      await router.push({ name: "classroom" });
+      return;
+    }
+    if (started.skipped.length) {
+      toast(`以下活动未安装，已跳过：${started.skipped.join("、")}`, { tone: "error" });
+    }
+    await router.push({ name: "classroom", query: { session: String(started.session.id) } });
+  } catch (e) {
+    console.error("[home] 开课失败", e);
+    toast(e instanceof Error ? e.message : "开课失败，请重试", { tone: "error" });
+  }
 }
 
 function shortDate(date: string): string {
@@ -714,6 +739,15 @@ const dotClass = (i: number) => {
                       stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"
                     />
                   </svg>
+                </button>
+                <button
+                  type="button"
+                  data-test="start-class"
+                  class="whitespace-nowrap rounded-pill bg-white px-3 py-1 text-fine font-medium text-ink transition-colors duration-150 hover:bg-white/90"
+                  title="按当前课表节次开始上课；不在课表时段则进入课堂模式手动开课"
+                  @click="startClass"
+                >
+                  上课了
                 </button>
                 <AppLink tone="onDarkSolid" to="/timetable" class="font-medium">完整课表</AppLink>
                 <button

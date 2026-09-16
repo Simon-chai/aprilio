@@ -11,8 +11,8 @@ import { useFullscreen } from "./composables/useFullscreen";
 
 const route = useRoute();
 
-// 仅首页全屏沉浸展示，其他页面均常驻侧边栏
-const fullBleed = computed(() => route.name === "home");
+// 仅首页与课堂模式全屏沉浸展示，其他页面均常驻侧边栏
+const fullBleed = computed(() => route.name === "home" || route.name === "classroom");
 
 // 注册 F11 全屏切换与状态同步（App 常驻，保证任何页面都能响应快捷键）
 useFullscreen();

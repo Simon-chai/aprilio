@@ -13,11 +13,15 @@ import {
   listExamScores,
   listExams,
   listHomeworkRecords,
+  listLessonEvents,
+  listLessonSessions,
   listPhotos,
   listStudents,
   listTermComments,
 } from "../../lib/db";
+import type { LessonSession } from "../../classroom/types";
 import { defineAgentTool } from "../define";
+import { normalizeClassName } from "./navigation";
 import { semesterLabel } from "../../lib/timetable";
 
 const DEFAULT_LIMIT = 20;
@@ -29,20 +33,177 @@ function clampLimit(raw: unknown): number {
   return Math.min(Math.floor(n), MAX_LIMIT);
 }
 
+/* ------------------------------------------------------------------ */
+/* 课堂（lessons）：节课会话 + 事件摘要                                  */
+/* ------------------------------------------------------------------ */
+
+/** 课堂会话摘要行（query_data lessons 的返回单元） */
+interface LessonDigestRow {
+  session_id: number;
+  class_name: string;
+  subject: string;
+  lesson_date: string;
+  period: number | null;
+  status: "live" | "ended";
+  started_at: string;
+  ended_at: string | null;
+  /** 摘要来源：stats = 下课快照（优先，避免与事件流双源漂移）；events = 事件流现算 */
+  digest_source: "stats" | "events";
+  /** 点名名单（谁被点了几次，次数降序） */
+  picks: Array<{ student_id: number; student_name: string; count: number }>;
+  praise_count: number;
+  improve_count: number;
+  /** group_point 聚合的小组分（按组号升序） */
+  groups: Array<{ group_no: number; score: number }>;
+  absent: Array<{ student_id: number; student_name: string }>;
+}
+
+/**
+ * 课堂班级名归一：「三(2)班」「三年二班」「3 年 2 班」都落成 32。
+ * 复用 navigate 的班级名归一（中文数字→阿拉伯、去「级」），再抹平括号与「年/班」。
+ */
+function normalizeLessonClassName(raw: string): string {
+  return normalizeClassName(raw)
+    .replace(/[（）()]/g, "")
+    .replace(/[班年]/g, "");
+}
+
+/** 班级名匹配：精确 → 归一相等 → 归一包含，逐级放宽（与 navigate 的班级解析同款） */
+function matchLessonClassName(sessions: LessonSession[], input: string): LessonSession[] {
+  const wanted = normalizeLessonClassName(input);
+  if (!wanted) return sessions;
+  const stages: LessonSession[][] = [
+    sessions.filter((s) => s.class_name === input),
+    sessions.filter((s) => normalizeLessonClassName(s.class_name) === wanted),
+    sessions.filter((s) => {
+      const n = normalizeLessonClassName(s.class_name);
+      return n !== wanted && (n.includes(wanted) || wanted.includes(n));
+    }),
+  ];
+  for (const hits of stages) if (hits.length) return hits;
+  return [];
+}
+
+/** 事件流现算摘要：未知 kind 安全跳过（对齐课堂事件契约与「未知工具不崩溃」红线） */
+function aggregateLessonEvents(
+  events: Array<{ kind: string; student_id: number | null; payload: Record<string, unknown> }>,
+  nameOf: (id: number) => string
+): Pick<LessonDigestRow, "picks" | "praise_count" | "improve_count" | "groups" | "absent"> {
+  const pickCounts = new Map<number, number>();
+  const absentIds = new Set<number>();
+  const groupScores = new Map<number, number>();
+  let praiseCount = 0;
+  let improveCount = 0;
+
+  for (const ev of events) {
+    if (ev.kind === "pick" && ev.student_id !== null) {
+      pickCounts.set(ev.student_id, (pickCounts.get(ev.student_id) ?? 0) + 1);
+    } else if (ev.kind === "behavior" && ev.student_id !== null) {
+      if (ev.payload.type === "praise") praiseCount += 1;
+      else if (ev.payload.type === "improve") improveCount += 1;
+    } else if (ev.kind === "group_point") {
+      const groupNo = Number(ev.payload.group_no);
+      const delta = Number(ev.payload.delta);
+      if (Number.isFinite(groupNo) && Number.isFinite(delta)) {
+        groupScores.set(groupNo, (groupScores.get(groupNo) ?? 0) + delta);
+      }
+    } else if (ev.kind === "attendance" && ev.student_id !== null) {
+      // payload.absent 为显式 false = 重新标记在班（比撤销更轻），其余一律按缺勤计
+      if (ev.payload.absent === false) absentIds.delete(ev.student_id);
+      else absentIds.add(ev.student_id);
+    }
+  }
+
+  return {
+    picks: [...pickCounts.entries()]
+      .map(([student_id, count]) => ({ student_id, student_name: nameOf(student_id), count }))
+      .sort((a, b) => b.count - a.count || a.student_id - b.student_id),
+    praise_count: praiseCount,
+    improve_count: improveCount,
+    groups: [...groupScores.entries()]
+      .map(([group_no, score]) => ({ group_no, score }))
+      .sort((a, b) => a.group_no - b.group_no),
+    absent: [...absentIds].sort((a, b) => a - b).map((id) => ({ student_id: id, student_name: nameOf(id) })),
+  };
+}
+
+/** 课堂摘要：已结束且已落 stats 快照的会话优先用快照，其余由未撤销事件流现算 */
+async function buildLessonDigests(sessions: LessonSession[]): Promise<LessonDigestRow[]> {
+  if (!sessions.length) return [];
+  const needsNames = sessions.some((s) => !(s.status === "ended" && s.stats));
+  const names = new Map<number, string>();
+  if (needsNames) {
+    for (const s of await listStudents()) names.set(s.id, s.name);
+  }
+  const nameOf = (id: number) => names.get(id) ?? `学生#${id}`;
+
+  const rows: LessonDigestRow[] = [];
+  for (const s of sessions) {
+    const base = {
+      session_id: s.id,
+      class_name: s.class_name,
+      subject: s.subject,
+      lesson_date: s.lesson_date,
+      period: s.period,
+      status: s.status,
+      started_at: s.started_at,
+      ended_at: s.ended_at,
+    };
+    const stats = s.status === "ended" ? s.stats : null;
+    if (stats) {
+      rows.push({
+        ...base,
+        digest_source: "stats",
+        picks: stats.picks ?? [],
+        praise_count: stats.praise_count ?? 0,
+        improve_count: stats.improve_count ?? 0,
+        groups: stats.groups ?? [],
+        absent: stats.absent ?? [],
+      });
+      continue;
+    }
+    const events = await listLessonEvents(s.id);
+    rows.push({ ...base, digest_source: "events", ...aggregateLessonEvents(events, nameOf) });
+  }
+  return rows;
+}
+
+/** 摘要文本：整场一行 + 点名/表现/小组分/缺勤明细（进入 LLM 上下文，保持紧凑） */
+function lessonDigestLines(r: LessonDigestRow): string[] {
+  const period = r.period === null ? "临时课堂" : `第${r.period}节`;
+  const status = r.status === "live" ? "进行中" : "已结束";
+  const span = r.ended_at ? `${r.started_at} ~ ${r.ended_at}` : r.started_at;
+  const source = r.digest_source === "stats" ? "下课快照" : "事件流";
+  const lines = [
+    `[#${r.session_id}] ${r.class_name} · ${r.subject || "未填科目"} · ${r.lesson_date} ${period} · ${status}（${span}）· 摘要来源：${source}`,
+    r.picks.length
+      ? `  点名 ${r.picks.length} 人：${r.picks.map((p) => `${p.student_name}×${p.count}`).join("、")}`
+      : "  点名：暂无记录",
+    `  表扬 ${r.praise_count} 次 / 待改进 ${r.improve_count} 次`,
+  ];
+  if (r.groups.length) {
+    lines.push(`  小组分：${r.groups.map((g) => `第${g.group_no}组 ${g.score} 分`).join("、")}`);
+  }
+  if (r.absent.length) lines.push(`  缺勤：${r.absent.map((a) => a.student_name).join("、")}`);
+  return lines;
+}
+
 /** 隐私注意：返回值会进入 LLM 上下文。云 API 场景的脱敏策略见 docs/AGENT.md */
 export default defineAgentTool({
   name: "query_data",
   label: "数据查询",
   description:
-    "查询应用数据库：学生档案（students）、照片记录（photos）、汇总统计（stats）、日常表现（behaviors）、考试批次（exams）、成绩明细（scores）、作业台账（homeworks）、评价报告存档（eval_reports）。" +
-    "数据分析、数量统计、条件筛选都用它；查成绩统计与排名时先用它拿到班级/考试/学生 ID，再配合 analyze 工具做深度分析。",
+    "查询应用数据库：学生档案（students）、照片记录（photos）、汇总统计（stats）、日常表现（behaviors）、考试批次（exams）、成绩明细（scores）、作业台账（homeworks）、评价报告存档（eval_reports）、课堂记录（lessons）。" +
+    "数据分析、数量统计、条件筛选都用它；查成绩统计与排名时先用它拿到班级/考试/学生 ID，再配合 analyze 工具做深度分析。" +
+    "课堂记录（lessons）按班级名与日期查节课会话及其点名、表扬/待改进、小组分、缺勤摘要——" +
+    "「今天数学课点了谁」「这节课点了哪些人」这类课堂提问用它（class_name 宽容口语差异，如「三年二班」≈「三年级二班」）。",
   tags: ["readonly"],
   parameters: {
     type: "object",
     properties: {
       entity: {
         type: "string",
-        enum: ["students", "photos", "stats", "behaviors", "exams", "scores", "classes", "term_comments", "homeworks", "eval_reports"],
+        enum: ["students", "photos", "stats", "behaviors", "exams", "scores", "classes", "term_comments", "homeworks", "eval_reports", "lessons"],
         description: "查询实体",
       },
       keyword: {
@@ -83,6 +244,23 @@ export default defineAgentTool({
       semester: {
         type: "string",
         description: "学期号过滤，如「2026-2027-1」，仅 term_comments 生效",
+      },
+      class_name: {
+        type: "string",
+        description:
+          "班级名过滤，仅 lessons 生效；宽容口语差异（「三年二班」≈「三年级二班」，「三(2)班」也可识别）",
+      },
+      date: {
+        type: "string",
+        description: "按上课日期（YYYY-MM-DD）过滤，仅 lessons 生效；「今天」请自行换算成具体日期",
+      },
+      start: {
+        type: "string",
+        description: "上课日期区间起点（YYYY-MM-DD，闭区间），仅 lessons 生效；与 date 二选一",
+      },
+      end: {
+        type: "string",
+        description: "上课日期区间终点（YYYY-MM-DD，闭区间），仅 lessons 生效；与 date 二选一",
       },
       limit: {
         type: "number",
@@ -319,10 +497,34 @@ export default defineAgentTool({
       };
     }
 
+    if (entity === "lessons") {
+      const className = typeof args.class_name === "string" ? args.class_name.trim() : "";
+      const lessonDate = typeof args.date === "string" ? args.date.trim() : "";
+      const start = typeof args.start === "string" ? args.start.trim() : "";
+      const end = typeof args.end === "string" ? args.end.trim() : "";
+      // 班级名在工具内做宽容匹配，因此带班级名时不先限条数（避免先截断再筛丢命中）
+      const sessions = await listLessonSessions({
+        lesson_date: lessonDate || undefined,
+        start: start || undefined,
+        end: end || undefined,
+        limit: className ? undefined : limit,
+      });
+      const matched = className ? matchLessonClassName(sessions, className) : sessions;
+      const rows = await buildLessonDigests(matched.slice(0, limit));
+      const lines = rows.flatMap(lessonDigestLines).join("\n");
+      return {
+        ok: true,
+        summary: `课堂查询：命中 ${matched.length} 场，返回前 ${rows.length} 场。\n${
+          lines || "（没有符合条件的课堂记录：可用 class_name / date 收窄，或确认是否已开课）"
+        }`,
+        data: rows,
+      };
+    }
+
     return {
       ok: false,
       summary: "",
-      error: `未知查询实体 "${entity}"，可选：students、photos、stats、behaviors、exams、scores、classes、term_comments、homeworks、eval_reports。`,
+      error: `未知查询实体 "${entity}"，可选：students、photos、stats、behaviors、exams、scores、classes、term_comments、homeworks、eval_reports、lessons。`,
     };
   },
 });

@@ -3,6 +3,7 @@
  * 覆盖：页面跳转、数据查询、文档检索、安全确认门拦截、边界兜底等典型场景。
  */
 import type { EvalCase } from "./types";
+import { localDateStr } from "../../src/lib/format";
 
 export const EVAL_DATASET: EvalCase[] = [
   // ==================== 1. 页面跳转 (Navigation) ====================
@@ -84,6 +85,16 @@ export const EVAL_DATASET: EvalCase[] = [
     expected: {
       tool: "navigate",
       args: { target: "class-detail", class_name: "三年级一班" },
+    },
+  },
+  {
+    id: "nav-classroom",
+    description: "打开课堂模式仍走导航（含「开课」二字，不得被开课动作劫持）",
+    category: "navigation",
+    input: "打开课堂模式",
+    expected: {
+      tool: "navigate",
+      args: { target: "classroom" },
     },
   },
 
@@ -186,6 +197,16 @@ export const EVAL_DATASET: EvalCase[] = [
     expected: {
       tool: "query_data",
       args: { entity: "homeworks" },
+    },
+  },
+  {
+    id: "query-lessons-picked",
+    description: "课堂查询：按班级与日期查这节课点了谁 → query_data lessons",
+    category: "data_query",
+    input: "今天三(2)班数学课点了谁",
+    expected: {
+      tool: "query_data",
+      args: { entity: "lessons", class_name: "三(2)班", date: localDateStr() },
     },
   },
   {
@@ -297,6 +318,50 @@ export const EVAL_DATASET: EvalCase[] = [
     expected: {
       tool: "ui_action",
       args: { page: "classes", action: "archive-class", confirm: true },
+      shouldGate: false,
+    },
+  },
+  {
+    id: "gate-classroom-start-unconfirmed",
+    description: "课堂写操作未确认：开始上课应被安全确认门拦截",
+    category: "confirm_gate",
+    input: "开始上课",
+    expected: {
+      tool: "ui_action",
+      args: { page: "classroom", action: "start" },
+      shouldGate: true,
+    },
+  },
+  {
+    id: "gate-classroom-start-confirmed",
+    description: "课堂写操作已确认：显式确认后携带 confirm:true，确认门放行",
+    category: "confirm_gate",
+    input: "确认开始上课",
+    expected: {
+      tool: "ui_action",
+      args: { page: "classroom", action: "start", confirm: true },
+      shouldGate: false,
+    },
+  },
+  {
+    id: "gate-classroom-end-unconfirmed",
+    description: "课堂写操作未确认：下课应被安全确认门拦截",
+    category: "confirm_gate",
+    input: "下课",
+    expected: {
+      tool: "ui_action",
+      args: { page: "classroom", action: "end-lesson" },
+      shouldGate: true,
+    },
+  },
+  {
+    id: "gate-classroom-end-confirmed",
+    description: "课堂写操作已确认：显式确认下课携带 confirm:true，确认门放行",
+    category: "confirm_gate",
+    input: "确认下课",
+    expected: {
+      tool: "ui_action",
+      args: { page: "classroom", action: "end-lesson", confirm: true },
       shouldGate: false,
     },
   },

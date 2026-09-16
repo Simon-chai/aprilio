@@ -9,6 +9,7 @@
  */
 import type { AgentLlm, AgentMessage, LlmResponse, ToolCallPayload } from "../types";
 import { NAV_TARGETS } from "../tools/navigation";
+import { localDateStr } from "../../lib/format";
 
 let seq = 0;
 const nextCallId = () => `mock-call-${++seq}`;
@@ -58,6 +59,32 @@ function extractClassName(text: string): string {
   return m ? m[1].replace(/\s+/g, "") : "";
 }
 
+/** 课堂查询触发词：点名/课堂类口语（不含裸「课」，避免误吃「课表」） */
+const LESSON_WORDS = ["点了谁", "点了哪些", "点名", "课堂", "这节课", "这堂课", "课上", "上课", "提问"];
+/** 开课/下课是页面动作（ui_action 域），不进课堂查询 */
+const LESSON_ACTION_RE = /开始上课|开课|下课|进入课堂|结束课堂/;
+
+/** 「今天/昨天」与显式日期 → YYYY-MM-DD（无日期线索返回空串） */
+function extractLessonDate(text: string): string {
+  if (/今天|今日|本次|这节|这一节/.test(text)) return localDateStr();
+  if (text.includes("昨天")) {
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    return localDateStr(d);
+  }
+  const iso = text.match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (iso) return localDateStr(new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3])));
+  return "";
+}
+
+/** 课堂班级名：常规班级名优先，再兜「三(2)班」括号写法（query_data lessons 宽容匹配） */
+function extractLessonClassName(text: string): string {
+  const normal = extractClassName(text);
+  if (normal) return normal;
+  const paren = text.match(/([一二三四五六1-6]\s*[（(]\s*\d{1,2}\s*[)）]\s*班)/);
+  return paren ? paren[1].replace(/\s+/g, "") : "";
+}
+
 function extractKeyword(text: string): string {
   const quoted = text.match(/[“”"'《》【】]([^“”"'《》【】]{1,12})[“”"'《》【】]/);
   if (quoted) return quoted[1];
@@ -86,6 +113,22 @@ export function mockLlm(): AgentLlm {
       }
 
       const userText = [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
+
+      // 课堂查询：「今天三(2)班数学课点了谁」「这节课点了哪些人」→ query_data{entity:'lessons'}
+      // 显式导航（「打开课堂模式」）让位给 navigate，开课/下课让位给 ui_action（并行交付）
+      if (
+        LESSON_WORDS.some((w) => userText.includes(w)) &&
+        !LESSON_ACTION_RE.test(userText) &&
+        !matchNavTarget(userText)
+      ) {
+        const args: Record<string, unknown> = { entity: "lessons" };
+        const className = extractLessonClassName(userText);
+        if (className) args.class_name = className;
+        const date = extractLessonDate(userText);
+        if (date) args.date = date;
+        const call: ToolCallPayload = { id: nextCallId(), name: "query_data", arguments: args };
+        return { content: "", toolCalls: [call] };
+      }
 
       // 班级查询优先于归档/导航：「看看我归档过哪些班级」是查询，不是归档动作；
       // 显式导航短语（班级管理 / 班级列表）仍走导航。
@@ -117,6 +160,17 @@ export function mockLlm(): AgentLlm {
         const className = extractClassName(userText);
         const args: Record<string, unknown> = { page: "classes", action: "restore-class" };
         if (className) args.args = { class_name: className };
+        if (isConfirmed) args.confirm = true;
+        const call: ToolCallPayload = { id: nextCallId(), name: "ui_action", arguments: args };
+        return { content: "", toolCalls: [call] };
+      }
+
+      // 开课 / 下课：课堂页面动作（写操作；显式「确认」后带 confirm:true）。
+      // 「打开课堂模式」含「开课」二字，显式导航短语让位给 navigate（与课堂查询分支同口径）
+      if (/开始上课|开课|下课|结束课堂/.test(userText) && !matchNavTarget(userText)) {
+        const isEnd = /下课|结束课堂/.test(userText);
+        const isConfirmed = userText.includes("确认") || userText.includes("确定");
+        const args: Record<string, unknown> = { page: "classroom", action: isEnd ? "end-lesson" : "start" };
         if (isConfirmed) args.confirm = true;
         const call: ToolCallPayload = { id: nextCallId(), name: "ui_action", arguments: args };
         return { content: "", toolCalls: [call] };

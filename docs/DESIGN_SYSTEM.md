@@ -43,6 +43,10 @@ aprilio 的视觉规范与 token 约定。**token 唯一事实源是 `src/style.
 | `parchment` | `#f5f5f7` | 侧栏 / 顶栏 |
 | `pearl` | `#fafafc` | 表头 / 次级按钮底 |
 | `mint` | `#e8f5ec` | 校园清新绿氛围底：白 → `mint` 淡渐变的落点，不做交互强调 |
+| `chalkboard` | `#1d3b32` | 课堂模式沉浸底主色（黑板绿 = `mint` 的深色落点，绿色系同一脉） |
+| `chalkboard-deep` | `#112620` | 课堂模式沉浸底纵深落点（`.classroom-immersive` 渐变下部） |
+| `praise-on-dark` | `#4ec26f` | 沉浸底（黑板绿）上的表扬数字 / 状态字（比 `praise` 亮） |
+| `improve-on-dark` | `#f0a63e` | 沉浸底（黑板绿）上的待改进数字 / 状态字（比 `improve` 亮） |
 | `tile` | `#272729` | 深色块 / tooltip |
 
 ### 线条与语义色

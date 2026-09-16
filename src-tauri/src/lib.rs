@@ -477,6 +477,75 @@ fn migrations() -> Vec<Migration> {
       CREATE INDEX IF NOT EXISTS idx_eval_reports_student ON student_eval_reports(student_id, range_start);
     "#,
     kind: MigrationKind::Up,
+  },
+  Migration {
+    version: 9,
+    description: "add_classroom_lesson_tables",
+    // 课堂模式（会话 × 活动 × 事件）：lesson_sessions / lesson_events /
+    // seatings / classroom_activity_sets 四张新表 + 索引，前端 ensureSchema 同构建表兜底。
+    // lesson_events.settled_record_id 不加 FK（双写背引用 student_behavior_records，避免级联环）。
+    sql: r#"
+      CREATE TABLE IF NOT EXISTS lesson_sessions (
+        id                INTEGER PRIMARY KEY AUTOINCREMENT,
+        class_name        TEXT NOT NULL,
+        subject           TEXT NOT NULL DEFAULT '',
+        lesson_date       TEXT NOT NULL,
+        period            INTEGER,
+        started_at        TEXT NOT NULL,
+        ended_at          TEXT,
+        status            TEXT NOT NULL DEFAULT 'live',
+        activity_set_json TEXT NOT NULL DEFAULT '[]',
+        stats_json        TEXT,
+        digest_md         TEXT,
+        digest_source     TEXT,
+        created_at        TEXT NOT NULL
+      );
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_lesson_sessions_slot
+        ON lesson_sessions(class_name, lesson_date, period);
+      CREATE INDEX IF NOT EXISTS idx_lesson_sessions_live ON lesson_sessions(status) WHERE status = 'live';
+
+      CREATE TABLE IF NOT EXISTS lesson_events (
+        id                INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id        INTEGER NOT NULL REFERENCES lesson_sessions(id) ON DELETE CASCADE,
+        student_id        INTEGER REFERENCES students(id) ON DELETE CASCADE,
+        activity          TEXT NOT NULL,
+        kind              TEXT NOT NULL,
+        payload           TEXT NOT NULL DEFAULT '{}',
+        settled_record_id INTEGER,
+        occurred_at       TEXT NOT NULL,
+        created_at        TEXT NOT NULL,
+        revoked_at        TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_lesson_events_session ON lesson_events(session_id);
+      CREATE INDEX IF NOT EXISTS idx_lesson_events_student_pick
+        ON lesson_events(student_id, kind, occurred_at) WHERE revoked_at IS NULL;
+
+      CREATE TABLE IF NOT EXISTS seatings (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        class_name TEXT NOT NULL,
+        semester   TEXT NOT NULL,
+        row_no     INTEGER NOT NULL,
+        col_no     INTEGER NOT NULL,
+        group_no   INTEGER NOT NULL DEFAULT 0,
+        student_id INTEGER NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_seatings_slot ON seatings(class_name, semester, row_no, col_no);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_seatings_student ON seatings(class_name, semester, student_id);
+
+      CREATE TABLE IF NOT EXISTS classroom_activity_sets (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        name            TEXT NOT NULL,
+        subject         TEXT NOT NULL DEFAULT '',
+        activities_json TEXT NOT NULL,
+        sort_order      INTEGER NOT NULL DEFAULT 0,
+        created_at      TEXT NOT NULL
+      );
+    "#,
+    kind: MigrationKind::Up,
   }]
 }
 

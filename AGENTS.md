@@ -23,6 +23,7 @@
 | 设计系统 | [docs/DESIGN_SYSTEM.md](docs/DESIGN_SYSTEM.md) | 颜色/字号/圆角/阴影 token、组件规范、交互基建唯一模式（弹层/确认/反馈/图标）与 design-token-guard 防退化门禁；token 唯一事实源为 `src/style.css` 的 `@theme`（图表色例外：`lib/chart-palette.ts`） |
 | 评价报告 | [docs/EVAL_REPORT.md](docs/EVAL_REPORT.md) | 作业台账（P2先行）+评价报告（P1随后）：区间聚合、AI双输出、存档打印 |
 | 桌面宠物 | [docs/DESKTOP_PET.md](docs/DESKTOP_PET.md) | 自定义宠物接入：宠物包规范、PetRuntime 适配器、Agent 事件桥、素材准备（矢量分层/分层贴图/序列帧/Live2D）、形象调试工作流 |
+| 课堂模式 | [docs/CLASSROOM.md](docs/CLASSROOM.md) | 节课 = 会话容器 × 可组合活动 × 统一事件流：v9 四表（槽位幂等）、活动放文件即接入与 kind 契约、档案双写透传、崩溃重放恢复、Agent lessons 实体与开/下课动作 |
 
 ## 新增规则的拆分原则
 
