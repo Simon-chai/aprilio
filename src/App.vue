@@ -4,11 +4,15 @@ import { useRoute } from "vue-router";
 import AppSidebar from "./components/AppSidebar.vue";
 import AgentChat from "./components/agent/AgentChat.vue";
 import { purgeExpiredRecycleItems } from "./lib/db";
+import { useFullscreen } from "./composables/useFullscreen";
 
 const route = useRoute();
 
 // 仅首页全屏沉浸展示，其他页面均常驻侧边栏
 const fullBleed = computed(() => route.name === "home");
+
+// 注册 F11 全屏切换与状态同步（App 常驻，保证任何页面都能响应快捷键）
+useFullscreen();
 
 // 启动时清一次回收站过期项（保留期外彻底删除，连带清图片文件）
 onMounted(() => {

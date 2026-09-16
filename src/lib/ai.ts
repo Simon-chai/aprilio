@@ -1,3 +1,7 @@
+import { invoke } from "@tauri-apps/api/core";
+import { ref } from "vue";
+import { isTauri } from "./db";
+
 /* ------------------------------------------------------------------ */
 /* 供应商预设                                                           */
 /* ------------------------------------------------------------------ */
@@ -99,26 +103,235 @@ function decodeApiKey(stored: unknown): string {
   }
 }
 
-export function loadAiConfig(): AiConfig {
-  if (typeof localStorage === "undefined") return { ...DEFAULT_AI_CONFIG };
+/* ------------------------------------------------------------------ */
+/* 多模型方案：可保存多套配置，一键切换「当前使用」                       */
+/* 存储键 aprilio.ai.profiles.v1：{ activeId, profiles[] }，            */
+/* 每个方案的密钥同样做 enc1: 混淆存放，不出本机。                       */
+/* 历史单配置（aprilio.ai.config）首次读取时自动迁移为一个「默认方案」。  */
+/* ------------------------------------------------------------------ */
+
+/** 单套模型方案；AiConfig 的字段全部包含，可直接传给 isAiConfigured / verifyAiConfig */
+export interface AiProfile {
+  id: string;
+  /** 展示名，如「DeepSeek 日常主力」「本地 Ollama 离线备用」 */
+  name: string;
+  provider: string;
+  model: string;
+  apiKey: string;
+  /** OpenAI 兼容的自定义地址，留空用官方 */
+  baseUrl: string;
+  temperature: number;
+  systemPrompt: string;
+}
+
+/** 方案集合状态：activeId 指向「当前使用」的方案（profiles 为空时为空串） */
+export interface AiProfilesState {
+  activeId: string;
+  profiles: AiProfile[];
+}
+
+const PROFILES_STORAGE_KEY = "aprilio.ai.profiles.v1";
+
+/** 空方案集：还没有任何方案（首次使用） */
+const EMPTY_PROFILES_STATE: AiProfilesState = { activeId: "", profiles: [] };
+
+/** 方案/配置变更版本号：loadAiConfig 读 localStorage 不具备响应性，消费方依赖它刷新 computed */
+export const aiConfigVersion = ref(0);
+
+function notifyAiConfigChanged(): void {
+  aiConfigVersion.value += 1;
+}
+
+/** 生成方案 id：优先 crypto.randomUUID，兜底时间戳 + 随机串 */
+export function newAiProfileId(): string {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `p-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function normalizeProfile(raw: Partial<AiProfile> | null | undefined): AiProfile {
+  const str = (v: unknown) => (typeof v === "string" ? v : "");
+  return {
+    id: str(raw?.id) || newAiProfileId(),
+    name: str(raw?.name),
+    provider: str(raw?.provider) || DEFAULT_AI_CONFIG.provider,
+    model: str(raw?.model),
+    apiKey: decodeApiKey(raw?.apiKey),
+    baseUrl: str(raw?.baseUrl),
+    temperature:
+      typeof raw?.temperature === "number" && Number.isFinite(raw.temperature)
+        ? raw.temperature
+        : DEFAULT_AI_CONFIG.temperature,
+    systemPrompt: str(raw?.systemPrompt),
+  };
+}
+
+/** 清洗任意来源的方案集数据：字段兜底、去重、activeId 失效时回落到首个已配置方案 */
+function sanitizeProfilesState(parsed: unknown): AiProfilesState {
+  const rawList = (parsed as { profiles?: unknown } | null)?.profiles;
+  const list = Array.isArray(rawList) ? (rawList as Partial<AiProfile>[]) : [];
+  const profiles: AiProfile[] = [];
+  const seen = new Set<string>();
+  for (const raw of list) {
+    const profile = normalizeProfile(raw);
+    if (seen.has(profile.id)) continue;
+    seen.add(profile.id);
+    profiles.push(profile);
+  }
+  const rawActive = (parsed as { activeId?: unknown } | null)?.activeId;
+  let activeId = typeof rawActive === "string" && seen.has(rawActive) ? rawActive : "";
+  if (!activeId && profiles.length) {
+    const fallback = profiles.find((p) => isAiConfigured(p)) ?? profiles[0];
+    activeId = fallback.id;
+  }
+  return { activeId, profiles };
+}
+
+/** 历史单配置迁移：读旧键（enc1: 混淆与明文都兼容），转成一个「默认方案」 */
+function migrateLegacyConfig(): AiProfilesState | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { ...DEFAULT_AI_CONFIG };
+    if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<AiConfig>;
-    const merged = { ...DEFAULT_AI_CONFIG, ...parsed };
-    // 非字符串脏数据兜底为空；enc1: 混淆与历史明文都能读
-    merged.apiKey = decodeApiKey(parsed.apiKey);
-    return merged;
+    const profile = normalizeProfile({
+      id: newAiProfileId(),
+      name: "默认方案",
+      provider: parsed.provider,
+      model: parsed.model,
+      apiKey: parsed.apiKey,
+      baseUrl: parsed.baseUrl,
+      temperature: parsed.temperature,
+      systemPrompt: parsed.systemPrompt,
+    });
+    return { activeId: profile.id, profiles: [profile] };
   } catch {
-    return { ...DEFAULT_AI_CONFIG };
+    return null;
   }
 }
 
-export function saveAiConfig(config: AiConfig): void {
-  localStorage.setItem(
-    STORAGE_KEY,
-    JSON.stringify({ ...config, apiKey: encodeApiKey(config.apiKey) }),
-  );
+/** 读取方案集：优先新键；无新键但有历史单配置时迁移；损坏时回空集 */
+export function loadAiProfiles(): AiProfilesState {
+  if (typeof localStorage === "undefined") return { ...EMPTY_PROFILES_STATE };
+  try {
+    const raw = localStorage.getItem(PROFILES_STORAGE_KEY);
+    if (!raw) {
+      const migrated = migrateLegacyConfig();
+      if (migrated) {
+        // 迁移结果立即落盘：顺带把历史明文密钥转成混淆存放
+        saveAiProfiles(migrated);
+        return migrated;
+      }
+      return { ...EMPTY_PROFILES_STATE };
+    }
+    return sanitizeProfilesState(JSON.parse(raw));
+  } catch {
+    return { ...EMPTY_PROFILES_STATE };
+  }
+}
+
+/** 持久化方案集：逐方案混淆密钥；activeId 指向不存在的方案时自动修正 */
+export function saveAiProfiles(state: AiProfilesState): void {
+  const clean = sanitizeProfilesState(state);
+  const payload = {
+    activeId: clean.activeId,
+    profiles: clean.profiles.map((p) => ({ ...p, apiKey: encodeApiKey(p.apiKey) })),
+  };
+  localStorage.setItem(PROFILES_STORAGE_KEY, JSON.stringify(payload));
+  notifyAiConfigChanged();
+}
+
+/** 新增或更新方案：id 已存在则整条替换。落盘后返回清洗后的最新方案集 */
+export function upsertAiProfile(profile: AiProfile): AiProfilesState {
+  const state = loadAiProfiles();
+  const normalized = normalizeProfile(profile);
+  const exists = state.profiles.some((p) => p.id === normalized.id);
+  const next: AiProfilesState = {
+    activeId: state.activeId,
+    profiles: exists
+      ? state.profiles.map((p) => (p.id === normalized.id ? normalized : p))
+      : [...state.profiles, normalized],
+  };
+  // 当前方案缺失/失效（如首次添加）时，让新方案顶上
+  if (!next.profiles.some((p) => p.id === next.activeId)) {
+    next.activeId = normalized.id;
+  }
+  saveAiProfiles(next);
+  return loadAiProfiles();
+}
+
+/** 删除方案：删的是当前方案时，回落到首个已配置方案（其次第一个），没有方案则清空 */
+export function deleteAiProfile(id: string): AiProfilesState {
+  const state = loadAiProfiles();
+  const profiles = state.profiles.filter((p) => p.id !== id);
+  let activeId = state.activeId;
+  if (activeId === id) {
+    const fallback = profiles.find((p) => isAiConfigured(p)) ?? profiles[0];
+    activeId = fallback ? fallback.id : "";
+  }
+  saveAiProfiles({ activeId, profiles });
+  return loadAiProfiles();
+}
+
+/** 一键切换当前方案；id 不存在时保持原状。落盘后返回最新方案集 */
+export function setActiveAiProfile(id: string): AiProfilesState {
+  const state = loadAiProfiles();
+  if (!state.profiles.some((p) => p.id === id)) return state;
+  saveAiProfiles({ ...state, activeId: id });
+  return loadAiProfiles();
+}
+
+/**
+ * 当前生效的模型配置：取「当前使用」方案（失效时回落第一个）。
+ * 全应用的 AI 调用方（Agent、成绩导入、评语…）都从这里读，切换方案即全局生效。
+ */
+export function loadAiConfig(): AiConfig {
+  const state = loadAiProfiles();
+  const active = state.profiles.find((p) => p.id === state.activeId) ?? state.profiles[0];
+  if (!active) return { ...DEFAULT_AI_CONFIG };
+  return {
+    provider: active.provider,
+    model: active.model,
+    apiKey: active.apiKey,
+    baseUrl: active.baseUrl,
+    temperature: active.temperature,
+    systemPrompt: active.systemPrompt,
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* 校验 + 保存（设置页「保存并校验」）                                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 校验模型配置是否可用：向当前模型发一条最小对话，密钥 / 地址 / 模型 ID
+ * 一次走通（Rust 侧任一环节失败都会返回错误说明）。浏览器演示态不联网。
+ */
+export async function verifyAiConfig(config: AiConfig): Promise<void> {
+  if (!isTauri()) throw new Error("浏览器演示态不联网，无法校验。");
+  await invoke<{ content: string }>("ai_chat", {
+    params: {
+      provider: config.provider,
+      model: config.model,
+      api_key: config.apiKey.trim() || null,
+      base_url: config.baseUrl.trim() || null,
+      messages: [{ role: "user", content: "ping" }],
+    },
+  });
+}
+
+/**
+ * 校验通过才落盘：先 ping 一次当前方案配置，通了再写入方案集。
+ * 校验失败原样抛错（调用方展示原因），已有方案保持原状不被覆盖。
+ * 浏览器演示态不联网，退化为直接保存（返回 "saved-unchecked"）。
+ */
+export async function saveAiProfileVerified(
+  profile: AiProfile
+): Promise<"verified" | "saved-unchecked"> {
+  if (isTauri()) {
+    await verifyAiConfig(profile);
+  }
+  upsertAiProfile(profile);
+  return isTauri() ? "verified" : "saved-unchecked";
 }
 
 /** 已选模型且（不需要密钥或已填密钥） */
@@ -127,6 +340,33 @@ export function isAiConfigured(config: AiConfig): boolean {
   if (!provider) return false;
   if (!config.model.trim()) return false;
   return !provider.needsKey || config.apiKey.trim().length > 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* 模型列表拉取（设置页「一键拉取」）                                      */
+/* ------------------------------------------------------------------ */
+
+/** 供应商支持的一个模型：id 是要填进「模型 ID」的值，name 是可读名（可缺省） */
+export interface AiModelOption {
+  id: string;
+  name?: string;
+}
+
+/**
+ * 拉取供应商当前支持的模型列表（走 Rust 侧 ai_list_models，密钥不出本机）。
+ * 直接用设置页当前表单值（无需先保存）；浏览器演示态不联网。
+ */
+export async function listAiModels(
+  config: Pick<AiConfig, "provider" | "apiKey" | "baseUrl">
+): Promise<AiModelOption[]> {
+  if (!isTauri()) throw new Error("浏览器演示态不联网，请在桌面端拉取。");
+  return invoke<AiModelOption[]>("ai_list_models", {
+    params: {
+      provider: config.provider,
+      api_key: config.apiKey.trim() || null,
+      base_url: config.baseUrl.trim() || null,
+    },
+  });
 }
 
 /* ------------------------------------------------------------------ */
@@ -145,7 +385,7 @@ const AI_ERROR_RULES: [RegExp, string][] = [
   [/not json|content[- ]type/i, "模型服务返回了无效内容，请检查「接口地址」是否正确（一般以 /v1 结尾），或稍后再试。"],
   [/401|unauthorized|invalid[ _-]?(api[ _-]?)?key|authentication/i, "API 密钥无效或已过期，请到「数据与设置」核对密钥。"],
   [/403|forbidden|region|restrict/i, "服务拒绝了本次请求，请确认密钥可用、账号未受限制（部分服务商有地区限制）。"],
-  [/404|not[ _-]found|no such model|does not exist/i, "模型名或接口地址不存在，请核对模型名称与服务商文档。"],
+  [/404|not[ _-]found|no such model|does not exist/i, "模型 ID 或接口地址不存在，请核对模型 ID 与服务商文档。"],
   [/429|rate[ _-]?limit|quota|insufficient|balance/i, "请求太频繁或额度不足，请稍后再试，或检查服务商账户余额。"],
   [/timed?[ _-]?out|timeout|connection|network|dns|refused|unreachable|reset/i, "网络连接失败，请检查网络后重试；若用代理请确认代理可用。"],
   [/serializ|invalid args|missing field/i, "请求参数异常，请到「数据与设置」重新保存模型配置。"],

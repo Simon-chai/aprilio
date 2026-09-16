@@ -117,6 +117,14 @@
   .app-no-select {
     user-select: none;
   }
+
+  /* WebView2（Tauri 桌面壳，Edge 内核）会在密码框右缘渲染原生「显示密码」眼睛，
+     与界面自绘的密钥显隐眼睛重叠，且原生控件和受控输入（:value 绑定）存在回显冲突。
+     统一隐藏原生控件，密钥显隐只走界面内的眼睛按钮。 */
+  input[type="password"]::-ms-reveal,
+  input[type="password"]::-ms-clear {
+    display: none;
+  }
 }
 
 /* 细滚动条，跟 Apple 的克制感一致 */

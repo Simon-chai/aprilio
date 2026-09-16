@@ -10,6 +10,8 @@ const props = withDefaults(
     type?: string;
     /** 透传给内部 input（如密钥框传 off 防浏览器记忆） */
     autocomplete?: string;
+    /** 关联 datalist 的 id（模型 ID 输入框用：点开显示拉取到的候选） */
+    list?: string;
   }>(),
   { placeholder: "", variant: "search", width: "240px", type: "text", autocomplete: undefined }
 );
@@ -44,6 +46,7 @@ const shellCls = computed(() => [
       :type="props.type"
       :placeholder="props.placeholder"
       :autocomplete="props.autocomplete"
+      :list="props.list"
       class="w-full bg-transparent text-caption text-ink outline-none placeholder:text-weak"
       @input="onInput"
     />

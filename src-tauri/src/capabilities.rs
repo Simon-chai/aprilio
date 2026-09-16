@@ -103,6 +103,7 @@ pub fn agent_capabilities() -> Vec<RustCapabilityReport> {
 /// 新注册能力时若忘了在 generate_handler 里挂命令，启动即报错。
 const KNOWN_COMMANDS: &[&str] = &[
   "ai_chat",
+  "ai_list_models",
   "photos_dir",
   "import_photo",
   "delete_photo_file",

@@ -8,10 +8,12 @@
 //! 循环本身在 TS 侧（src/agent/loop.ts）：工具执行体（路由跳转、数据查询、
 //! 文档检索）都是前端能力，循环贴近工具执行，无需 Rust ↔ 前端往返。
 //!
-//! 两条命令共用同一套供应商映射（`dispatch_provider!` 宏是唯一事实源）：
+//! 三条命令共用同一套供应商映射（`build_client` 是唯一事实源）：
 //! - `ai_chat`：一次性返回完整结果；
 //! - `ai_chat_stream`：助手文本经 `tauri::ipc::Channel` 逐段推送（事件 `delta`），
 //!   最终结果仍随命令返回值一次性给出；工具调用不逐段推，直接随返回值给全量。
+//! - `ai_list_models`：拉取供应商支持的模型列表（设置页「一键拉取」），
+//!   走 rig 的 ModelListingClient（OpenAI 兼容 = GET {base}/models）。
 //!
 //! 供应商映射（docs/AGENT_FRAMEWORK_EVALUATION.md §2）：
 //! - anthropic / gemini / ollama → rig 原生 provider
@@ -20,7 +22,7 @@
 //!   `default_endpoint_for`；带自定义 base_url 时一律走兼容通道。
 
 use futures::StreamExt;
-use rig_core::client::CompletionClient;
+use rig_core::client::{CompletionClient, ModelListingClient};
 use rig_core::completion::message::{ToolCall, ToolFunction, Text};
 use rig_core::completion::{
   AssistantContent, CompletionModel, CompletionRequest, CompletionResponse, Message, ToolDefinition,
@@ -316,8 +318,187 @@ fn require_key(api_key: &Option<String>, provider: &str) -> Result<String, Strin
 }
 
 /* ------------------------------------------------------------------ */
-/* 请求构造 + 供应商分发（两条命令的唯一事实源）                          */
+/* 供应商客户端构造（聊天 / 流式 / 模型列表三条命令的唯一事实源）           */
 /* ------------------------------------------------------------------ */
+
+/// 收拢后的供应商客户端。rig 各家 client 类型互不相同（CompletionModel 非动态
+/// 兼容），枚举 + match 是「构造一次、多条命令共用」的最小方案。
+#[derive(Debug)]
+enum ProviderClient {
+  Anthropic(anthropic::Client),
+  Gemini(gemini::Client),
+  Ollama(ollama::Client),
+  /// OpenAI 兼容 Chat Completions（openai / deepseek / moonshot / zhipu / openrouter / custom）
+  OpenAiCompat(openai::CompletionsClient),
+}
+
+/// 供应商 → rig client。新增供应商时在这里加分支即可同时覆盖三条命令。
+fn build_client(
+  provider: &str,
+  api_key: &Option<String>,
+  endpoint: Option<String>,
+) -> Result<ProviderClient, String> {
+  match provider {
+    "anthropic" => {
+      let key = require_key(api_key, provider)?;
+      let mut b = anthropic::Client::builder().api_key(key);
+      if let Some(url) = &endpoint {
+        b = b.base_url(url);
+      }
+      Ok(ProviderClient::Anthropic(b.build().map_err(|e| e.to_string())?))
+    }
+    "gemini" => {
+      let key = require_key(api_key, provider)?;
+      let mut b = gemini::Client::builder().api_key(key);
+      if let Some(url) = &endpoint {
+        b = b.base_url(url);
+      }
+      Ok(ProviderClient::Gemini(b.build().map_err(|e| e.to_string())?))
+    }
+    "ollama" => {
+      // 本地模型：无密钥（OllamaApiKey 接受 Nothing），兼容端点即 Ollama 服务地址
+      let mut b = ollama::Client::builder().api_key(rig_core::client::Nothing);
+      if let Some(url) = &endpoint {
+        b = b.base_url(url);
+      }
+      Ok(ProviderClient::Ollama(b.build().map_err(|e| e.to_string())?))
+    }
+    // openai / deepseek / moonshot / zhipu / openrouter / custom：
+    // 全部是 OpenAI 兼容 Chat Completions，统一走 CompletionsClient。
+    _ => {
+      let key = require_key(api_key, provider)?;
+      // 端点取值：显式地址 > 官方兼容端点 > rig 内置 OpenAI 默认地址（openai 留空即官方）。
+      // 其余兼容供应商没有内置端点，留空时在构造期就给出明确报错。
+      let url = match endpoint {
+        Some(url) => Some(url),
+        None if provider == "openai" => None,
+        None => Some(
+          default_endpoint_for(provider)
+            .map(str::to_string)
+            .ok_or_else(|| format!("供应商 {provider} 需要填写 Base URL。"))?,
+        ),
+      };
+      let mut b = openai::CompletionsClient::builder().api_key(key);
+      if let Some(url) = url {
+        b = b.base_url(url);
+      }
+      let client = b.build().map_err(|e| e.to_string())?;
+      Ok(ProviderClient::OpenAiCompat(client))
+    }
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* 命令                                                                 */
+/* ------------------------------------------------------------------ */
+
+/// 带 tool calling 的多轮聊天补全（一次性）。
+/// 返回助手文本与 tool_calls；工具的实际执行与循环推进由前端 Agent 框架负责。
+#[tauri::command]
+pub async fn ai_chat(params: AiChatParams) -> Result<AiChatResult, String> {
+  let (provider, model_name, api_key, endpoint, req) = prepare_request(params)?;
+  let mode = ExecMode::Once;
+  match build_client(&provider, &api_key, endpoint)? {
+    ProviderClient::Anthropic(c) => {
+      exec_model(&c.completion_model(&model_name), req, &provider, &model_name, mode).await
+    }
+    ProviderClient::Gemini(c) => {
+      exec_model(&c.completion_model(&model_name), req, &provider, &model_name, mode).await
+    }
+    ProviderClient::Ollama(c) => {
+      exec_model(&c.completion_model(&model_name), req, &provider, &model_name, mode).await
+    }
+    ProviderClient::OpenAiCompat(c) => {
+      exec_model(&c.completion_model(&model_name), req, &provider, &model_name, mode).await
+    }
+  }
+}
+
+/// 流式版聊天补全：助手文本增量经 `on_delta` Channel 逐段推给前端，
+/// 最终结果（全文 + tool_calls）仍随命令返回值一次性给出。
+#[tauri::command]
+pub async fn ai_chat_stream(
+  params: AiChatParams,
+  on_delta: Channel<AiStreamEvent>,
+) -> Result<AiChatResult, String> {
+  let (provider, model_name, api_key, endpoint, req) = prepare_request(params)?;
+  let mode = ExecMode::Stream(&on_delta);
+  match build_client(&provider, &api_key, endpoint)? {
+    ProviderClient::Anthropic(c) => {
+      exec_model(&c.completion_model(&model_name), req, &provider, &model_name, mode).await
+    }
+    ProviderClient::Gemini(c) => {
+      exec_model(&c.completion_model(&model_name), req, &provider, &model_name, mode).await
+    }
+    ProviderClient::Ollama(c) => {
+      exec_model(&c.completion_model(&model_name), req, &provider, &model_name, mode).await
+    }
+    ProviderClient::OpenAiCompat(c) => {
+      exec_model(&c.completion_model(&model_name), req, &provider, &model_name, mode).await
+    }
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* 模型列表拉取（设置页「一键拉取」）                                     */
+/* ------------------------------------------------------------------ */
+
+/// 模型列表条目：id 是设置页要填的「模型 ID」，name 是供应商给的可读名（可缺省）。
+#[derive(Debug, Serialize)]
+pub struct AiModelOption {
+  pub id: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub name: Option<String>,
+}
+
+/// 拉取模型列表的参数：provider + 可选密钥 / 自定义地址（与 AiChatParams 对齐）。
+#[derive(Debug, Deserialize)]
+pub struct AiListModelsParams {
+  pub provider: String,
+  #[serde(default)]
+  pub api_key: Option<String>,
+  #[serde(default)]
+  pub base_url: Option<String>,
+}
+
+/// 所有供应商 client 都实现了 ModelListingClient，统一走这段提取逻辑。
+async fn fetch_model_options<C: ModelListingClient>(client: &C) -> Result<Vec<AiModelOption>, String> {
+  let list = client.list_models().await.map_err(shorten_error_message)?;
+  let mut items: Vec<AiModelOption> = list
+    .data
+    .into_iter()
+    .map(|m| AiModelOption { id: m.id, name: m.name })
+    .collect();
+  // 按 id 排序，列表长（如 OpenRouter 数百个）时也好找
+  items.sort_by(|a, b| a.id.cmp(&b.id));
+  Ok(items)
+}
+
+/// 拉取供应商支持的模型列表。密钥 / 地址随参数传入（用设置页当前表单值即可，无需先保存）。
+#[tauri::command]
+pub async fn ai_list_models(params: AiListModelsParams) -> Result<Vec<AiModelOption>, String> {
+  let provider = params.provider.trim().to_string();
+  let endpoint = params
+    .base_url
+    .as_deref()
+    .map(str::trim)
+    .filter(|u| !u.is_empty())
+    .map(normalize_base_url);
+  info!(target: "ai", "拉取模型列表开始：provider={}", provider);
+
+  let client = build_client(&provider, &params.api_key, endpoint)?;
+  let models = match &client {
+    ProviderClient::Anthropic(c) => fetch_model_options(c).await,
+    ProviderClient::Gemini(c) => fetch_model_options(c).await,
+    ProviderClient::Ollama(c) => fetch_model_options(c).await,
+    ProviderClient::OpenAiCompat(c) => fetch_model_options(c).await,
+  };
+  match &models {
+    Ok(list) => info!(target: "ai", "拉取模型列表成功：provider={} 共 {} 个", provider, list.len()),
+    Err(err) => error!(target: "ai", "拉取模型列表失败：provider={} {err}", provider),
+  }
+  models
+}
 
 /// 校验参数并构造 rig CompletionRequest。返回（provider, model_name, api_key, endpoint, request）。
 fn prepare_request(
@@ -336,8 +517,8 @@ fn prepare_request(
 
   let model_name = model.trim().to_string();
   if model_name.is_empty() {
-    error!(target: "ai", "AI 请求被拒绝：模型名称为空（provider={})", provider);
-    return Err("尚未配置模型名称，请到「数据与设置」填写。".to_string());
+    error!(target: "ai", "AI 请求被拒绝：模型 ID 为空（provider={})", provider);
+    return Err("尚未配置模型 ID，请到「数据与设置」填写。".to_string());
   }
   info!(
     target: "ai",
@@ -381,90 +562,16 @@ fn prepare_request(
   Ok((provider, model_name, api_key, endpoint, req))
 }
 
-/// 供应商映射宏：分支里构造各自 client 并以 `($model, $req, $provider, $model_name, $mode)`
-/// 调用执行器。新增 OpenAI 兼容供应商时在这里加端点即可同时覆盖两条命令。
-macro_rules! dispatch_provider {
-  ($provider:expr, $api_key:expr, $endpoint:expr, $model_name:expr, $req:expr, $mode:expr) => {
-    match $provider.as_str() {
-      "anthropic" => {
-        let key = require_key(&$api_key, &$provider)?;
-        let mut b = anthropic::Client::builder().api_key(key);
-        if let Some(url) = &$endpoint {
-          b = b.base_url(url);
-        }
-        let client = b.build().map_err(|e| e.to_string())?;
-        exec_model(&client.completion_model(&$model_name), $req, &$provider, &$model_name, $mode).await
-      }
-      "gemini" => {
-        let key = require_key(&$api_key, &$provider)?;
-        let mut b = gemini::Client::builder().api_key(key);
-        if let Some(url) = &$endpoint {
-          b = b.base_url(url);
-        }
-        let client = b.build().map_err(|e| e.to_string())?;
-        exec_model(&client.completion_model(&$model_name), $req, &$provider, &$model_name, $mode).await
-      }
-      "ollama" => {
-        // 本地模型：无密钥（OllamaApiKey 接受 Nothing），兼容端点即 Ollama 服务地址
-        let mut b = ollama::Client::builder().api_key(rig_core::client::Nothing);
-        if let Some(url) = &$endpoint {
-          b = b.base_url(url);
-        }
-        let client = b.build().map_err(|e| e.to_string())?;
-        exec_model(&client.completion_model(&$model_name), $req, &$provider, &$model_name, $mode).await
-      }
-      // openai / deepseek / moonshot / zhipu / openrouter / custom：
-      // 全部是 OpenAI 兼容 Chat Completions，统一走 CompletionsClient。
-      _ => {
-        let key = require_key(&$api_key, &$provider)?;
-        let url = match $endpoint {
-          Some(url) => url,
-          None => default_endpoint_for(&$provider)
-            .map(str::to_string)
-            .ok_or_else(|| format!("供应商 {} 需要填写 Base URL。", $provider))?,
-        };
-        let client = openai::CompletionsClient::builder()
-          .api_key(key)
-          .base_url(url)
-          .build()
-          .map_err(|e| e.to_string())?;
-        exec_model(&client.completion_model(&$model_name), $req, &$provider, &$model_name, $mode).await
-      }
-    }
-  };
-}
-
-/* ------------------------------------------------------------------ */
-/* 命令                                                                 */
-/* ------------------------------------------------------------------ */
-
-/// 带 tool calling 的多轮聊天补全（一次性）。
-/// 返回助手文本与 tool_calls；工具的实际执行与循环推进由前端 Agent 框架负责。
-#[tauri::command]
-pub async fn ai_chat(params: AiChatParams) -> Result<AiChatResult, String> {
-  let (provider, model_name, api_key, endpoint, req) = prepare_request(params)?;
-  dispatch_provider!(provider, api_key, endpoint, model_name, req, ExecMode::Once)
-}
-
-/// 流式版聊天补全：助手文本增量经 `on_delta` Channel 逐段推给前端，
-/// 最终结果（全文 + tool_calls）仍随命令返回值一次性给出。
-#[tauri::command]
-pub async fn ai_chat_stream(
-  params: AiChatParams,
-  on_delta: Channel<AiStreamEvent>,
-) -> Result<AiChatResult, String> {
-  let (provider, model_name, api_key, endpoint, req) = prepare_request(params)?;
-  dispatch_provider!(provider, api_key, endpoint, model_name, req, ExecMode::Stream(&on_delta))
-}
-
 #[cfg(test)]
 mod tests {
   use super::{
-    convert_message, convert_tool, default_endpoint_for, normalize_base_url, tool_call_to_ai,
-    AiMessage, AiStreamEvent, AiToolCall, AiToolDef,
+    build_client, convert_message, convert_tool, default_endpoint_for, fetch_model_options,
+    normalize_base_url, tool_call_to_ai, AiMessage, AiStreamEvent, AiToolCall, AiToolDef,
   };
+  use rig_core::client::ModelListingClient;
   use rig_core::completion::message::{AssistantContent, ToolCall, ToolFunction, UserContent};
   use rig_core::completion::Message;
+  use rig_core::model::{Model, ModelList};
   use serde_json::json;
 
   #[test]
@@ -497,6 +604,57 @@ mod tests {
     // openai 有默认端点、未知供应商不猜
     assert_eq!(default_endpoint_for("openai"), None);
     assert_eq!(default_endpoint_for("something-else"), None);
+  }
+
+  /// build_client：各供应商映射到正确的 client 类型（不发请求，只验证构造）
+  #[test]
+  fn builds_expected_client_variant_per_provider() {
+    use super::ProviderClient;
+    let key = || Some("k".to_string());
+    assert!(matches!(build_client("ollama", &None, None).unwrap(), ProviderClient::Ollama(_)));
+    assert!(matches!(
+      build_client("openai", &key(), None).unwrap(),
+      ProviderClient::OpenAiCompat(_)
+    ));
+    assert!(matches!(
+      build_client("deepseek", &key(), None).unwrap(),
+      ProviderClient::OpenAiCompat(_)
+    ));
+    assert!(matches!(
+      build_client("custom", &key(), Some("https://gw.example/v1".into())).unwrap(),
+      ProviderClient::OpenAiCompat(_)
+    ));
+    assert!(matches!(
+      build_client("anthropic", &key(), None).unwrap(),
+      ProviderClient::Anthropic(_)
+    ));
+    assert!(matches!(
+      build_client("gemini", &key(), None).unwrap(),
+      ProviderClient::Gemini(_)
+    ));
+  }
+
+  /// build_client：需密钥供应商缺密钥、未知供应商缺地址都要在构造期报错
+  #[test]
+  fn build_client_rejects_missing_key_or_endpoint() {
+    let err = build_client("openai", &None, None).unwrap_err();
+    assert!(err.contains("API Key"), "{err}");
+    let err = build_client("something-else", &Some("k".to_string()), None).unwrap_err();
+    assert!(err.contains("Base URL"), "{err}");
+  }
+
+  /// fetch_model_options：按 id 升序输出，供应商给的 name 原样带上
+  #[tokio::test]
+  async fn fetch_model_options_sorts_by_id() {
+    struct Stub;
+    impl ModelListingClient for Stub {
+      async fn list_models(&self) -> Result<ModelList, rig_core::model::ModelListingError> {
+        Ok(ModelList::new(vec![Model::from_id("b-model"), Model::from_id("a-model")]))
+      }
+    }
+    let opts = fetch_model_options(&Stub).await.unwrap();
+    let ids: Vec<&str> = opts.iter().map(|o| o.id.as_str()).collect();
+    assert_eq!(ids, vec!["a-model", "b-model"]);
   }
 
   /// 模拟前端发来的消息序列（serde tag = "role"）

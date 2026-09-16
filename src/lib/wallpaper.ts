@@ -9,7 +9,8 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { isTauri } from "./db";
-import { ensureBackgroundLibrary, importUrlBackground } from "./backgrounds";
+import { backgroundLibrary, ensureBackgroundLibrary, importUrlBackground } from "./backgrounds";
+import type { BackgroundImage } from "../types";
 
 const LS_KEY = "aprilio.wallpaper.v1";
 
@@ -71,6 +72,24 @@ interface BingWallpaperMeta {
   url: string;
   title: string;
   copyright: string;
+}
+
+/** Bing 壁纸地址前缀：Rust 侧把接口返回的相对路径拼成 cn.bing.com 完整地址 */
+const BING_URL_PREFIX = "https://cn.bing.com/";
+
+/** 是否是必应壁纸的入库地址（设置页缩略图按它从图库里反查） */
+export function isBingWallpaperUrl(url: string): boolean {
+  return url.startsWith(BING_URL_PREFIX);
+}
+
+/**
+ * 图库里的必应壁纸条目（按最近使用倒序），设置页缩略图用。
+ * 手动粘贴的其他网络图 / 本地上传不带 bing 前缀，不会混进来。
+ */
+export function bingWallpaperEntries(): BackgroundImage[] {
+  return backgroundLibrary.value
+    .filter((item) => item.kind === "timetable_bg" && isBingWallpaperUrl(item.origin_url))
+    .sort((a, b) => (a.used_at < b.used_at ? 1 : a.used_at > b.used_at ? -1 : 0));
 }
 
 /**

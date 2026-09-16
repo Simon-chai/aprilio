@@ -31,6 +31,9 @@ vi.mock("../src/composables/useAgent", async () => {
   };
 });
 
+/** 头部的模型切换胶囊只在「管理模型方案」时用路由，测试环境桩掉避免注入告警 */
+vi.mock("vue-router", () => ({ useRouter: () => ({ push: vi.fn() }) }));
+
 async function mountChat() {
   const wrapper = mount(AgentChat);
   await nextTick();

@@ -1,0 +1,723 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>多模型方案 · 一键切换 — 交互稿</title>
+<style>
+  /* ---------- 设计 token（对齐 src/style.css @theme） ---------- */
+  :root {
+    --primary: #0066cc;
+    --primary-focus: #0071e3;
+    --primary-soft: #eaf3fc;
+    --ink: #1d1d1f;
+    --muted: #333333;
+    --weak: #7a7a7a;
+    --faint: #cccccc;
+    --canvas: #ffffff;
+    --parchment: #f5f5f7;
+    --pearl: #fafafc;
+    --mint: #e8f5ec;
+    --tile: #272729;
+    --hairline: #e0e0e0;
+    --divider: #f0f0f0;
+    --success: #248a3d;
+    --danger: #d70015;
+    --danger-soft: #fdeef0;
+    --grad-primary: linear-gradient(135deg, #0066cc, #0091ff);
+    --grad-border-primary: linear-gradient(135deg, rgba(0,102,204,.65), rgba(0,145,255,.45));
+    --grad-border-danger: linear-gradient(135deg, rgba(215,0,21,.55), rgba(255,90,60,.4));
+    --shadow-window: 0 24px 60px -12px rgba(0,0,0,.18);
+    --shadow-glow: 0 6px 20px -6px rgba(0,102,204,.45);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: Inter, system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    color: var(--ink);
+    background: var(--canvas);
+    font-size: 17px; line-height: 1.47; letter-spacing: -0.37px; /* text-body */
+    overflow-x: auto;
+  }
+  button { font: inherit; letter-spacing: inherit; cursor: pointer; user-select: none; background: none; border: none; color: inherit; }
+  input, select, textarea { font: inherit; letter-spacing: inherit; color: var(--ink); }
+
+  /* ---------- 渐变能量线工具类（方案 C） ---------- */
+  .grad-border {
+    border: 1px solid transparent;
+    background: linear-gradient(var(--canvas), var(--canvas)) padding-box, var(--grad-border-primary) border-box;
+  }
+  .grad-border-soft {
+    border: 1px solid transparent;
+    background: linear-gradient(var(--primary-soft), var(--primary-soft)) padding-box, var(--grad-border-primary) border-box;
+  }
+  .grad-border-danger {
+    border: 1px solid transparent;
+    background: linear-gradient(var(--canvas), var(--canvas)) padding-box, var(--grad-border-danger) border-box;
+  }
+
+  /* ---------- 按钮 ---------- */
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+    border-radius: 9999px; padding: 7px 16px; font-size: 14px; letter-spacing: -0.22px;
+    transition: transform .15s, box-shadow .15s, filter .15s, background-color .15s;
+  }
+  .btn:active { transform: scale(0.97); }
+  .btn-primary {
+    color: #fff; background: var(--primary); background-image: var(--grad-primary);
+  }
+  .btn-primary:hover { box-shadow: var(--shadow-glow); transform: translateY(-1px); }
+  .btn-primary:disabled { opacity: .55; cursor: default; box-shadow: none; transform: none; }
+  .btn-secondary { color: var(--primary); }
+  .btn-secondary:hover { background: var(--primary-soft); }
+  .btn-pearl {
+    color: var(--ink); border-radius: 8px; padding: 7px 12px;
+    background: linear-gradient(var(--pearl), var(--pearl)) padding-box, var(--grad-border-primary) border-box;
+    border: 1px solid transparent;
+  }
+  .btn-pearl:hover { background: linear-gradient(#fff, #fff) padding-box, var(--grad-border-primary) border-box; }
+  .btn-danger {
+    color: var(--danger); border-radius: 8px;
+    background: linear-gradient(var(--canvas), var(--canvas)) padding-box, var(--grad-border-danger) border-box;
+    border: 1px solid transparent;
+  }
+  .btn-danger:hover { background: linear-gradient(var(--danger-soft), var(--danger-soft)) padding-box, var(--grad-border-danger) border-box; }
+  .icon-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 30px; height: 30px; border-radius: 11px; color: var(--weak); font-size: 16px;
+    transition: background-color .15s, color .15s;
+  }
+  .icon-btn:hover { color: var(--ink); }
+
+  /* ---------- 状态胶囊 ---------- */
+  .chip {
+    display: inline-flex; align-items: center; gap: 5px;
+    border-radius: 9999px; padding: 2px 9px; font-size: 12px; letter-spacing: -0.12px; white-space: nowrap;
+  }
+  .chip-current { background: var(--primary-soft); color: var(--primary); }
+  .chip-warn { background: var(--danger-soft); color: var(--danger); }
+  .chip-ok { background: var(--mint); color: var(--success); }
+
+  /* ---------- 顶部交互提示条 ---------- */
+  .tips {
+    background: var(--mint); color: var(--ink);
+    font-size: 12px; letter-spacing: -0.12px; line-height: 1.5;
+    padding: 8px 16px; white-space: nowrap; overflow-x: auto;
+  }
+  .tips b { color: var(--success); }
+  .tips span { margin-right: 18px; }
+
+  /* ---------- 应用外壳 ---------- */
+  .app { display: flex; height: calc(100vh - 34px); min-width: 960px; }
+  .sidebar {
+    width: 216px; flex-shrink: 0; background: var(--parchment);
+    border-right: 1px solid var(--hairline);
+    display: flex; flex-direction: column; padding: 14px 0;
+  }
+  .brand { padding: 6px 20px 14px; font-size: 14px; font-weight: 600; color: var(--weak); letter-spacing: -0.22px; }
+  .nav-item {
+    display: flex; align-items: center; gap: 9px; margin: 2px 10px; padding: 8px 12px;
+    border-radius: 11px; border: 1px solid transparent;
+    font-size: 14px; letter-spacing: -0.22px; color: var(--muted); text-align: left; width: calc(100% - 20px);
+    transition: transform .15s, box-shadow .15s, background-color .15s;
+  }
+  .nav-item:hover { background: rgba(255,255,255,.7); }
+  .nav-item.active {
+    background: var(--canvas); border-color: var(--hairline); color: var(--ink);
+    transform: scale(1.04) translate(-2px, -2px); transform-origin: left center;
+    box-shadow: 0 4px 12px rgba(29,29,31,.10); /* 侧边导航「提起感」专属例外 */
+  }
+  .nav-item svg { flex-shrink: 0; }
+  .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .topbar {
+    height: 52px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between;
+    border-bottom: 1px solid var(--hairline); background: var(--parchment); padding: 0 32px;
+  }
+  .topbar h1 { font-size: 21px; font-weight: 600; letter-spacing: 0.23px; }
+  .content { flex: 1; overflow-y: auto; padding: 32px; }
+
+  /* ---------- 卡片 ---------- */
+  .card {
+    background: var(--canvas); border: 1px solid var(--hairline); border-radius: 18px;
+    padding: 22px 24px; max-width: 720px; margin: 0 auto 20px;
+  }
+  .card-title { font-size: 17px; font-weight: 600; letter-spacing: -0.37px; }
+  .card-sub { font-size: 14px; letter-spacing: -0.22px; color: var(--weak); margin-top: 4px; }
+  .card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
+  .card-head-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+
+  /* ---------- 模型快捷切换胶囊（下拉） ---------- */
+  .menu-wrap { position: relative; }
+  .switcher-pill {
+    display: inline-flex; align-items: center; gap: 7px; max-width: 320px;
+    border-radius: 9999px; padding: 7px 8px 7px 14px; font-size: 14px; letter-spacing: -0.22px; color: var(--ink);
+    transition: background-color .15s;
+  }
+  .switcher-pill:hover { background: var(--primary-soft); }
+  .switcher-pill .dot { width: 7px; height: 7px; border-radius: 9999px; background: var(--success); flex-shrink: 0; }
+  .switcher-pill .caret { color: var(--weak); flex-shrink: 0; }
+  .menu {
+    position: absolute; right: 0; top: calc(100% + 6px); z-index: 50; min-width: 264px;
+    background: var(--canvas); border: 1px solid var(--hairline); border-radius: 11px;
+    box-shadow: var(--shadow-window); padding: 6px; display: none;
+  }
+  .menu.open { display: block; animation: pop .15s ease-out; }
+  @keyframes pop { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+  .menu-label { padding: 7px 12px 5px; font-size: 12px; letter-spacing: -0.12px; color: var(--weak); }
+  .menu-item {
+    display: flex; align-items: center; gap: 9px; width: 100%;
+    padding: 8px 12px; border-radius: 8px; font-size: 14px; letter-spacing: -0.22px; text-align: left;
+    transition: background-color .15s;
+  }
+  .menu-item:hover { background: var(--pearl); }
+  .menu-item .check { color: var(--primary); flex-shrink: 0; visibility: hidden; }
+  .menu-item.on .check { visibility: visible; }
+  .menu-item .mi-sub { font-size: 12px; color: var(--weak); margin-left: auto; padding-left: 10px; white-space: nowrap; }
+  .menu-item.danger { color: var(--danger); }
+  .menu-item.danger:hover { background: var(--danger-soft); }
+  .menu-sep { height: 1px; background: var(--divider); margin: 5px 6px; }
+  .menu-foot { padding: 7px 12px 5px; }
+  .menu-foot button { color: var(--primary); font-size: 14px; letter-spacing: -0.22px; }
+  .menu-foot button:hover { color: var(--primary-focus); }
+
+  /* ---------- 方案卡列表 ---------- */
+  .profile-list { display: flex; flex-direction: column; gap: 12px; }
+  .profile {
+    display: flex; align-items: center; gap: 14px;
+    border: 1px solid var(--hairline); border-radius: 18px; padding: 15px 18px;
+    transition: border-color .15s, background-color .15s;
+  }
+  .profile.active { border-radius: 18px; }
+  .profile.active.grad-border-soft { border-radius: 18px; }
+  .p-main { flex: 1; min-width: 0; }
+  .p-title-row { display: flex; align-items: center; gap: 9px; }
+  .p-name { font-size: 17px; font-weight: 600; letter-spacing: -0.37px; }
+  .p-meta { margin-top: 3px; font-size: 14px; letter-spacing: -0.22px; color: var(--weak); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .p-meta .sep { color: var(--faint); margin: 0 6px; }
+  .p-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+  .confirm-row { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+  .confirm-row .confirm-text { font-size: 14px; color: var(--danger); white-space: nowrap; }
+
+  /* ---------- 聊天示意 ---------- */
+  .chat { border: 1px solid var(--hairline); border-radius: 18px; overflow: hidden; }
+  .chat-head {
+    display: flex; align-items: center; gap: 10px; padding: 11px 16px;
+    background: var(--parchment); border-bottom: 1px solid var(--hairline);
+  }
+  .chat-head .title { font-size: 14px; font-weight: 600; letter-spacing: -0.22px; }
+  .chat-body { padding: 16px; display: flex; flex-direction: column; gap: 10px; background: var(--canvas); }
+  .bubble { max-width: 78%; padding: 9px 14px; border-radius: 18px; font-size: 14px; letter-spacing: -0.22px; line-height: 1.5; }
+  .bubble.user { align-self: flex-end; background: var(--primary-soft); border-bottom-right-radius: 6px; }
+  .bubble.ai { align-self: flex-start; background: var(--pearl); border: 1px solid var(--divider); border-bottom-left-radius: 6px; }
+  .chat-footnote { padding: 10px 16px; border-top: 1px solid var(--divider); font-size: 12px; letter-spacing: -0.12px; color: var(--weak); }
+
+  /* ---------- 弹窗 ---------- */
+  .overlay {
+    position: fixed; inset: 0; z-index: 100; display: none;
+    align-items: center; justify-content: center; padding: 24px;
+    background: rgba(29,29,31,.45); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  }
+  .overlay.open { display: flex; }
+  .modal {
+    width: 560px; max-height: calc(100vh - 64px); overflow-y: auto;
+    background: var(--canvas); border-radius: 18px; box-shadow: var(--shadow-window); padding: 24px;
+    animation: pop .18s ease-out;
+  }
+  .modal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+  .modal-head h3 { font-size: 21px; font-weight: 600; letter-spacing: 0.23px; }
+  .field { margin-top: 16px; }
+  .field label { display: block; margin-bottom: 6px; font-size: 12px; letter-spacing: -0.12px; color: var(--weak); }
+  .input, .select {
+    width: 100%; height: 36px; border: 1px solid var(--hairline); border-radius: 8px;
+    background: var(--canvas); padding: 0 12px; font-size: 14px; letter-spacing: -0.22px; outline: none;
+    transition: border-color .15s;
+  }
+  textarea.input { height: auto; padding: 8px 12px; resize: none; line-height: 1.55; }
+  .input:focus, .select:focus { border-color: var(--primary-focus); }
+  .input::placeholder, textarea.input::placeholder { color: var(--weak); }
+  .row { display: flex; align-items: center; gap: 8px; }
+  .row .grow { flex: 1; min-width: 0; }
+  .hint { margin-top: 5px; font-size: 12px; letter-spacing: -0.12px; color: var(--faint); }
+  .hint.ok { color: var(--success); }
+  .hint.err { color: var(--danger); }
+  .modal-foot { display: flex; align-items: center; gap: 12px; margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--divider); }
+  .modal-foot .foot-note { font-size: 12px; letter-spacing: -0.12px; color: var(--faint); }
+
+  /* ---------- Toast ---------- */
+  .toast {
+    position: fixed; left: 50%; bottom: 28px; z-index: 200; transform: translateX(-50%) translateY(16px);
+    background: var(--tile); color: #fff; border-radius: 9999px; padding: 9px 18px;
+    font-size: 14px; letter-spacing: -0.22px; opacity: 0; pointer-events: none;
+    transition: opacity .18s, transform .18s; max-width: 80vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  .toast.danger { background: var(--danger); }
+
+  .scrollbar-none { scrollbar-width: none; }
+  .scrollbar-none::-webkit-scrollbar { display: none; }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { transition: none !important; animation: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<div class="tips scrollbar-none">
+  <span><b>交互稿 · 可以试试</b></span>
+  <span>① 点方案卡上的「设为当前」一键切换</span>
+  <span>② 顶部 / AI 助手里的胶囊也能直接切</span>
+  <span>③ 卡片右侧「⋯」编辑 / 删除</span>
+  <span>④ 「添加模型」可以新增方案</span>
+  <span>⑤ 切到「GPT-4o mini」试试缺密钥的提示</span>
+  <span>纯静态演示，不会真的保存</span>
+</div>
+
+<div class="app">
+  <!-- 侧栏：营造真实应用上下文 -->
+  <aside class="sidebar">
+    <div class="brand">aprilio · 班级助手</div>
+    <button class="nav-item">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 10.5 12 3l9 7.5V21H3z"/></svg>
+      首页
+    </button>
+    <button class="nav-item">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 10v10"/></svg>
+      班级管理
+    </button>
+    <button class="nav-item">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 4v5M16 4v5"/></svg>
+      课程表
+    </button>
+    <button class="nav-item">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12a9 9 0 1 1-9-9"/><path d="M12 8v4l3 2"/></svg>
+      AI 助手
+    </button>
+    <button class="nav-item active">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.5-2-3.5-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.5 2 1.5A7 7 0 0 0 5 12a7 7 0 0 0 .1 1.2l-2 1.5 2 3.5 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.5-2-1.5A7 7 0 0 0 19 12Z"/></svg>
+      数据与设置
+    </button>
+  </aside>
+
+  <div class="main">
+    <header class="topbar"><h1>数据与设置</h1></header>
+
+    <div class="content">
+      <!-- ========== 卡片 1：多模型方案管理 ========== -->
+      <section class="card">
+        <div class="card-head">
+          <div>
+            <h3 class="card-title">AI 模型</h3>
+            <p class="card-sub">保存多套模型方案，随时一键切换。密钥只保存在本机（混淆存放），不出现在任何服务器。</p>
+          </div>
+          <div class="card-head-actions">
+            <!-- 全局快捷切换：当前模型胶囊 -->
+            <div class="menu-wrap" id="globalSwitcher"></div>
+            <button class="btn btn-secondary grad-border" id="btnAdd">＋ 添加模型</button>
+          </div>
+        </div>
+
+        <div class="profile-list" id="profileList"></div>
+
+        <p class="hint" style="margin-top: 14px;">
+          切换即时生效，无需重新保存表单。也支持「供应商::模型」写法（如 groq::llama-3.3-70b）。
+        </p>
+      </section>
+
+      <!-- ========== 卡片 2：AI 助手内的快捷切换 ========== -->
+      <section class="card">
+        <h3 class="card-title" style="margin-bottom: 4px;">在 AI 助手里也能一键切</h3>
+        <p class="card-sub" style="margin-bottom: 14px;">对话窗口右上角的模型胶囊与设置页联动，日常使用不必来回跑设置。</p>
+
+        <div class="chat">
+          <div class="chat-head">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="1.8"><path d="M12 3l2.2 5.4L20 10l-5.8 1.6L12 17l-2.2-5.4L4 10l5.8-1.6z"/></svg>
+            <span class="title">AI 助手</span>
+            <span style="flex: 1;"></span>
+            <div class="menu-wrap" id="chatSwitcher"></div>
+          </div>
+          <div class="chat-body">
+            <div class="bubble user">帮我把上周的数学成绩做个简单分析，重点说说退步的学生。</div>
+            <div class="bubble ai">好的，我来看一下「第一次月考 · 数学」的成绩分布与环比变化…</div>
+          </div>
+          <div class="chat-footnote">
+            切换即时生效：正在生成的回复仍由原模型完成，下一条消息起使用新模型。
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<!-- ========== 添加 / 编辑方案弹窗 ========== -->
+<div class="overlay" id="overlay">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal-head">
+      <h3 id="modalTitle">添加模型方案</h3>
+      <button class="icon-btn" id="btnCloseModal" aria-label="关闭">✕</button>
+    </div>
+    <p class="card-sub">每个方案独立保存供应商、模型与密钥，互不影响。</p>
+
+    <div class="field">
+      <label for="f-name">方案名称</label>
+      <input class="input" id="f-name" placeholder="如：DeepSeek 日常主力 / 本地 Ollama 离线备用" />
+    </div>
+
+    <div class="field">
+      <label for="f-provider">供应商</label>
+      <select class="select" id="f-provider"></select>
+    </div>
+
+    <div class="field">
+      <label for="f-model">模型 ID</label>
+      <div class="row">
+        <input class="input grow" id="f-model" list="modelOptionsDl" placeholder="如 deepseek-chat / glm-4-flash / qwen3:8b" />
+        <button class="btn-pearl" id="btnFetchModels">拉取模型</button>
+      </div>
+      <p class="hint" id="modelMsg">点「拉取模型」获取该供应商支持的候选列表。</p>
+    </div>
+
+    <div class="field" id="keyField">
+      <label for="f-key">API 密钥</label>
+      <div class="row">
+        <input class="input grow" id="f-key" type="password" placeholder="sk-…" autocomplete="off" />
+        <button class="btn-pearl" id="btnToggleKey">查看</button>
+      </div>
+    </div>
+    <p class="hint" id="keyHint" style="display: none;">本地 Ollama 无需密钥，服务地址默认 http://localhost:11434。</p>
+
+    <div class="field">
+      <label for="f-url">自定义 API 地址（可选）</label>
+      <input class="input" id="f-url" placeholder="留空使用官方地址；填 OpenAI 兼容地址可接入中转或私有部署" />
+    </div>
+
+    <div class="field">
+      <label for="f-prompt">系统提示词（可选）</label>
+      <textarea class="input" id="f-prompt" rows="3" placeholder="告诉 AI 它是谁，比如：你是一位小学班主任的教学助手，回答简洁实用。"></textarea>
+    </div>
+
+    <div class="modal-foot">
+      <button class="btn btn-primary" id="btnSave" style="border-radius: 9999px;">保存并校验</button>
+      <button class="btn btn-pearl" id="btnCancel" style="border-radius: 9999px;">取消</button>
+      <span style="flex: 1;"></span>
+      <span class="foot-note">密钥只保存在本机（混淆存放），不会上传。</span>
+    </div>
+  </div>
+</div>
+
+<datalist id="modelOptionsDl"></datalist>
+<div class="toast" id="toast"></div>
+
+<script>
+  /* ---------------- 数据 ---------------- */
+  const PROVIDERS = [
+    { id: "openai", label: "OpenAI", defaultModel: "gpt-4o-mini", needsKey: true },
+    { id: "anthropic", label: "Anthropic", defaultModel: "claude-sonnet-4-5", needsKey: true },
+    { id: "gemini", label: "Google Gemini", defaultModel: "gemini-2.5-flash", needsKey: true },
+    { id: "deepseek", label: "DeepSeek", defaultModel: "deepseek-chat", needsKey: true },
+    { id: "moonshot", label: "月之暗面 Kimi", defaultModel: "kimi-k2-0905-preview", needsKey: true },
+    { id: "zhipu", label: "智谱 GLM", defaultModel: "glm-4-flash", needsKey: true },
+    { id: "openrouter", label: "OpenRouter", defaultModel: "openrouter/auto", needsKey: true },
+    { id: "ollama", label: "本地 Ollama", defaultModel: "qwen3:8b", needsKey: false },
+    { id: "custom", label: "自定义（OpenAI 兼容）", defaultModel: "", needsKey: true },
+  ];
+  const FAKE_MODELS = {
+    deepseek: ["deepseek-chat", "deepseek-reasoner"],
+    zhipu: ["glm-4-flash", "glm-4-plus", "glm-4-air"],
+    openai: ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini"],
+    anthropic: ["claude-sonnet-4-5", "claude-haiku-4-5"],
+    gemini: ["gemini-2.5-flash", "gemini-2.5-pro"],
+    moonshot: ["kimi-k2-0905-preview"],
+    openrouter: ["openrouter/auto", "openai/gpt-4o-mini"],
+    ollama: ["qwen3:8b", "llama3.1:8b", "deepseek-r1:8b"],
+    custom: [],
+  };
+
+  let profiles = [
+    { id: "p1", name: "DeepSeek 日常主力", provider: "deepseek", model: "deepseek-chat", key: "sk-dsk12345678907f2a", url: "", prompt: "" },
+    { id: "p2", name: "GLM-4 Flash 备用", provider: "zhipu", model: "glm-4-flash", key: "sk-zhipu09876543c3", url: "", prompt: "" },
+    { id: "p3", name: "本地 Ollama · 离线可用", provider: "ollama", model: "qwen3:8b", key: "", url: "http://localhost:11434", prompt: "" },
+    { id: "p4", name: "GPT-4o mini", provider: "openai", model: "gpt-4o-mini", key: "", url: "", prompt: "" },
+  ];
+  let activeId = "p1";
+  let confirmId = null; // 正在二次确认删除的方案
+  let editingId = null; // null = 新增
+
+  const $ = (sel) => document.querySelector(sel);
+  const providerById = (id) => PROVIDERS.find((p) => p.id === id) || PROVIDERS[0];
+
+  function maskKey(key) {
+    const v = (key || "").trim();
+    if (!v) return "";
+    if (v.length <= 8) return "•".repeat(v.length);
+    return v.slice(0, 3) + "••••" + v.slice(-4);
+  }
+
+  /* ---------------- Toast ---------------- */
+  let toastTimer = null;
+  function toast(msg, type) {
+    const el = $("#toast");
+    el.textContent = msg;
+    el.classList.toggle("danger", type === "danger");
+    el.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove("show"), 2600);
+  }
+
+  /* ---------------- 下拉菜单（通用） ---------------- */
+  function closeMenus() {
+    document.querySelectorAll(".menu.open").forEach((m) => m.classList.remove("open"));
+  }
+  function toggleMenu(wrap) {
+    const menu = wrap.querySelector(".menu");
+    const wasOpen = menu.classList.contains("open");
+    closeMenus();
+    if (!wasOpen) menu.classList.add("open");
+  }
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest(".menu-wrap")) closeMenus();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { closeMenus(); closeModal(); }
+  });
+
+  /* 快捷切换胶囊：当前模型 + 下拉列表 */
+  function renderSwitcher(mountId, compact) {
+    const active = profiles.find((p) => p.id === activeId);
+    const pr = providerById(active.provider);
+    const items = profiles.map((p) => {
+      const on = p.id === activeId;
+      return `<button class="menu-item ${on ? "on" : ""}" data-switch="${p.id}">
+        <span class="check">✓</span>
+        <span>${escapeHtml(p.name)}</span>
+        <span class="mi-sub">${escapeHtml(p.model)}</span>
+      </button>`;
+    }).join("");
+    document.getElementById(mountId).innerHTML = `
+      <button class="switcher-pill grad-border" aria-label="切换模型" onclick="toggleMenu(this.closest('.menu-wrap'))">
+        <span class="dot"></span>
+        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(pr.label)} · ${escapeHtml(active.model)}</span>
+        <svg class="caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
+      </button>
+      <div class="menu">
+        <div class="menu-label">切换模型</div>
+        ${items}
+        <div class="menu-sep"></div>
+        <div class="menu-foot"><button onclick="scrollToSettings()">管理模型方案 →</button></div>
+      </div>`;
+  }
+  function scrollToSettings() {
+    closeMenus();
+    $("#profileList").scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+
+  /* ---------------- 方案卡列表 ---------------- */
+  function renderProfiles() {
+    const list = $("#profileList");
+    if (!profiles.length) {
+      list.innerHTML = `<div style="border:1px dashed var(--hairline);border-radius:18px;padding:28px;text-align:center;">
+        <p style="font-size:14px;color:var(--weak);">还没有模型方案，点右上角「添加模型」创建第一个。</p>
+      </div>`;
+      return;
+    }
+    list.innerHTML = profiles.map((p) => {
+      const pr = providerById(p.provider);
+      const isActive = p.id === activeId;
+      const missingKey = pr.needsKey && !(p.key || "").trim();
+      const keyText = pr.needsKey
+        ? ((p.key || "").trim() ? "已配置 " + maskKey(p.key) : "")
+        : "无需密钥";
+
+      if (p.id === confirmId) {
+        return `<article class="profile" data-id="${p.id}" style="border-color:var(--danger);">
+          <div class="p-main">
+            <div class="p-title-row"><span class="p-name">${escapeHtml(p.name)}</span></div>
+            <div class="p-meta">删除后不可恢复。</div>
+          </div>
+          <div class="confirm-row">
+            <span class="confirm-text">确定删除「${escapeHtml(p.name)}」？</span>
+            <button class="btn btn-danger" data-del-yes="${p.id}" style="border-radius:8px;">删除</button>
+            <button class="btn btn-pearl" data-del-no style="border-radius:8px;">取消</button>
+          </div>
+        </article>`;
+      }
+
+      return `<article class="profile ${isActive ? "grad-border-soft" : ""}" data-id="${p.id}">
+        <div class="p-main">
+          <div class="p-title-row">
+            <span class="p-name">${escapeHtml(p.name)}</span>
+            ${isActive ? '<span class="chip chip-current">当前使用</span>' : ""}
+            ${missingKey ? '<span class="chip chip-warn">缺密钥</span>' : ""}
+            ${!pr.needsKey ? '<span class="chip chip-ok">本地</span>' : ""}
+          </div>
+          <div class="p-meta">
+            ${escapeHtml(pr.label)}<span class="sep">·</span>${escapeHtml(p.model || "未填写模型 ID")}<span class="sep">·</span>${escapeHtml(keyText)}
+          </div>
+        </div>
+        <div class="p-actions">
+          ${isActive ? "" : `<button class="btn ${missingKey ? "btn-pearl" : "btn-secondary grad-border"}" data-switch="${p.id}" style="${missingKey ? "border-radius:9999px;" : ""}">设为当前</button>`}
+          <div class="menu-wrap">
+            <button class="icon-btn" aria-label="更多操作" onclick="toggleMenu(this.closest('.menu-wrap'))">⋯</button>
+            <div class="menu">
+              <button class="menu-item" data-edit="${p.id}">编辑</button>
+              <button class="menu-item danger" data-del="${p.id}">删除</button>
+            </div>
+          </div>
+        </div>
+      </article>`;
+    }).join("");
+  }
+
+  /* ---------------- 一键切换 ---------------- */
+  function trySwitch(id) {
+    closeMenus();
+    if (id === activeId) return;
+    const p = profiles.find((x) => x.id === id);
+    if (!p) return;
+    const pr = providerById(p.provider);
+    if (pr.needsKey && !(p.key || "").trim()) {
+      toast(`「${p.name}」还没配置 API 密钥，先点「编辑」补上`, "danger");
+      return;
+    }
+    activeId = id;
+    renderAll();
+    toast(`已切换到「${p.name}」`);
+  }
+
+  /* ---------------- 弹窗 ---------------- */
+  function openModal(id) {
+    editingId = id ?? null;
+    const p = editingId ? profiles.find((x) => x.id === editingId) : null;
+    const pr = p ? providerById(p.provider) : PROVIDERS[3]; // 新增默认 DeepSeek（校园常用）
+    $("#modalTitle").textContent = editingId ? "编辑模型方案" : "添加模型方案";
+    $("#f-name").value = p ? p.name : "";
+    $("#f-provider").innerHTML = PROVIDERS.map(
+      (x) => `<option value="${x.id}" ${x.id === pr.id ? "selected" : ""}>${x.label}</option>`
+    ).join("");
+    $("#f-model").value = p ? p.model : (pr.defaultModel || "");
+    $("#f-key").value = p ? p.key : "";
+    $("#f-key").type = "password";
+    $("#btnToggleKey").textContent = "查看";
+    $("#f-url").value = p ? p.url : "";
+    $("#f-prompt").value = p ? p.prompt : "";
+    $("#modelMsg").textContent = "点「拉取模型」获取该供应商支持的候选列表。";
+    $("#modelMsg").className = "hint";
+    syncKeyField();
+    $("#overlay").classList.add("open");
+    closeMenus();
+    setTimeout(() => $("#f-name").focus(), 60);
+  }
+  function closeModal() {
+    $("#overlay").classList.remove("open");
+  }
+  function syncKeyField() {
+    const pr = providerById($("#f-provider").value);
+    const hide = !pr.needsKey;
+    $("#keyField").style.display = hide ? "none" : "";
+    $("#keyHint").style.display = hide ? "" : "none";
+  }
+
+  function saveModal() {
+    const name = $("#f-name").value.trim();
+    const model = $("#f-model").value.trim();
+    if (!name) { toast("先给方案起个名字", "danger"); $("#f-name").focus(); return; }
+    if (!model) { toast("模型 ID 不能为空", "danger"); $("#f-model").focus(); return; }
+    const btn = $("#btnSave");
+    btn.disabled = true;
+    btn.textContent = "校验中…";
+    setTimeout(() => {
+      const data = {
+        name,
+        provider: $("#f-provider").value,
+        model,
+        key: $("#f-key").value.trim(),
+        url: $("#f-url").value.trim(),
+        prompt: $("#f-prompt").value,
+      };
+      if (editingId) {
+        const i = profiles.findIndex((x) => x.id === editingId);
+        profiles[i] = { ...profiles[i], ...data };
+      } else {
+        const id = "p" + Date.now();
+        profiles.push({ id, ...data });
+        if (!profiles.find((x) => x.id === activeId)) activeId = id;
+      }
+      btn.disabled = false;
+      btn.textContent = "保存并校验";
+      closeModal();
+      renderAll();
+      toast("已保存，校验通过");
+    }, 700);
+  }
+
+  /* ---------------- 事件绑定 ---------------- */
+  document.addEventListener("click", (e) => {
+    const sw = e.target.closest("[data-switch]");
+    if (sw) { trySwitch(sw.dataset.switch); return; }
+    const ed = e.target.closest("[data-edit]");
+    if (ed) { closeMenus(); openModal(ed.dataset.edit); return; }
+    const del = e.target.closest("[data-del]");
+    if (del) { confirmId = del.dataset.del; closeMenus(); renderProfiles(); return; }
+    if (e.target.closest("[data-del-no]")) { confirmId = null; renderProfiles(); return; }
+    const delYes = e.target.closest("[data-del-yes]");
+    if (delYes) {
+      const id = delYes.dataset.delYes;
+      const p = profiles.find((x) => x.id === id);
+      profiles = profiles.filter((x) => x.id !== id);
+      if (activeId === id) {
+        const next = profiles.find((x) => providerById(x.provider).needsKey === false || (x.key || "").trim())
+          || profiles[0];
+        activeId = next ? next.id : null;
+      }
+      confirmId = null;
+      renderAll();
+      toast(`已删除「${p ? p.name : ""}` + (activeId ? `」，当前模型换为「${profiles.find((x) => x.id === activeId)?.name}」` : "」"));
+      return;
+    }
+  });
+
+  $("#btnAdd").addEventListener("click", () => openModal(null));
+  $("#btnCloseModal").addEventListener("click", closeModal);
+  $("#btnCancel").addEventListener("click", closeModal);
+  $("#overlay").addEventListener("click", (e) => { if (e.target === e.currentTarget) closeModal(); });
+  $("#btnSave").addEventListener("click", saveModal);
+  $("#f-provider").addEventListener("change", () => {
+    const pr = providerById($("#f-provider").value);
+    if (pr.defaultModel) $("#f-model").value = pr.defaultModel;
+    $("#modelMsg").textContent = "点「拉取模型」获取该供应商支持的候选列表。";
+    $("#modelMsg").className = "hint";
+    $("#modelOptionsDl").innerHTML = "";
+    syncKeyField();
+  });
+  $("#btnToggleKey").addEventListener("click", () => {
+    const inp = $("#f-key");
+    const show = inp.type === "password";
+    inp.type = show ? "text" : "password";
+    $("#btnToggleKey").textContent = show ? "隐藏" : "查看";
+  });
+  $("#btnFetchModels").addEventListener("click", () => {
+    const pr = providerById($("#f-provider").value);
+    const msg = $("#modelMsg");
+    if (pr.needsKey && !$("#f-key").value.trim()) {
+      msg.textContent = "请先填写 API 密钥再拉取模型列表。";
+      msg.className = "hint err";
+      return;
+    }
+    const models = FAKE_MODELS[pr.id] || [];
+    $("#modelOptionsDl").innerHTML = models.map((m) => `<option value="${m}"></option>`).join("");
+    msg.textContent = `已拉取 ${models.length} 个模型，点「模型 ID」输入框即可从候选中选择。`;
+    msg.className = "hint ok";
+  });
+
+  function escapeHtml(s) {
+    return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+
+  function renderAll() {
+    renderProfiles();
+    renderSwitcher("globalSwitcher");
+    renderSwitcher("chatSwitcher");
+  }
+  renderAll();
+</script>
+</body>
+</html>

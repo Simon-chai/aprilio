@@ -87,8 +87,13 @@ CSS aspect-ratio 是最小比例，内容更高时卡片随之长高，不裁内
   （设置页显示失败提示）。
 - **配置**：localStorage `aprilio.wallpaper.v1`（`{ count, last_date }`，
   默认拉 7 天；`last_date` 仅用于「上次拉取」展示，旧版 `enabled/last_url` 字段读取时忽略）。
+- **设置页缩略图**：卡片里直接预览已入库的必应壁纸（`bingWallpaperEntries()` 按
+  `origin_url` 带 `https://cn.bing.com/` 前缀反查图库，手动粘贴的其他网络图 / 本地上传不混入），
+  缩略图样式与选图弹窗历史网格一致（`h-16` 圆角边框 + 「必应」角标），地址走
+  `backgroundSrc` 解析本地缓存，离线也能显示；图库为空时整块隐藏。
 - 测试：`tests/wallpaper.test.ts`（拉取入库不换背景 / 张数透传 / 重复拉取复用 /
-  单张失败跳过 / 全失败抛错 / 浏览器态拒绝 / 张数收敛）。
+  单张失败跳过 / 全失败抛错 / 浏览器态拒绝 / 张数收敛 / 缩略图反查过滤排序）、
+  `tests/settings-view.test.ts`（缩略图渲染与隐藏）。
 
 ## 索引（`src/lib/backgrounds.ts`）
 

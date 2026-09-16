@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
+import { useRouter } from "vue-router";
 import { useAgent } from "../../composables/useAgent";
 import { renderMarkdown } from "../../lib/markdown";
+import ModelSwitcher from "../ui/ModelSwitcher.vue";
 import ToolCallCard from "./ToolCallCard.vue";
 
 /**
@@ -21,6 +23,12 @@ const draft = ref("");
 const { items, sending, error, aiReady, canSend, send, clear } = useAgent();
 const logEl = ref<HTMLElement | null>(null);
 const inputEl = ref<HTMLInputElement | null>(null);
+const router = useRouter();
+
+/** 从模型下拉跳到设置页管理方案 */
+function goManageModels() {
+  router.push("/settings");
+}
 
 /** 是否已有对话内容：决定消息区要不要出现 */
 const hasConversation = computed(() => items.value.length > 0);
@@ -97,9 +105,9 @@ async function restore() {
         :inert="!logOpen"
         aria-label="AI 助手对话记录"
       >
-        <header class="flex items-center justify-between border-b border-white/10 px-3.5 py-1.5">
-          <div class="flex items-center gap-2">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true" class="text-white/60">
+        <header class="flex items-center justify-between gap-2 border-b border-white/10 px-3.5 py-1.5">
+          <div class="flex min-w-0 items-center gap-2">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true" class="shrink-0 text-white/60">
               <path
                 d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3Z"
                 stroke="currentColor"
@@ -112,20 +120,23 @@ async function restore() {
                 opacity="0.55"
               />
             </svg>
-            <span class="text-fine font-medium text-white/80">AI 助手</span>
+            <span class="shrink-0 text-fine font-medium text-white/80">AI 助手</span>
             <span
-              class="h-1.5 w-1.5 rounded-full"
+              class="h-1.5 w-1.5 shrink-0 rounded-full"
               :class="aiReady ? 'bg-success' : 'bg-white/25'"
               :title="aiReady ? '模型已配置' : '模型未配置'"
             />
+            <!-- 当前模型胶囊：下拉即一键切换，与设置页方案联动 -->
+            <ModelSwitcher tone="dark" compact @manage="goManageModels" />
           </div>
-          <button
-            type="button"
-            class="rounded-sm px-1 text-fine text-white/45 transition-colors hover:text-white/85"
-            @click="clear"
-          >
-            清空
-          </button>
+          <div class="flex shrink-0 items-center">
+            <button
+              type="button"
+              class="rounded-sm px-1 text-fine text-white/45 transition-colors hover:text-white/85"
+              @click="clear"
+            >
+              清空
+            </button>
           <button
             type="button"
             class="flex h-5 w-5 items-center justify-center rounded-sm text-white/45 transition-colors hover:bg-white/10 hover:text-white/90"
@@ -146,6 +157,7 @@ async function restore() {
               />
             </svg>
           </button>
+          </div>
         </header>
 
         <div

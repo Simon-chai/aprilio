@@ -10,7 +10,7 @@ import { createLlm } from "../agent/providers";
 import { runAgentTurn } from "../agent/loop";
 import { buildCapabilityContainer, ensureRustCapabilities } from "../agent/manifest";
 import type { AgentMessage, ToolCallPayload, ToolResult } from "../agent/types";
-import { isAiConfigured, loadAiConfig, aiErrorMessage, type AiConfig } from "../lib/ai";
+import { isAiConfigured, loadAiConfig, aiErrorMessage, aiConfigVersion, type AiConfig } from "../lib/ai";
 import { logError } from "../lib/logger";
 
 /** 聊天面板的一条可见内容 */
@@ -96,7 +96,11 @@ export function useAgent() {
   const error = ref("");
   const history = ref<AgentMessage[]>([]);
 
-  const aiReady = computed(() => isAiConfigured(loadAiConfig()));
+  /* loadAiConfig 读 localStorage 不具备响应性，靠 aiConfigVersion 版本号在切换方案 / 保存后刷新 */
+  const aiReady = computed(() => {
+    aiConfigVersion.value;
+    return isAiConfigured(loadAiConfig());
+  });
   const canSend = computed(() => !sending.value);
 
   /** 工具卡片中文名：容器装载时取一次（能力清单变化时重建会话自然取新值） */

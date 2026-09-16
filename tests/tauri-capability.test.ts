@@ -10,4 +10,13 @@ describe("Tauri main-window capability", () => {
 
     expect(capability.permissions).toContain("sql:allow-execute");
   });
+
+  it("allows the window fullscreen commands used by the fullscreen mode", () => {
+    const capability = JSON.parse(
+      readFileSync(resolve(process.cwd(), "src-tauri/capabilities/default.json"), "utf8"),
+    ) as { permissions?: string[] };
+
+    expect(capability.permissions).toContain("core:window:allow-set-fullscreen");
+    expect(capability.permissions).toContain("core:window:allow-is-fullscreen");
+  });
 });

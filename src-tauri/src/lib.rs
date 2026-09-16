@@ -522,6 +522,7 @@ pub fn run() {
     .invoke_handler(tauri::generate_handler![
       ai::ai_chat,
       ai::ai_chat_stream,
+      ai::ai_list_models,
       capabilities::agent_capabilities,
       photos::photos_dir,
       photos::import_photo,

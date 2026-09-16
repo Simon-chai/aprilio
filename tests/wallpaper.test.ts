@@ -182,4 +182,31 @@ describe("bing wallpaper import", () => {
     expect(mod.clampWallpaperCount(99)).toBe(8);
     expect(mod.clampWallpaperCount(5.6)).toBe(6);
   });
+
+  it("lists imported bing wallpapers for the settings thumbnails", async () => {
+    const { mod, bgMod } = await freshWallpaper();
+    mockBingPipeline();
+
+    await mod.importBingWallpapers();
+    // 混进一张本地上传和一张普通网络图：都不带 bing 前缀，不能混进缩略图
+    await bgMod.registerLocalBackground("timetable_bg", "img_local.png");
+    await bgMod.importUrlBackground("timetable_bg", "https://cdn.example.com/manual.jpg").catch(() => undefined);
+
+    const entries = mod.bingWallpaperEntries();
+
+    // 只剩 3 张必应壁纸，按最近使用倒序（后入库的在前）
+    expect(entries.map((item) => item.origin_url)).toEqual([
+      BING_METAS[2].url,
+      BING_METAS[1].url,
+      BING_METAS[0].url,
+    ]);
+    expect(mod.isBingWallpaperUrl("https://cn.bing.com/th?id=OHR.X.jpg")).toBe(true);
+    expect(mod.isBingWallpaperUrl("https://cdn.example.com/manual.jpg")).toBe(false);
+  });
+
+  it("returns no bing entries when the library is empty", async () => {
+    const { mod } = await freshWallpaper();
+
+    expect(mod.bingWallpaperEntries()).toEqual([]);
+  });
 });

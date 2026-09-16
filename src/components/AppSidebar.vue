@@ -2,8 +2,10 @@
 import { computed } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 import appIcon from "../assets/app-icon.png";
+import { useFullscreen } from "../composables/useFullscreen";
 
 const route = useRoute();
+const { isFullscreen, toggleFullscreen } = useFullscreen();
 
 interface NavItem {
   name: string;
@@ -196,6 +198,48 @@ const activeName = computed(() => {
     </nav>
 
     <div class="flex-1" />
+
+    <!-- 全屏切换：与系统标题栏互补，F11 同效 -->
+    <button
+      type="button"
+      class="flex h-9 w-full items-center gap-2.5 rounded-sm px-3 text-caption text-muted transition-colors duration-200 hover:bg-canvas/60 hover:text-ink"
+      @click="toggleFullscreen"
+    >
+      <svg
+        v-if="!isFullscreen"
+        width="14"
+        height="14"
+        viewBox="0 0 16 16"
+        fill="none"
+        aria-hidden="true"
+      >
+        <path
+          d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"
+          stroke="#333333"
+          stroke-width="1.4"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </svg>
+      <svg
+        v-else
+        width="14"
+        height="14"
+        viewBox="0 0 16 16"
+        fill="none"
+        aria-hidden="true"
+      >
+        <path
+          d="M6 2v4H2M14 6h-4V2M10 14v-4h4M2 10h4v4"
+          stroke="#333333"
+          stroke-width="1.4"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </svg>
+      {{ isFullscreen ? "退出全屏" : "进入全屏" }}
+      <span class="ml-auto text-fine text-weak">{{ isFullscreen ? "F11 · Esc" : "F11" }}</span>
+    </button>
 
     <!-- 本地数据库状态 -->
     <div class="rounded-md border border-hairline bg-pearl p-3">

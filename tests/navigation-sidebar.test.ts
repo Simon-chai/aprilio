@@ -54,6 +54,19 @@ describe("AppSidebar navigation", () => {
     expect(classesLink?.classes()).toContain("font-semibold");
   });
 
+  it("renders fullscreen toggle button with F11 hint", () => {
+    const wrapper = mount(AppSidebar, {
+      global: {
+        plugins: [router],
+      },
+    });
+
+    const button = wrapper.find("button");
+    expect(button.exists()).toBe(true);
+    expect(button.text()).toContain("进入全屏");
+    expect(button.text()).toContain("F11");
+  });
+
   it("renders AppSidebar on /classes and hides it on /home", async () => {
     await router.push("/classes");
     await router.isReady();
