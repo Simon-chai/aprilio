@@ -48,7 +48,7 @@ const emit = defineEmits<{ add: []; remove: [photo: Photo] }>();
       </figcaption>
     </figure>
 
-    <!-- 添加图片 -->
+    <!-- 关联图片 -->
     <button
       v-if="props.canAdd"
       class="flex h-[132px] flex-col items-center justify-center gap-1.5 rounded-sm border border-dashed border-hairline bg-pearl text-primary transition-colors hover:bg-parchment"
@@ -57,7 +57,7 @@ const emit = defineEmits<{ add: []; remove: [photo: Photo] }>();
       <svg class="text-primary" width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
         <path d="M10 4.5V15.5M4.5 10H15.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
       </svg>
-      <span class="text-fine">添加图片</span>
+      <span class="text-fine">关联图片</span>
     </button>
   </div>
 </template>

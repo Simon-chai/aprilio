@@ -61,7 +61,7 @@ onMounted(async () => {
     <EmptyState
       v-else-if="!loading"
       title="还没有任何图片"
-      description="打开某个学生的档案，点「添加图片」就能从本地导入。"
+      description="打开某个学生的档案，点「关联图片」就能从本地导入。"
     />
   </div>
 </template>

@@ -145,6 +145,36 @@ describe("SubjectScoreBars 可复用柱状图", () => {
     expect(wrapper.get("[data-test='score-bar']").attributes("style")).toContain("max-width");
   });
 
+  it("高分柱不被数值标签压扁：列高留出标签空间，柱高按本次区间放大差距", () => {
+    const wrapper = mount(SubjectScoreBars, {
+      props: {
+        fill: true,
+        groups: [
+          {
+            label: "期中考试",
+            items: [
+              { subject: "语文", score: 100 },
+              { subject: "数学", score: 90 },
+            ],
+          },
+        ],
+      },
+    });
+
+    // 列高 = 柱区 112 + 标签 18：标签与柱子互不挤占
+    const columns = wrapper.findAll("[data-test='score-bar-column']");
+    expect(columns[0]!.attributes("style")).toContain("130px");
+
+    const bars = wrapper.findAll("[data-test='score-bar']");
+    const heights = bars.map((bar) =>
+      Number(/height:\s*(\d+)px/.exec(bar.attributes("style") ?? "")?.[1] ?? 0)
+    );
+    // 只有 100 与 90 两科时基准抬到 85 分：90 分的柱只剩三成高，差距一眼可见
+    expect(heights).toEqual([112, 37]);
+    // 柱子不参与 flex 收缩，高度只由分数与基准决定
+    expect(bars.every((bar) => bar.classes().includes("shrink-0"))).toBe(true);
+  });
+
   it("show-label=false 时隐藏场次标签（卡片头部已有场次信息）", () => {
     const wrapper = mount(SubjectScoreBars, {
       props: {

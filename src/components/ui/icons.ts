@@ -33,7 +33,7 @@ export const ICONS: Record<string, string> = {
      AppLink 的 back 图标为同形状，替换时与其视觉对齐） */
   "arrow-left": '<path d="M15 5l-7 7 7 7" stroke-width="2" />',
 
-  /* 加号：现有加号均在 16 / 20 网格（PhotoGrid 添加图片等），按垃圾桶 / 编辑同族
+  /* 加号：现有加号均在 16 / 20 网格（PhotoGrid 关联图片等），按垃圾桶 / 编辑同族
      细线条风格手绘 24 网格版本 */
   plus: '<path d="M12 5v14M5 12h14" stroke-width="2" />',
 

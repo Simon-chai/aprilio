@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import AppButton from "../components/ui/AppButton.vue";
 import AppCard from "../components/ui/AppCard.vue";
 import AppIcon from "../components/ui/AppIcon.vue";
 import AppIconButton from "../components/ui/AppIconButton.vue";
@@ -215,7 +214,7 @@ function goBack() {
 </script>
 
 <template>
-  <!-- 顶栏：窄窗口时保持单行，横向滚动查看全部操作，不压缩换行 -->
+  <!-- 顶栏：只放页面级导航与学期筛选；学生个人操作贴着档案头部的姓名（窄窗口横向滚动，不换行） -->
   <header
     class="scrollbar-none flex h-[52px] shrink-0 items-center justify-between gap-4 overflow-x-auto border-b border-hairline bg-parchment px-8"
   >
@@ -238,19 +237,6 @@ function goBack() {
           </option>
         </select>
       </label>
-      <AppButton
-        data-test="quick-behavior-btn"
-        :disabled="!student"
-        @click="openQuickBehavior"
-      >
-        + 记表现
-      </AppButton>
-      <AppButton variant="secondary" :disabled="!student" @click="dialogOpen = true">
-        编辑档案
-      </AppButton>
-      <AppButton variant="secondary" :disabled="!student || busy" @click="onAddPhoto">
-        添加图片
-      </AppButton>
     </div>
   </header>
 
@@ -283,10 +269,32 @@ function goBack() {
             最近更新 {{ formatShort(student.updated_at) }} · 共 {{ photos.length }} 张图片 · 共 {{ behaviors.length }} 条表现记录
           </p>
         </div>
-        <AppButton variant="danger" @click="onDeleteStudent">
-          <AppIcon name="trash" :size="13" />
-          删除学生
-        </AppButton>
+        <!-- 学生个人操作：常显「图标 + 文字」胶囊（与班级详情页身份行同款），只作用于该生，不涉及班级管理 -->
+        <div class="flex shrink-0 items-center gap-2">
+          <AppIconButton
+            label="记表现"
+            show-label
+            data-test="quick-behavior-btn"
+            @click="openQuickBehavior"
+          >
+            <AppIcon name="plus" :size="12" />
+          </AppIconButton>
+          <AppIconButton label="编辑档案" show-label @click="dialogOpen = true">
+            <AppIcon name="edit" :size="12" />
+          </AppIconButton>
+          <AppIconButton
+            label="关联图片"
+            show-label
+            data-test="associate-photo-btn"
+            :disabled="busy"
+            @click="onAddPhoto"
+          >
+            <AppIcon name="photo" :size="12" />
+          </AppIconButton>
+          <AppIconButton label="删除学生" tone="danger" show-label @click="onDeleteStudent">
+            <AppIcon name="trash" :size="12" />
+          </AppIconButton>
+        </div>
       </div>
 
       <!-- 主体 -->
@@ -463,7 +471,7 @@ function goBack() {
             <EmptyState
               v-if="!loading && !photos.length"
               title="还没有图片记录"
-              description="点上面的「添加图片」从本地选一张。"
+              description="点上面的「关联图片」从本地选一张。"
             />
           </div>
 

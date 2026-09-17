@@ -7,10 +7,14 @@
  * 与相较上一次考试的进退步，一眼看清「单科强弱 + 整体走势」。
  * 走势区可按科目下钻：选单科进入「单科透视」（本人 vs 班级均分、
  * 统计条、趋势小结、历次名次），默认「全部」保持全科折线。
+ *
+ * 「各科成绩分布」区先选考试场次，图型（柱状 / 条形 / 折线 / 饼状 / 辐射）
+ * 取全局偏好（lib/score-chart-type.ts）：任一页切换一次，所有页面同步换图。
  */
 import { computed, onMounted, ref, watch } from "vue";
 import ScoreLineChart from "./ScoreLineChart.vue";
-import SubjectScoreBars from "./SubjectScoreBars.vue";
+import ScoreChartTypeSelect from "./ScoreChartTypeSelect.vue";
+import SubjectScoreDistribution from "./SubjectScoreDistribution.vue";
 import SubjectTrendView from "./SubjectTrendView.vue";
 import { getStudentScoreReport } from "../lib/db";
 import { semesterOfDate } from "../lib/semester";
@@ -197,9 +201,9 @@ function avgSingleOf(exam: StudentExamReport): number | null {
   return numeric ? round1(exam.total / numeric) : null;
 }
 
-/* ---------------- 各科成绩柱状图（按考试场次，复用 SubjectScoreBars） ---------------- */
+/* ---------------- 各科成绩分布（按考试场次；图型由全局偏好决定） ---------------- */
 
-/** 柱状图选中的考试场次；null = 默认看最近一场 */
+/** 分布图选中的考试场次；null = 默认看最近一场 */
 const barExamId = ref<number | null>(null);
 
 /** 当前场次（考试列表按时间倒序，未选择时取最近一场） */
@@ -208,17 +212,11 @@ const activeBarExam = computed<StudentExamReport | null>(() => {
   return exams.find((e) => e.exam_id === barExamId.value) ?? exams[0] ?? null;
 });
 
-/** 当前场次的柱状图数据（单组：每科一根柱，铺满卡片均分） */
-const activeBarGroups = computed(() => {
+/** 当前场次各科（顺序即成绩单顺序）：柱状 / 条形 / 折线 / 饼状 / 辐射图共用同一份数据 */
+const activeBarItems = computed(() => {
   const exam = activeBarExam.value;
   if (!exam) return [];
-  return [
-    {
-      label: exam.exam_name,
-      sub: exam.exam_date.slice(5, 10),
-      items: exam.subjects.map((s) => ({ subject: s.subject, score: s.score, grade: s.grade })),
-    },
-  ];
+  return exam.subjects.map((s) => ({ subject: s.subject, score: s.score, grade: s.grade }));
 });
 
 /** 当前场次的摘要行：日期 · 大考/小考 · 总分（或等级）· 排名 · 班均 */
@@ -405,15 +403,16 @@ const selectedDelta = computed<number | null>(() => {
         </div>
       </div>
 
-      <!-- 各科成绩柱状图：先选考试场次，再看该场每科得分（渲染规则与悬浮卡片同源） -->
+      <!-- 各科成绩分布：先选考试场次，再看该场各科（图型是全局偏好，切换后所有页面同步） -->
       <div
         v-if="activeBarExam"
         class="rounded-lg border border-hairline bg-canvas p-4"
         data-test="student-subject-bars"
       >
-        <div class="flex flex-wrap items-center justify-between gap-2">
-          <p class="text-caption font-medium text-ink">各科成绩柱状图</p>
-          <p class="text-fine text-weak">按考试场次查看 · 每根柱一个科目</p>
+        <!-- 标题 + 图型下拉：下拉收掉五个类型胶囊，视野留给定表格与图表本身 -->
+        <div class="scrollbar-none flex items-center justify-between gap-3 overflow-x-auto">
+          <p class="shrink-0 whitespace-nowrap text-caption font-medium text-ink">各科成绩分布</p>
+          <ScoreChartTypeSelect />
         </div>
 
         <!-- 场次入口：一次考试一个芯片，默认选中最近一场 -->
@@ -442,7 +441,7 @@ const selectedDelta = computed<number | null>(() => {
         </p>
 
         <div class="mt-3">
-          <SubjectScoreBars :groups="activeBarGroups" fill :show-label="false" />
+          <SubjectScoreDistribution :items="activeBarItems" />
         </div>
       </div>
 

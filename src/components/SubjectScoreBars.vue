@@ -6,8 +6,8 @@
  * - 学生详情页「成绩」栏目：场次芯片选定一场后铺满卡片展示该场各科（fill）；
  * - 班级成绩明细表：跟随鼠标的悬浮卡片里展示该生单场各科（compact + fill）。
  *
- * 取值口径与成绩面板一致：柱高 = 分数 / 100，柱色按「科目」取共享配色
- * （跨场次同科同色，与折线图同色），分数文本按等级着色；
+ * 取值口径与成绩面板一致：柱高按本次分数区间放大（基准线不钉在 0 分，见 lib/score-chart.ts），
+ * 柱色按「科目」取共享配色（跨场次同科同色，与折线图同色），分数文本按等级着色；
  * 等级制 / 缺考等无数字分的科目不画柱，只显示文字。
  *
  * 等级模式（成绩页「等级映射 → 显示等级」开启）：柱顶显示等级名、柱高按档位
@@ -15,8 +15,16 @@
  */
 import { computed } from "vue";
 import { chartColorOf } from "../lib/chart-palette";
-import { SCORE_LEVEL_TEXT, formatNumber, scoreRatio } from "../lib/score-analysis";
-import { levelNameOfScore, levelOf, levelValueOf, showLevelOnly } from "../lib/score-config";
+import {
+  hasNumericScore,
+  plotRatioOf,
+  plotScaleOf,
+  plottedScoreOf,
+  scoreTextClassOf,
+  scoreTextOf,
+} from "../lib/score-chart";
+import { formatNumber } from "../lib/score-analysis";
+import { levelNameOfScore, showLevelOnly } from "../lib/score-config";
 import type { SubjectScoreBarGroup, SubjectScoreBarItem } from "../types";
 
 const props = withDefaults(
@@ -32,12 +40,21 @@ const props = withDefaults(
     fill?: boolean;
     /** 是否显示组标签（场次名 + 日期）；卡片头部已有场次信息时关掉 */
     showLabel?: boolean;
+    /** 是否显示图例里的口径说明；由宿主统一说明图表口径时关掉（如各科成绩分布图） */
+    showHint?: boolean;
   }>(),
-  { compact: false, fill: false, showLabel: true }
+  { compact: false, fill: false, showLabel: true, showHint: true }
 );
 
 /** 柱区高度 / 柱宽 / 列宽（px）：紧凑模式整体收一档 */
 const plotH = computed(() => (props.compact ? 72 : 112));
+/**
+ * 柱顶数值标签占的高度（text-fine 12px + 柱上方 mt-1 4px + 余量）。
+ * 列高 = 柱区 + 标签高：不给标签留位置的话，flex 会把高分柱压扁——
+ * 满 100 分的柱正好与列同高，标签一挤就变成「90 分和 100 分一样高」。
+ */
+const LABEL_H = 18;
+const columnH = computed(() => plotH.value + LABEL_H);
 const barW = computed(() => (props.compact ? 12 : 18));
 const colW = computed(() => (props.compact ? 26 : 34));
 /**
@@ -66,34 +83,25 @@ function subjectColor(subject: string): string {
   return chartColorOf(index < 0 ? 0 : index);
 }
 
-/** 柱高：分数 / 满分 100，最低留 4px 让 0 分也可见 */
+/** 全部柱子的绘图值 → 放大基准：基准线按本次分数区间上抬，柱高差异才看得出 */
+const plotScale = computed(() => {
+  const values: number[] = [];
+  for (const group of props.groups) {
+    for (const item of group.items) {
+      const value = plottedScoreOf(item.score);
+      if (value !== null) values.push(value);
+    }
+  }
+  return plotScaleOf(values);
+});
+
+/** 柱高：按放大基准折算，最低留 4px 让 0 分也可见 */
 function barHeight(score: number): string {
-  return `${Math.max(4, Math.round(scoreRatio(score) * plotH.value))}px`;
-}
-
-function hasScore(item: SubjectScoreBarItem): boolean {
-  return item.score !== null && item.score !== undefined;
-}
-
-/** 柱子实际按这个值画高度：等级模式下取档位代表值（同等级同值） */
-function plottedScore(item: SubjectScoreBarItem): number | null {
-  if (!hasScore(item)) return null;
-  return showLevelOnly.value ? levelValueOf(item.score) : (item.score ?? null);
-}
-
-/** 柱顶文本：有数字分显示分数（等级模式显示等级名），否则显示「缺考」等文字 */
-function valueText(item: SubjectScoreBarItem): string {
-  if (!hasScore(item)) return item.grade ?? "—";
-  return showLevelOnly.value ? levelNameOfScore(item.score) : formatNumber(item.score);
-}
-
-function valueClass(item: SubjectScoreBarItem): string {
-  const level = levelOf(item.score);
-  return level ? SCORE_LEVEL_TEXT[level] : "text-weak";
+  return `${Math.max(4, Math.round(plotRatioOf(score, plotScale.value) * plotH.value))}px`;
 }
 
 function barTitle(item: SubjectScoreBarItem): string {
-  if (hasScore(item)) {
+  if (hasNumericScore(item)) {
     return showLevelOnly.value
       ? `${item.subject} ${levelNameOfScore(item.score)}`
       : `${item.subject} ${formatNumber(item.score)} 分`;
@@ -118,8 +126,8 @@ function barTitle(item: SubjectScoreBarItem): string {
         <span class="inline-block h-2 w-2 shrink-0 rounded-[2px]" :style="{ backgroundColor: chartColorOf(i) }" />
         {{ name }}
       </span>
-      <span class="ml-auto text-fine text-faint">
-        {{ showLevelOnly ? "柱高按等级分档 · 同等级等高" : "柱高为该科分数 · 单科满分按 100 计" }}
+      <span v-if="showHint" class="ml-auto text-fine text-faint">
+        {{ showLevelOnly ? "柱高按等级分档 · 同等级等高" : "柱高按本次分数区间放大" }}
       </span>
     </div>
 
@@ -141,25 +149,25 @@ function barTitle(item: SubjectScoreBarItem): string {
               data-test="score-bar-column"
               class="flex flex-col items-center justify-end"
               :class="fill ? 'min-w-0 flex-1' : ''"
-              :style="{ height: `${plotH}px`, ...(fill ? {} : { width: `${colW}px` }) }"
+              :style="{ height: `${columnH}px`, ...(fill ? {} : { width: `${colW}px` }) }"
               :title="barTitle(item)"
             >
               <span
                 class="max-w-full truncate text-fine leading-none"
-                :class="valueClass(item)"
+                :class="scoreTextClassOf(item.score)"
                 data-test="score-bar-value"
               >
-                {{ valueText(item) }}
+                {{ scoreTextOf(item) }}
               </span>
               <span
-                v-if="hasScore(item)"
+                v-if="hasNumericScore(item)"
                 data-test="score-bar"
                 :data-subject="item.subject"
-                :data-score="plottedScore(item)"
-                class="mt-1 w-full rounded-t-[3px]"
+                :data-score="plottedScoreOf(item.score)"
+                class="mt-1 w-full shrink-0 rounded-t-[3px]"
                 :style="{
                   maxWidth: `${maxBarW}px`,
-                  height: barHeight(plottedScore(item) ?? 0),
+                  height: barHeight(plottedScoreOf(item.score) ?? 0),
                   backgroundColor: subjectColor(item.subject),
                 }"
               />
