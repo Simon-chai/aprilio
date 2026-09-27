@@ -27,6 +27,8 @@ export interface RosterTable {
   /** 首个表头行是否被识别（表前标题行已剔除） */
   hasHeader: boolean;
   delimiter: string;
+  /** 表头占用的行数：分组表头（父表头 + 子表头行）为 2，普通表头为 1 */
+  headerRows?: number;
   /** 表头前被剔除的标题行数（跨列合并标题等），用于行号换算 */
   titleRows?: number;
   /** 被剔除标题行的合并文本（每行一条），供成绩单提取考试名/考试时间 */
@@ -57,7 +59,10 @@ export interface NameDetection {
   reason: string;
 }
 
-/** 除姓名外可自动映射的字段 */
+/**
+ * 除姓名外可自动映射的字段。监护人按「组」分槽位：无序号后缀 = 第一位监护人
+ * （主联系人），`2` 后缀 = 第二位；单位与职务在行构建时合并进 `occupation`。
+ */
 export type RosterField =
   | "student_no"
   | "gender"
@@ -66,6 +71,12 @@ export type RosterField =
   | "id_card"
   | "guardian_name"
   | "guardian_phone"
+  | "guardian_unit"
+  | "guardian_duty"
+  | "guardian2_name"
+  | "guardian2_phone"
+  | "guardian2_unit"
+  | "guardian2_duty"
   | "address"
   | "note";
 
@@ -77,14 +88,28 @@ export const ROSTER_FIELD_LABELS: Record<RosterField, string> = {
   id_card: "身份证号",
   guardian_name: "监护人",
   guardian_phone: "联系电话",
+  guardian_unit: "家长单位",
+  guardian_duty: "家长职务",
+  guardian2_name: "监护人2",
+  guardian2_phone: "监护人2电话",
+  guardian2_unit: "监护人2单位",
+  guardian2_duty: "监护人2职务",
   address: "家庭住址",
   note: "备注",
 };
+
+/** 有表头但没有任何字段承接的列（如学籍号、籍贯），供对话框提示用户 */
+export interface IgnoredColumn {
+  index: number;
+  header: string;
+}
 
 export interface RosterMapping {
   nameColumn: number;
   /** 字段 → 列序号（0 起） */
   fields: Partial<Record<RosterField, number>>;
+  /** 未落库的列（识别不了 / 已被同义列占用） */
+  ignored: IgnoredColumn[];
 }
 
 export interface RosterRowIssue {
@@ -331,6 +356,42 @@ function looksLikeHeaderRow(row: string[], totalWidth: number): boolean {
   return exactNameMatch || headerHits >= 2;
 }
 
+/** 子表头行（分组表头的第二行）可用词：姓名 / 联系电话 / 单位 / 职务 等 */
+const SUB_HEADER_KEYWORDS = [
+  "姓名", "名字", "学号", "性别", "出生", "身份证", "电话", "手机", "联系",
+  "单位", "职务", "职业", "职位", "关系", "称谓", "备注",
+];
+
+/** 子表头里属于「家长组内属性」的词：父表头为空时才允许向右继承分组名 */
+const GUARDIAN_SUB_KEYWORDS = [
+  "姓名", "名字", "电话", "手机", "联系", "单位", "职务", "职业", "职位", "关系", "称谓",
+];
+
+/** 父表头是否「家长分组名」（监护人1 / 家长 / 父亲…） */
+const GUARDIAN_PARENT_PATTERN = /监护|家长|父亲|母亲|爸爸|妈妈|父母|guardian|parent|father|mother/i;
+
+/**
+ * 子表头行判据（分组表头）：`监护人1 | ∅ | ∅ | ∅` 这类父表头是跨列合并单元格，
+ * 只有左上角有值，真正的列名在下一行（姓名 / 联系电话 / 单位 / 职务）。
+ * 三条全中才算，避免把普通数据行误当子表头：
+ * ① 非空单元格 ≥ 2；② 每个非空单元格短且命中子表头词表；③ 至少一列「父空子非空」。
+ */
+function isSubHeaderRow(records: string[][], headerIndex: number): boolean {
+  const parent = records[headerIndex] ?? [];
+  const sub = records[headerIndex + 1];
+  if (!sub) return false;
+
+  const cells = sub.map((c) => (c ?? "").trim());
+  const filled = cells.filter(Boolean);
+  if (filled.length < 2) return false;
+  const allKeywords = filled.every(
+    (cell) => cell.length <= 6 && SUB_HEADER_KEYWORDS.some((k) => cell.includes(k))
+  );
+  if (!allKeywords) return false;
+
+  return cells.some((cell, i) => cell !== "" && !(parent[i] ?? "").trim());
+}
+
 /**
  * 由二维记录矩阵构造表格：表头嗅探（含「姓名/学号」等关键词则首个表头行生效，
  * 否则按数据处理并生成「第N列」）。CSV 文本解析与 Rust 表格通道（xlsx/xls）
@@ -338,6 +399,10 @@ function looksLikeHeaderRow(row: string[], totalWidth: number): boolean {
  *
  * 真实花名册常有跨列合并的标题行（「XX中学2026级3班花名册」）：表头行之前
  * 仅 1~2 个非空格的行按标题剔除；普通数据行不会误判（非空格数 > 2）。
+ *
+ * 学校下发的详细信息表还有第二层表头（「监护人1」下面再分「姓名/联系电话/
+ * 单位/职务」）：合成复合表头「监护人1·姓名」并记入 `headerRows`，让行号换算与
+ * 监护人分组都能用上。
  */
 export function rosterTableFromGrid(records: string[][]): RosterTable {
   if (!records.length) throw new Error("表格内容为空");
@@ -360,29 +425,52 @@ export function rosterTableFromGrid(records: string[][]): RosterTable {
     }
   }
 
-  if (headerIndex === 0) {
-    const headers = Array.from({ length: width }, (_, i) => (records[0][i] ?? "").trim());
-    return { headers, rows: records.slice(1), hasHeader: true, delimiter: ",", titleText: [] };
-  }
-
-  if (headerIndex > 0) {
-    const headers = Array.from({ length: width }, (_, i) => (records[headerIndex][i] ?? "").trim());
+  if (headerIndex < 0) {
     return {
-      headers,
-      rows: records.slice(headerIndex + 1),
-      hasHeader: true,
+      headers: Array.from({ length: width }, (_, i) => `第${i + 1}列`),
+      rows: records,
+      hasHeader: false,
       delimiter: ",",
-      titleRows: headerIndex,
-      titleText: titleTextOf(headerIndex),
+      titleText: [],
     };
   }
 
+  const hasSubHeader = isSubHeaderRow(records, headerIndex);
+  const headerRows = hasSubHeader ? 2 : 1;
+  const rawParentOf = (i: number) => (records[headerIndex][i] ?? "").trim();
+
+  /**
+   * 父表头向右展开：合并单元格只有左上角有值，`监护人1 | ∅ | ∅ | ∅` 的后三列
+   * 实际都属于「监护人1」。只对家长组内属性词（姓名/电话/单位/职务…）继承，
+   * 保证「备注」这类与分组无关的列不会被卷入。
+   */
+  const parentOf = (i: number, sub: string): string => {
+    const raw = rawParentOf(i);
+    if (raw || !sub || !GUARDIAN_SUB_KEYWORDS.some((k) => sub.includes(k))) return raw;
+    for (let j = i - 1; j >= 0; j--) {
+      const candidate = rawParentOf(j);
+      if (!candidate) continue;
+      return GUARDIAN_PARENT_PATTERN.test(candidate) ? candidate : "";
+    }
+    return "";
+  };
+
+  const headers = Array.from({ length: width }, (_, i) => {
+    const sub = hasSubHeader ? (records[headerIndex + 1][i] ?? "").trim() : "";
+    const parent = parentOf(i, sub);
+    if (parent && sub && parent !== sub) return `${parent}·${sub}`;
+    return parent || sub;
+  });
+
   return {
-    headers: Array.from({ length: width }, (_, i) => `第${i + 1}列`),
-    rows: records,
-    hasHeader: false,
+    headers,
+    rows: records.slice(headerIndex + headerRows),
+    hasHeader: true,
     delimiter: ",",
-    titleText: [],
+    headerRows,
+    ...(headerIndex > 0
+      ? { titleRows: headerIndex, titleText: titleTextOf(headerIndex) }
+      : { titleText: [] }),
   };
 }
 
@@ -565,47 +653,215 @@ export function combineNameDetection(
   };
 }
 
+/** 交给 AI 推断班级的上下文行：文件名与标题行，压掉空白与表格扩展名 */
+function classNameContextLines(lines: (string | null | undefined)[]): string[] {
+  return lines
+    .map((line) => (line ?? "").trim().replace(/\.(xlsx|xlsm|xlsb|xls|ods|csv|tsv|txt)$/i, ""))
+    .filter(Boolean)
+    .slice(0, 4);
+}
+
+/**
+ * AI 推断班级名：把文件名与表前标题行交给模型，识别这份表格属于哪个班级
+ * （如「四8班学生详细信息_模拟数据.xlsx」→「四8班」）。
+ * 只接受含「班」的短文本（≤12 字）——模型给出的其它内容一律视为没有班级信息
+ * （防幻觉），返回 null 时调用方保持原有兜底行为（自动建未命名班级 / 询问用户）。
+ */
+export async function aiInferClassName(
+  lines: (string | null | undefined)[],
+  llm: AgentLlm,
+  config: AiConfig,
+): Promise<string | null> {
+  const contexts = classNameContextLines(lines);
+  if (!contexts.length) return null;
+
+  const system =
+    "你是学生信息表格结构分析助手。用户会给出一份表格的文件名与标题行，" +
+    "请判断这份表格属于哪个班级（如「四8班」「四年级八班」「三年级二班」）。" +
+    '只输出一个 JSON 对象：{"class_name": "班级名或null", "confidence": 0到1的小数, "reason": "不超过20字的理由"}，' +
+    "没有班级线索时 class_name 必须为 null，不要输出任何其他内容。";
+
+  try {
+    const res = await llm.chat({
+      system,
+      messages: [{ role: "user", content: `文件名与标题行：\n${contexts.join("\n")}` }],
+      tools: [],
+      config,
+    });
+    const match = res.content.match(/\{[\s\S]*?\}/);
+    if (!match) return null;
+    const parsed = JSON.parse(match[0]) as { class_name?: unknown };
+    const name = (typeof parsed.class_name === "string" ? parsed.class_name : "")
+      .replace(/\s+/g, "")
+      .replace(/^(班级|年级班级)[：:]/, "");
+    if (!name || name.length > 12 || !name.includes("班")) return null;
+    if (/^(班级|年级班级|多个班级|若干班级)$/.test(name)) return null;
+    return name;
+  } catch {
+    return null;
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /* 字段映射与行构建                                                     */
 /* ------------------------------------------------------------------ */
 
-/** 表头关键词 → 字段。顺序即优先级：「家长电话」先按电话匹配而不是监护人 */
+/** 表头关键词 → 字段（不含监护人：监护人列另有「组号 + 属性」的分配规则） */
 const FIELD_HEADER_PATTERNS: [RosterField, string[]][] = [
-  ["student_no", ["学号", "学籍号", "编号", "student no", "student id"]],
+  ["student_no", ["学号", "编号", "学籍号", "student no", "student id"]],
   ["gender", ["性别", "gender"]],
   ["birth_date", ["出生", "生日", "birth"]],
   ["grade_class", ["班级", "年级", "class"]],
   ["id_card", ["身份证", "证件", "idcard", "id card"]],
-  ["guardian_phone", ["电话", "手机", "联系方式", "phone", "mobile"]],
-  [
-    "guardian_name",
-    [
-      "监护人", "家长", "父亲", "母亲", "爸爸", "妈妈", "父母",
-      "guardian", "parent", "father", "mother",
-    ],
-  ],
   ["address", ["住址", "地址", "address"]],
   ["note", ["备注", "note", "remark"]],
 ];
 
-/** 自动映射除姓名列外的可识别字段；识别不了的列忽略 */
-export function detectFieldMapping(table: RosterTable, nameColumn: number): RosterMapping {
-  const fields: Partial<Record<RosterField, number>> = {};
-  const claimed = new Set<number>([nameColumn]);
+/** 监护人语义线索：命中才可能是「家长分组列」 */
+const GUARDIAN_HEADER_HINTS = [
+  "监护", "家长", "父亲", "母亲", "爸爸", "妈妈", "父母",
+  "guardian", "parent", "father", "mother",
+];
 
+/** 监护人组内属性 */
+type GuardianKind = "name" | "phone" | "unit" | "duty";
+
+const GUARDIAN_KIND_PATTERNS: [GuardianKind, string[]][] = [
+  ["name", ["姓名", "名字", "name"]],
+  ["phone", ["联系电话", "电话", "手机", "联系方式", "phone", "mobile"]],
+  ["unit", ["工作单位", "单位", "employer", "company"]],
+  ["duty", ["职务", "职业", "职位", "occupation", "duty", "title"]],
+];
+const GUARDIAN_KINDS: GuardianKind[] = ["name", "phone", "unit", "duty"];
+
+/** 每种属性对应「第一位 / 第二位」监护人的字段名 */
+const GUARDIAN_SLOT_FIELDS: Record<GuardianKind, [RosterField, RosterField]> = {
+  name: ["guardian_name", "guardian2_name"],
+  phone: ["guardian_phone", "guardian2_phone"],
+  unit: ["guardian_unit", "guardian2_unit"],
+  duty: ["guardian_duty", "guardian2_duty"],
+};
+
+/** 表头里的监护人组号（「监护人1」「家长联系电话2」）；读不到组号返回 0（按列序兜底） */
+function guardianSlotOf(header: string): 0 | 1 | 2 {
+  const numbered = header.match(
+    /(?:监护人|监护|家长|父亲|母亲|爸爸|妈妈|父母|guardian|parent|father|mother)[^0-9０-９]{0,3}([12１２])/i
+  );
+  const composite = numbered ?? header.match(/[^0-9]([12１２])\s*[·•・/／]/);
+  if (!composite) return 0;
+  return composite[1] === "1" || composite[1] === "１" ? 1 : 2;
+}
+
+/** 监护人组内属性识别（只看属性词，不看组号） */
+function guardianKindOf(header: string): GuardianKind | 0 {
+  for (const [kind, patterns] of GUARDIAN_KIND_PATTERNS) {
+    if (patterns.some((p) => header.includes(p))) return kind;
+  }
+  return 0;
+}
+
+function lessRank(a: number[], b: number[]): boolean {
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return a[i] < b[i];
+  }
+  return false;
+}
+
+/**
+ * 同字段多候选列取最优：先按别名数组顺序（「学号」优先于「学籍号」），
+ * 同别名时精确匹配优先，仍相同取列序靠前者——与列的前后顺序无关。
+ */
+function pickColumnByAlias(table: RosterTable, claimed: Set<number>, patterns: string[]): number {
+  let best = -1;
+  let bestRank: number[] | null = null;
   table.headers.forEach((rawHeader, index) => {
     if (claimed.has(index)) return;
     const header = rawHeader.trim().toLowerCase();
     if (!header) return;
-    for (const [field, patterns] of FIELD_HEADER_PATTERNS) {
-      if (fields[field] !== undefined) continue;
-      if (patterns.some((p) => header === p || header.includes(p))) {
-        fields[field] = index;
-        claimed.add(index);
-        return;
+    for (let p = 0; p < patterns.length; p++) {
+      const pattern = patterns[p].toLowerCase();
+      const exact = header === pattern;
+      if (!exact && !header.includes(pattern)) continue;
+      const rank = [p, exact ? 0 : 1, index];
+      if (!bestRank || lessRank(rank, bestRank)) {
+        bestRank = rank;
+        best = index;
       }
+      break;
     }
   });
+  return best;
+}
+
+/** 自动映射除姓名列外的可识别字段；识别不了的列收进 ignored */
+export function detectFieldMapping(table: RosterTable, nameColumn: number): RosterMapping {
+  const fields: Partial<Record<RosterField, number>> = {};
+  const claimed = new Set<number>([nameColumn]);
+
+  const headerAt = (index: number) => (table.headers[index] ?? "").trim();
+
+  // 监护人列先摘出来，不参与通用字段分配：否则「监护人2·联系电话」会被
+  // 「监护人」别名抢成第一位监护人的姓名（旧实现里「家长联系电话2」变成家长姓名的根因）
+  const guardianColumns = new Map<number, GuardianKind>();
+  table.headers.forEach((_rawHeader, index) => {
+    if (claimed.has(index)) return;
+    const header = headerAt(index).toLowerCase();
+    if (!header) return;
+    const hinted = GUARDIAN_HEADER_HINTS.some((hint) => header.includes(hint));
+    let kind = guardianKindOf(header);
+    // 裸「监护人 / 家长 / 父亲」列本身就是家长姓名列
+    if (!kind && hinted) kind = "name";
+    // 姓名类必须有监护人语义，避免把第二个「姓名」列当成家长
+    if (!kind || (kind === "name" && !hinted)) return;
+    guardianColumns.set(index, kind);
+    claimed.add(index);
+  });
+
+  // 第一遍：通用字段
+  for (const [field, patterns] of FIELD_HEADER_PATTERNS) {
+    const index = pickColumnByAlias(table, claimed, patterns);
+    if (index < 0) continue;
+    fields[field] = index;
+    claimed.add(index);
+  }
+
+  // 第二遍：监护人槽位——组号明确的先占位，其余按列序补空槽（第 1 列进第一位）
+  const slotOfKind: Record<GuardianKind, Partial<Record<1 | 2, number>>> = {
+    name: {},
+    phone: {},
+    unit: {},
+    duty: {},
+  };
+  const pending: Record<GuardianKind, number[]> = { name: [], phone: [], unit: [], duty: [] };
+  guardianColumns.forEach((kind, index) => {
+    const slot = guardianSlotOf(headerAt(index));
+    if (slot && slotOfKind[kind][slot] === undefined) slotOfKind[kind][slot] = index;
+    else pending[kind].push(index);
+  });
+  for (const kind of GUARDIAN_KINDS) {
+    for (const index of pending[kind]) {
+      const slot = slotOfKind[kind][1] === undefined ? 1 : slotOfKind[kind][2] === undefined ? 2 : 0;
+      if (!slot) break;
+      slotOfKind[kind][slot] = index;
+    }
+    const [first, second] = GUARDIAN_SLOT_FIELDS[kind];
+    if (slotOfKind[kind][1] !== undefined) fields[first] = slotOfKind[kind][1];
+    if (slotOfKind[kind][2] !== undefined) fields[second] = slotOfKind[kind][2];
+  }
+
+  // 电话 / 单位 / 职务兜底：老式表只有一列「联系电话」「单位」时仍归第一位监护人
+  const fallbacks: [RosterField, string[]][] = [
+    ["guardian_phone", ["联系电话", "电话", "手机", "联系方式", "phone", "mobile"]],
+    ["guardian_unit", ["工作单位", "单位", "employer", "company"]],
+    ["guardian_duty", ["职务", "职业", "职位", "occupation", "duty", "title"]],
+  ];
+  for (const [field, patterns] of fallbacks) {
+    if (fields[field] !== undefined) continue;
+    const index = pickColumnByAlias(table, claimed, patterns);
+    if (index < 0) continue;
+    fields[field] = index;
+    claimed.add(index);
+  }
 
   // 基于列内容特征的嗅探兜底（无表头或表头非标准时）
   for (let index = 0; index < table.headers.length; index++) {
@@ -660,7 +916,11 @@ export function detectFieldMapping(table: RosterTable, nameColumn: number): Rost
     }
   }
 
-  return { nameColumn, fields };
+  const ignored = table.headers
+    .map((rawHeader, index) => ({ index, header: (rawHeader ?? "").trim() }))
+    .filter(({ index, header }) => header !== "" && !claimed.has(index));
+
+  return { nameColumn, fields, ignored };
 }
 
 function normalizeGender(value: string): Gender {
@@ -691,9 +951,19 @@ function normalizeIdCard(value: string): string {
   return value.replace(/\s+/g, "").toUpperCase();
 }
 
+/** 家长「单位」+「职务」合成职业：两者都有写「单位 · 职务」，只有其一时只写该值 */
+export function composeOccupation(unit: string, duty: string): string {
+  const u = unit.trim();
+  const d = duty.trim();
+  if (u && d) return `${u} · ${d}`;
+  return u || d;
+}
+
 /**
  * 按映射把表格行转成学生输入：姓名缺失/表内学号重复的行进 issues，
  * 其余进入待导入列表。单行失败不影响整批。
+ *
+ * 监护人最多两位（第一位为主联系人）；姓名、电话、职业全空则不建该位。
  */
 export function prepareRosterRows(table: RosterTable, mapping: RosterMapping): RosterPrepareResult {
   const rows: StudentInput[] = [];
@@ -703,9 +973,32 @@ export function prepareRosterRows(table: RosterTable, mapping: RosterMapping): R
   const cellOf = (cells: string[], column?: number) =>
     column === undefined ? "" : (cells[column] ?? "").trim();
 
+  const guardiansOf = (cells: string[]): Guardian[] => {
+    const guardians: Guardian[] = [];
+    for (const slot of [1, 2] as const) {
+      const suffix = slot === 1 ? "" : "2";
+      const name = cellOf(cells, mapping.fields[`guardian${suffix}_name` as RosterField]);
+      const phone = cellOf(cells, mapping.fields[`guardian${suffix}_phone` as RosterField]);
+      const occupation = composeOccupation(
+        cellOf(cells, mapping.fields[`guardian${suffix}_unit` as RosterField]),
+        cellOf(cells, mapping.fields[`guardian${suffix}_duty` as RosterField])
+      );
+      if (!name && !phone && !occupation) continue;
+      guardians.push({
+        name: name || "监护人",
+        phone,
+        relation: "监护人",
+        is_primary: slot === 1,
+        ...(occupation ? { occupation } : {}),
+      });
+    }
+    return guardians;
+  };
+
   table.rows.forEach((cells, i) => {
-    // 表格内行号（含表头与被剔除的标题行偏移，从 1 起）
-    const rowNo = (table.hasHeader ? 1 : 0) + (table.titleRows ?? 0) + i + 1;
+    // 表格内行号（含分组表头/表头与被剔除的标题行偏移，从 1 起）
+    const headerRows = table.hasHeader ? (table.headerRows ?? 1) : 0;
+    const rowNo = headerRows + (table.titleRows ?? 0) + i + 1;
     if (cells.every((c) => !c || !c.trim())) return;
 
     const name = cellOf(cells, mapping.nameColumn);
@@ -727,11 +1020,7 @@ export function prepareRosterRows(table: RosterTable, mapping: RosterMapping): R
       seenNos.add(studentNo);
     }
 
-    const gName = cellOf(cells, mapping.fields.guardian_name);
-    const gPhone = cellOf(cells, mapping.fields.guardian_phone);
-    const guardians: Guardian[] = (gName || gPhone)
-      ? [{ name: gName || "监护人", phone: gPhone, relation: "监护人", is_primary: true }]
-      : [];
+    const guardians = guardiansOf(cells);
 
     rows.push({
       name,
@@ -996,6 +1285,8 @@ export async function importRosterStudents(prep: RosterPrepareResult): Promise<R
 export interface SmartImportOptions {
   /** 用户指定姓名列：列名文本或从 1 开始的列号（覆盖自动识别） */
   nameColumn?: string | number;
+  /** 文件名（含扩展名）：整批没有班级信息时交给 AI 从文件名/标题行推断班级名 */
+  fileName?: string;
   /** 只做解析与识别，不落库（对话框预览用） */
   dryRun?: boolean;
   /** 测试注入；缺省按当前环境创建 provider */
@@ -1010,6 +1301,8 @@ export type SmartImportOutcome =
       table: RosterTable;
       detection: NameDetection;
       mapping: RosterMapping;
+      /** AI 从文件名/标题行推断出的班级名（仅在整批无班级信息时尝试） */
+      inferredClass?: string | null;
       result?: RosterImportResult;
     }
   | { status: "need-column"; detection: NameDetection; message: string }
@@ -1030,8 +1323,8 @@ export function resolveColumn(table: RosterTable, spec: string | number): number
 
 /**
  * 智能导入编排（表格入口）：规则识别（已配置模型时叠加 AI 识别）→ 映射 → 校验
- * →（可选）落库。置信度低且用户未指定姓名列时返回 need-column（附候选），
- * 由调用方转述给用户确认。
+ * →（整批无班级信息时 AI 从文件名/标题行推断班级）→（可选）落库。
+ * 置信度低且用户未指定姓名列时返回 need-column（附候选），由调用方转述给用户确认。
  */
 export async function runSmartImportTable(
   table: RosterTable,
@@ -1083,12 +1376,25 @@ export async function runSmartImportTable(
     return { status: "error", message: `没有可导入的数据行。${detail}` };
   }
 
+  // 整批没有班级信息（表内无班级列/全空）时，交给 AI 从文件名与标题行推断班级名
+  // （文件名里的「四8班」这类信息比自动建「未命名班级N」更接近事实）：命中即按普通
+  // 班级列口径回填；模型不可用/没把握时保持原行为（未命名批次自动分班）。
+  let inferredClass: string | null = null;
+  if (isUnnamedBatch(prep.rows) && isAiConfigured(config)) {
+    const llm = options.llm ?? createLlm();
+    inferredClass = await aiInferClassName([options.fileName, ...(table.titleText ?? [])], llm, config);
+    if (inferredClass) {
+      const cls = inferredClass;
+      prep.rows = prep.rows.map((row) => ({ ...row, grade_class: row.grade_class || cls }));
+    }
+  }
+
   if (options.dryRun) {
-    return { status: "ok", table, detection, mapping };
+    return { status: "ok", table, detection, mapping, inferredClass };
   }
 
   const result = await importRosterStudents(prep);
-  return { status: "ok", table, detection, mapping, result };
+  return { status: "ok", table, detection, mapping, inferredClass, result };
 }
 
 /** 智能导入编排（文本入口）：解析 CSV/TSV 文本后走 runSmartImportTable */

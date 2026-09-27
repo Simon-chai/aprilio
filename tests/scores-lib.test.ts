@@ -336,6 +336,44 @@ describe("runSmartScoreImport", () => {
     expect(outcome.status).toBe("not-score-sheet");
   });
 
+  it("已配置模型时按文件名推断成绩归属班级（表内无班级列、档案也推不出）", async () => {
+    const cls = "四8班";
+    const cleanup = async () => {
+      for (const s of await listStudents()) {
+        if (s.grade_class === cls) await deleteStudent(s.id);
+      }
+      for (const e of await listExamsByClass(cls)) await deleteExam(e.id);
+    };
+    await cleanup();
+    try {
+      // 结构识别与班级推断共用同一模型：按提示词分流回答
+      const llm: AgentLlm = {
+        async chat(req) {
+          if (req.system.includes("班级")) {
+            return { content: '{"class_name": "四8班", "confidence": 0.9, "reason": "文件名含班级"}', toolCalls: [] };
+          }
+          return {
+            content:
+              '{"name_column":1,"subjects":[{"column":2,"name":"语文"},{"column":3,"name":"数学"}],' +
+              '"exam_name":null,"exam_date":null,"confidence":0.9,"reason":"表头明确"}',
+            toolCalls: [],
+          };
+        },
+      };
+      const outcome = await runSmartScoreImport(
+        parseRosterTable("姓名,语文,数学\n文件名甲,90,85\n文件名乙,80,70"),
+        { fileName: "四8班期中成绩单.xlsx", config: AI_CONFIG, llm },
+      );
+      expect(outcome.status).toBe("ok");
+      if (outcome.status !== "ok") return;
+      expect(outcome.exam.class_name).toBe(cls);
+      expect(outcome.result?.students_created).toBe(2);
+      expect(outcome.result?.scores_written).toBe(4);
+    } finally {
+      await cleanup();
+    }
+  });
+
   it("asks for the name column when detection is not confident", async () => {
     // 同名重复（列内几乎不唯一）→ 姓名列内容置信度低，但科目列可识别
     const table = parseRosterTable("张三,95,88\n张三,88,77\n张三,77,66\n张三,66,55");

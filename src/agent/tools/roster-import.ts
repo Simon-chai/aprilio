@@ -28,7 +28,8 @@ export default defineAgentTool({
   description:
     "导入学生花名册表格（XLSX/XLS/XLSM/XLSB/ODS/CSV/TSV/TXT）。使用智能导入：自动根据表头与单元格内容识别姓名列，" +
     "其余列按表头自动映射（学号/性别/班级/监护人电话等），学号已存在或同名同生日的记录自动跳过。" +
-    "整批无班级信息时会自动新建「未命名班级N」单立一班（两次导入分成两个班，重导入同一批则复用原班不搬家）。" +
+    "整批无班级信息时会先按文件名/标题行推断班级名（已配置模型时，如「四8班学生信息.xlsx」→「四8班」），" +
+    "推不出来才自动新建「未命名班级N」单立一班（两次导入分成两个班，重导入同一批则复用原班不搬家）。" +
     "若表格实为成绩单会自动分流为成绩导入——成绩必须归属班级：表内无班级信息且无法按档案学生推断时不会落库，" +
     "需先询问用户成绩属于哪个班级，再带 class_name 重新调用。" +
     "一次可导入多个文件（file_paths 数组，每文件独立识别、独立落库），也可用 file_path 传单个文件；" +
@@ -136,8 +137,12 @@ export default defineAgentTool({
 
       let outcome: SmartImportOutcome;
       try {
-        // 不传 config：runSmartImportTable 缺省读本机模型配置，已配置模型时叠加 AI 识别
-        outcome = await runSmartImportTable(loaded.table, { nameColumn: nameColumnArg });
+        // 不传 config：runSmartImportTable 缺省读本机模型配置，已配置模型时叠加 AI 识别；
+        // fileName 供整批无班级信息时由 AI 推断班级名（如文件名里的「四8班」）
+        outcome = await runSmartImportTable(loaded.table, {
+          nameColumn: nameColumnArg,
+          fileName: loaded.fileName,
+        });
       } catch (e) {
         logError("花名册导入失败", e);
         return { ok: false, summary: "", error: `花名册导入失败「${loaded.fileName}」：${e instanceof Error ? e.message : String(e)}` };
@@ -169,6 +174,10 @@ export default defineAgentTool({
       const parts = [
         `「${fileLabel}」${sheetSuffix}导入 ${result.imported} 名学生（姓名列：${detectDesc}）`,
       ];
+      // AI 从文件名/标题行识别到班级：说明归属，避免模型以为落进了自动分班
+      if (outcome.inferredClass) {
+        parts.push(`未检测到班级列，已按文件名识别班级「${outcome.inferredClass}」并归入该班`);
+      }
       // 未命名批次已自动单立新班：明确告诉模型与用户，避免误以为并入「未分班」
       if (result.autoClass) {
         parts.push(`未检测到班级信息，已自动新建班级「${result.autoClass}」（与之前导入的分开，可重命名）`);

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   aiDetectNameColumn,
+  aiInferClassName,
   combineNameDetection,
   decodeRosterBytes,
   detectFieldMapping,
@@ -319,6 +320,42 @@ describe("aiDetectNameColumn", () => {
   });
 });
 
+/** 假模型：固定返回一段文本，用于班级推断用例 */
+const llmWith = (content: string): AgentLlm => ({
+  async chat() {
+    return { content, toolCalls: [] };
+  },
+});
+
+describe("aiInferClassName", () => {
+  it("extracts the class name from the filename context", async () => {
+    const llm = llmWith('{"class_name": "四8班", "confidence": 0.9, "reason": "文件名含班级"}');
+    expect(await aiInferClassName(["四8班学生详细信息_模拟数据.xlsx"], llm, AI_CONFIG)).toBe("四8班");
+  });
+
+  it("rejects answers that do not look like a class name", async () => {
+    // 不带「班」的文本不是班级名；超长文本视为幻觉；泛称与无法解析的回复直接放弃
+    expect(await aiInferClassName(["学生详细信息.xlsx"], llmWith('{"class_name": "四年级"}'), AI_CONFIG)).toBeNull();
+    expect(
+      await aiInferClassName(["学生详细信息.xlsx"], llmWith('{"class_name": "一个特别特别特别特别长的班级名"}'), AI_CONFIG),
+    ).toBeNull();
+    expect(await aiInferClassName(["学生详细信息.xlsx"], llmWith('{"class_name": "多个班级"}'), AI_CONFIG)).toBeNull();
+    expect(await aiInferClassName(["学生详细信息.xlsx"], llmWith("没有班级信息"), AI_CONFIG)).toBeNull();
+  });
+
+  it("returns null without context and does not call the model", async () => {
+    let called = false;
+    const llm: AgentLlm = {
+      async chat() {
+        called = true;
+        return { content: "{}", toolCalls: [] };
+      },
+    };
+    expect(await aiInferClassName([null, "  "], llm, AI_CONFIG)).toBeNull();
+    expect(called).toBe(false);
+  });
+});
+
 describe("runSmartImport", () => {
   it("previews without writing (dryRun) and imports on the second run", async () => {
     const nos = ["9000021", "9000022"];
@@ -397,6 +434,76 @@ describe("runSmartImport", () => {
     const outcome = await runSmartImport(TEMPLATE_TEXT, { config: NO_AI_CONFIG, nameColumn: "不存在列" });
     expect(outcome.status).toBe("error");
     if (outcome.status === "error") expect(outcome.message).toContain("可用列");
+  });
+
+  it("整批无班级信息时按文件名推断班级（如「四8班」），不再自动建未命名班级", async () => {
+    const nos = ["9000051", "9000052"];
+    const cls = "四8班";
+    await cleanupByNos(nos);
+    try {
+      const text = "姓名,学号\n推断甲,9000051\n推断乙,9000052";
+      const llm = llmWith('{"class_name": "四8班", "confidence": 0.9, "reason": "文件名含班级"}');
+
+      const preview = await runSmartImport(text, {
+        fileName: "四8班学生详细信息_模拟数据.xlsx",
+        nameColumn: "姓名",
+        config: AI_CONFIG,
+        llm,
+        dryRun: true,
+      });
+      expect(preview.status).toBe("ok");
+      if (preview.status !== "ok") return;
+      expect(preview.inferredClass).toBe(cls);
+
+      const done = await runSmartImport(text, {
+        fileName: "四8班学生详细信息_模拟数据.xlsx",
+        nameColumn: "姓名",
+        config: AI_CONFIG,
+        llm,
+      });
+      expect(done.status).toBe("ok");
+      if (done.status !== "ok") return;
+      expect(done.result?.imported).toBe(2);
+      expect(done.result?.autoClass ?? null).toBeNull();
+      const students = (await listStudents()).filter((s) => nos.includes(s.student_no));
+      expect(students.map((s) => s.grade_class)).toEqual([cls, cls]);
+    } finally {
+      await cleanupByNos(nos);
+      try {
+        await deleteClass(cls);
+      } catch {
+        /* 忽略 */
+      }
+    }
+  });
+
+  it("模型推不出班级时保持未命名批次自动分班", async () => {
+    const nos = ["9000053"];
+    await cleanupByNos(nos);
+    let created: string | null = null;
+    try {
+      const llm = llmWith('{"class_name": null, "confidence": 0, "reason": "无班级线索"}');
+      const done = await runSmartImport("姓名,学号\n推断丙,9000053", {
+        fileName: "学生详细信息.xlsx",
+        nameColumn: "姓名",
+        config: AI_CONFIG,
+        llm,
+      });
+      expect(done.status).toBe("ok");
+      if (done.status !== "ok") return;
+      expect(done.inferredClass ?? null).toBeNull();
+      expect(done.result?.autoClass).toMatch(/^未命名班级\d+$/);
+      created = done.result?.autoClass ?? null;
+    } finally {
+      await cleanupByNos(nos);
+      if (created) {
+        try {
+          await deleteClass(created);
+        } catch {
+          /* 忽略 */
+        }
+      }
+    }
   });
 });
 
@@ -631,5 +738,188 @@ describe("未命名批次自动分班", () => {
     } finally {
       await cleanupByNos(nos);
     }
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* 详细花名册：双行分组表头 + 双监护人（学校下发格式）                    */
+/* ------------------------------------------------------------------ */
+
+/** 父表头行：监护人1/监护人2 为跨列合并单元格（只有左上角有值） */
+const DETAILED_PARENT = [
+  "学号", "姓名", "性别", "出生日期", "身份证号", "学籍号", "家庭住址", "籍贯",
+  "监护人1", "", "", "", "监护人2", "", "", "", "备注",
+];
+/** 子表头行：姓名 / 联系电话 / 单位 / 职务 各两组 */
+const DETAILED_SUB = [
+  "", "", "", "", "", "", "", "",
+  "姓名", "联系电话", "单位", "职务", "姓名", "联系电话", "单位", "职务", "",
+];
+const DETAILED_ROW_FULL = [
+  "1", "彭阳博", "男", "2017.04.24", "441322201704241514", "G441322201704241514",
+  "广东省鹤山市沙坪街道东升路翠湖花园105号1201房", "广东省鹤山市沙坪镇",
+  "彭文", "18539258113", "顺丰速运鹤山营业点", "",
+  "邹煜杰", "18819121777", "鹤山市农商银行", "职员",
+  "",
+];
+const DETAILED_ROW_SINGLE = [
+  "2", "郭强晨", "男", "2016.02.07", "420704201602070472", "G420704201602070472",
+  "广东省鹤山市沙坪街道嘉悦名轩158号202房", "广东省鹤山市沙坪镇",
+  "郭彤霞", "13914167867", "", "个体户",
+  "", "", "", "",
+  "特困",
+];
+
+describe("详细花名册：双行分组表头", () => {
+  it("合成复合表头并把子表头行排除在数据行之外", () => {
+    const table = rosterTableFromGrid([
+      DETAILED_PARENT,
+      DETAILED_SUB,
+      DETAILED_ROW_FULL,
+      DETAILED_ROW_SINGLE,
+    ]);
+
+    expect(table.hasHeader).toBe(true);
+    expect(table.headerRows).toBe(2);
+    expect(table.headers).toEqual([
+      "学号", "姓名", "性别", "出生日期", "身份证号", "学籍号", "家庭住址", "籍贯",
+      "监护人1·姓名", "监护人1·联系电话", "监护人1·单位", "监护人1·职务",
+      "监护人2·姓名", "监护人2·联系电话", "监护人2·单位", "监护人2·职务",
+      "备注",
+    ]);
+    expect(table.rows).toHaveLength(2);
+    expect(table.rows[0][1]).toBe("彭阳博");
+  });
+
+  it("姓名列仍取真「姓名」列，复合表头列不参与竞争", () => {
+    const table = rosterTableFromGrid([DETAILED_PARENT, DETAILED_SUB, DETAILED_ROW_FULL]);
+    const detection = detectNameColumn(table);
+    expect(detection.selected).toBe(1);
+    expect(detection.confidence).toBe("high");
+  });
+
+  it("行号换算含子表头行：第 3 行数据对应表格第 4 行", () => {
+    const noName = [...DETAILED_ROW_FULL];
+    noName[1] = "";
+    const table = rosterTableFromGrid([DETAILED_PARENT, DETAILED_SUB, DETAILED_ROW_FULL, noName]);
+    const prep = prepareRosterRows(table, detectFieldMapping(table, 1));
+
+    expect(prep.rows).toHaveLength(1);
+    expect(prep.issues).toEqual([{ row: 4, name: "", reason: "姓名为空" }]);
+  });
+
+  it("单行表头不受影响（headerRows 为 1）", () => {
+    const table = rosterTableFromGrid([["姓名", "学号"], ["张三", "9001"]]);
+    expect(table.headerRows).toBe(1);
+    expect(table.rows).toEqual([["张三", "9001"]]);
+  });
+});
+
+describe("详细花名册：字段映射与双监护人", () => {
+  const table = rosterTableFromGrid([
+    DETAILED_PARENT,
+    DETAILED_SUB,
+    DETAILED_ROW_FULL,
+    DETAILED_ROW_SINGLE,
+  ]);
+  const mapping = detectFieldMapping(table, 1);
+
+  it("两组监护人各自映射到独立槽位", () => {
+    expect(mapping.fields).toMatchObject({
+      student_no: 0,
+      gender: 2,
+      birth_date: 3,
+      id_card: 4,
+      address: 6,
+      note: 16,
+      guardian_name: 8,
+      guardian_phone: 9,
+      guardian_unit: 10,
+      guardian_duty: 11,
+      guardian2_name: 12,
+      guardian2_phone: 13,
+      guardian2_unit: 14,
+      guardian2_duty: 15,
+    });
+  });
+
+  it("未落库的列进入 ignored（学籍号、籍贯）", () => {
+    expect(mapping.ignored.map((c) => c.header)).toEqual(["学籍号", "籍贯"]);
+  });
+
+  it("一行两位监护人，首位为主联系人，单位与职务合并进职业", () => {
+    const prep = prepareRosterRows(table, mapping);
+    expect(prep.issues).toEqual([]);
+
+    const [first, second] = prep.rows;
+    expect(first.birth_date).toBe("2017-04-24");
+    expect(first.id_card).toBe("441322201704241514");
+    expect(first.guardians).toEqual([
+      {
+        name: "彭文",
+        phone: "18539258113",
+        relation: "监护人",
+        is_primary: true,
+        occupation: "顺丰速运鹤山营业点",
+      },
+      {
+        name: "邹煜杰",
+        phone: "18819121777",
+        relation: "监护人",
+        is_primary: false,
+        occupation: "鹤山市农商银行 · 职员",
+      },
+    ]);
+
+    // 只有职务、第二位监护人整组为空 → 只建一位
+    expect(second.note).toBe("特困");
+    expect(second.guardians).toEqual([
+      {
+        name: "郭彤霞",
+        phone: "13914167867",
+        relation: "监护人",
+        is_primary: true,
+        occupation: "个体户",
+      },
+    ]);
+  });
+});
+
+describe("详细花名册：学号与学籍号的优先级", () => {
+  it("「学号」列出现在「学籍号」之后时仍取学号", () => {
+    const table = rosterTableFromGrid([
+      ["学籍号", "姓名", "学号", "备注"],
+      ["G441322201704241514", "甲同学", "9001", ""],
+    ]);
+    expect(detectFieldMapping(table, 1).fields.student_no).toBe(2);
+  });
+
+  it("只有「学籍号」列时取其作为学号（保持既有别名行为）", () => {
+    const table = rosterTableFromGrid([
+      ["学籍号", "姓名", "备注"],
+      ["G441322201704241514", "甲同学", ""],
+    ]);
+    expect(detectFieldMapping(table, 1).fields.student_no).toBe(0);
+  });
+});
+
+describe("详细花名册：老式单行表头不回归", () => {
+  it("「监护人 + 联系电话」仍是一位监护人（无 occupation 字段）", () => {
+    const table = parseRosterTable("姓名,学号,监护人,联系电话\n甲同学,9001,张大,13800138000");
+    const mapping = detectFieldMapping(table, 0);
+    expect(mapping.fields.guardian_name).toBe(2);
+    expect(mapping.fields.guardian_phone).toBe(3);
+    expect(mapping.fields.guardian2_name).toBeUndefined();
+
+    const [row] = prepareRosterRows(table, mapping).rows;
+    expect(row.guardians).toEqual([
+      { name: "张大", phone: "13800138000", relation: "监护人", is_primary: true },
+    ]);
+  });
+
+  it("无任何监护人列时不建监护人", () => {
+    const table = parseRosterTable("姓名,学号\n甲同学,9001");
+    const [row] = prepareRosterRows(table, detectFieldMapping(table, 0)).rows;
+    expect(row.guardians).toEqual([]);
   });
 });

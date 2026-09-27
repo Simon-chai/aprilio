@@ -21,6 +21,7 @@ import { logError, logInfo } from "../lib/logger";
 import {
   ROSTER_FIELD_LABELS,
   aiDetectNameColumn,
+  aiInferClassName,
   combineNameDetection,
   decodeRosterBytes,
   detectFieldMapping,
@@ -55,6 +56,8 @@ interface RosterFileEntry {
   /** 成绩单检测：花名册入口最常见的起点就是一份成绩单，提示可一键转成绩导入 */
   scoreHint: ScoreSheetDetection | null;
   scoreHintDismissed: boolean;
+  /** AI 从文件名/标题行推断的班级名（整批无班级信息且未预设班级时才尝试） */
+  inferredClass: string | null;
   result: RosterImportResult | null;
   error: string;
 }
@@ -112,6 +115,7 @@ async function analyzeEntry(entry: RosterFileEntry) {
   entry.selectedColumn = -1;
   entry.scoreHint = null;
   entry.scoreHintDismissed = false;
+  entry.inferredClass = null;
 
   try {
     const t = entry.table;
@@ -144,6 +148,23 @@ async function analyzeEntry(entry: RosterFileEntry) {
         /* 保留规则识别结果 */
       }
     }
+
+    // 整批没有班级信息（表内无班级列/全空）时，交给 AI 从文件名与标题行推断班级名：
+    // 文件名里的「四8班」比自动新建「未命名班级N」更接近事实（班级详情页导入已预设班级，跳过）
+    if (!props.presetClass && entry.selectedColumn >= 0 && isAiConfigured(config)) {
+      try {
+        const base = prepareRosterRows(t, detectFieldMapping(t, entry.selectedColumn));
+        if (isUnnamedBatch(base.rows as StudentInput[])) {
+          entry.inferredClass = await aiInferClassName(
+            [entry.label, ...(t.titleText ?? [])],
+            createLlm(),
+            config,
+          );
+        }
+      } catch {
+        entry.inferredClass = null;
+      }
+    }
   } finally {
     analyzing.value = false;
   }
@@ -161,6 +182,7 @@ async function addTable(table: RosterTable, label: string, sheet = "") {
     templateError: "",
     scoreHint: null,
     scoreHintDismissed: false,
+    inferredClass: null,
     result: null,
     error: "",
   };
@@ -254,10 +276,13 @@ function preparedOf(entry: RosterFileEntry) {
   const mapping = mappingOf(entry);
   if (!mapping) return null;
   const prep = prepareRosterRows(entry.table, mapping);
-  if (props.presetClass) {
+  // 班级兜底：入口预设班级优先（班级详情页导入），其次 AI 从文件名/标题行推断的班级；
+  // 表内班级列有值的一律以表内为准
+  const fallbackClass = props.presetClass || entry.inferredClass || "";
+  if (fallbackClass) {
     return {
       ...prep,
-      rows: prep.rows.map((r) => ({ ...r, grade_class: r.grade_class || props.presetClass || "" })),
+      rows: prep.rows.map((r) => ({ ...r, grade_class: r.grade_class || fallbackClass })),
     };
   }
   return prep;
@@ -296,9 +321,9 @@ const aggregated = computed(() => {
 
 const previewRows = computed(() => activeFile.value?.table.rows.slice(0, 5) ?? []);
 
-/** 未命名批次预览：无预设班级且所有行都没有班级信息，导入时会自动单立新班 */
+/** 未命名批次预览：无预设班级、AI 也没推断出班级，且所有行都没有班级信息，导入时会自动单立新班 */
 const isUnnamedPreview = computed(() => {
-  if (props.presetClass || !prepared.value?.rows?.length) return false;
+  if (props.presetClass || activeFile.value?.inferredClass || !prepared.value?.rows?.length) return false;
   return isUnnamedBatch(prepared.value.rows as StudentInput[]);
 });
 
@@ -325,6 +350,13 @@ const mappingEntries = computed(() => {
     entries.push({ field: ROSTER_FIELD_LABELS[field as RosterField], column: colLabel(column) });
   }
   return entries;
+});
+
+/** 未落库的列（学籍号、籍贯等）：明确告诉用户哪些数据没进档案，列表过长时折叠计数 */
+const ignoredHeaders = computed(() => {
+  const headers = (mapping.value?.ignored ?? []).map((column) => column.header);
+  if (headers.length <= 6) return headers;
+  return [...headers.slice(0, 6), `等 ${headers.length} 列`];
 });
 
 const confidenceLabel = computed(() => {
@@ -596,12 +628,23 @@ defineExpose({ loadText, loadTable, analyzeFromTable });
             >
               {{ entry.field }} ← {{ entry.column }}
             </span>
-            <span class="text-fine text-weak">其余列将忽略</span>
+            <span v-if="ignoredHeaders.length" class="text-fine text-weak">
+              未落库的列：{{ ignoredHeaders.join("、") }}
+            </span>
+            <span v-else class="text-fine text-weak">其余列将忽略</span>
           </div>
 
           <!-- 未命名批次提示：无班级信息时自动单立新班，避免两次导入并入同一班 -->
           <p v-if="isUnnamedPreview" class="mt-3 rounded-md bg-primary-soft p-3 text-caption text-ink">
             未检测到班级信息，导入时将自动新建一个班级（与之前导入的分开，可在班级管理重命名）。
+          </p>
+          <!-- AI 从文件名/标题行识别出班级：提示归入该班，表内有班级列时以表内为准 -->
+          <p
+            v-else-if="activeFile?.inferredClass && mode === 'smart'"
+            data-test="inferred-class-banner"
+            class="mt-3 rounded-md bg-primary-soft p-3 text-caption text-ink"
+          >
+            未检测到班级信息，已按文件名识别班级「<b>{{ activeFile.inferredClass }}</b>」，导入时将归入该班。
           </p>
 
           <!-- 预览 -->

@@ -7,6 +7,7 @@
 - 语言：代码注释、提交信息、面向用户的文案用中文
 - 技术栈与目录结构见 [README.md](README.md)
 - 改动后必跑：`npm run typecheck` → `npm test`；动了 Rust 再跑 `cargo check --manifest-path src-tauri/Cargo.toml`
+- 兼容性：自 v1.0.0（第一版发版，2026-09-27）起，改动必须**往前兼容**（数据库结构 / 本机存储格式 / 导入导出格式 / Agent 工具参数语义）；破坏性变更须提供迁移或兼容读取，并登记到 [docs/RELEASES.md](docs/RELEASES.md)
 
 ## 规则索引
 
@@ -14,6 +15,8 @@
 | --- | --- | --- |
 | AI 研发 SOP | [docs/AI_DEVELOPMENT_SOP.md](docs/AI_DEVELOPMENT_SOP.md) | 需求澄清→Spec→TDD→架构约束→验证门禁的作业流程与意图防退化评测 |
 | 成绩导入 | [docs/SCORE_IMPORT.md](docs/SCORE_IMPORT.md) | 考试批次（考试名+时间）与成绩落库、成绩单智能识别、花名册入口分流 |
+| 花名册导入 | [docs/ROSTER_IMPORT.md](docs/ROSTER_IMPORT.md) | 智能姓名列与字段映射、双行分组表头与多监护人、未命名批次自动分班与 AI 按文件名识别班级 |
+| 发版记录 | [docs/RELEASES.md](docs/RELEASES.md) | v1.0.0 起往前兼容的兼容性总则、各版本发版台账与破坏性变更登记 |
 | 学期化班级管理 | [docs/SEMESTER_MANAGEMENT.md](docs/SEMESTER_MANAGEMENT.md) | 学生按学期组织（成绩/表现/作业/学期评语，按日期推导）、班级归档与历史班、AI 优先无 AI 可手工 |
 | 课程表 | [docs/TIMETABLE.md](docs/TIMETABLE.md) | 班级全科课表（万年历 + 备忘 + 网格编辑）与按科目聚合的我的课表（不绑教师名）：学期推导、首页今日课程、Agent 问课 |
 | Agent | [docs/AGENT.md](docs/AGENT.md) | 自主 Agent 框架分层、工具扩展步骤、应用界面注册表 |

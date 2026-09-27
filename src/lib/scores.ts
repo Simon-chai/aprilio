@@ -20,6 +20,7 @@ import { localDateStr } from "./format";
 import { inferExamType } from "./score-analysis";
 import { representativeScoreOf } from "./score-config";
 import {
+  aiInferClassName,
   combineNameDetection,
   detectFieldMapping,
   detectNameColumn,
@@ -672,7 +673,8 @@ async function inferClassNameFromRows(rows: ScoreRow[]): Promise<string | null> 
  * → 考试批次幂等复用 → 成绩落库。置信度低且未指定姓名列时返回 need-column。
  *
  * 班级归属是硬约束（成绩必须归属一个班级）：入口上下文 → 成绩单「班级」列
- * → 按已建档学生推断；三者都拿不到时不落库，返回 error 让入口去询问用户。
+ * → 按已建档学生推断 → 已配置模型时由 AI 从文件名/标题行推断；
+ * 都拿不到时不落库，返回 error 让入口去询问用户。
  */
 export async function runSmartScoreImport(
   table: RosterTable,
@@ -740,8 +742,15 @@ export async function runSmartScoreImport(
   const examDate = options.examDate ?? detection.examDate ?? localDateStr();
 
   // 成绩必须归属班级：入口上下文 → 成绩单「班级」列 → 按档案学生推断唯一班级
+  // → 已配置模型时由 AI 从文件名/标题行推断（如「四8班期中成绩单.xlsx」→「四8班」）
   let className = normalizeImportClass(options.className ?? detection.className);
   if (!className) className = (await inferClassNameFromRows(prep.rows)) ?? "";
+  if (!className && isAiConfigured(config)) {
+    const llm = options.llm ?? (isTauri() ? (await import("../agent/providers")).createLlm() : undefined);
+    if (llm) {
+      className = (await aiInferClassName([options.fileName, ...(table.titleText ?? [])], llm, config)) ?? "";
+    }
+  }
   if (!className) {
     return {
       status: "error",

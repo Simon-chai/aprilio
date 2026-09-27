@@ -113,6 +113,24 @@ describe("ImportRosterDialog", () => {
     }
   });
 
+  it("renders composite headers and lists un-landed columns for a detailed roster", async () => {
+    const wrapper = mount(ImportRosterDialog, { props: { open: true } });
+    // 学校下发格式：父表头（合并单元格）+ 子表头行 + 学籍号/籍贯 这类无落点列
+    const rows = [
+      ["学号", "姓名", "学籍号", "籍贯", "监护人1", "", "", "监护人2", "", "", "备注"],
+      ["", "", "", "", "姓名", "联系电话", "职务", "姓名", "联系电话", "职务", ""],
+      ["9000201", "详细甲", "G9000201", "广东省鹤山市", "父甲", "13800001111", "职员", "母甲", "13800002222", "教师", ""],
+    ];
+    await (wrapper.vm as unknown as Loader).loadText(rows.map((r) => r.join("\t")).join("\n"));
+
+    expect(wrapper.text()).toContain("共 1 行数据");
+    expect(wrapper.text()).toContain("监护人 ← 第5列「监护人1·姓名」");
+    expect(wrapper.text()).toContain("监护人2 ← 第8列「监护人2·姓名」");
+    expect(wrapper.text()).toContain("家长职务 ← 第7列「监护人1·职务」");
+    expect(wrapper.text()).toContain("未落库的列：学籍号、籍贯");
+    expect(findImportButton(wrapper).attributes("disabled")).toBeUndefined();
+  });
+
   it("imports multiple files at once and aggregates the result", async () => {
     const nos = ["9000101", "9000102", "9000103", "9000104"];
     await cleanupByNos(nos);
