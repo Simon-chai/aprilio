@@ -6,11 +6,13 @@
 
 | 环境 | 位置 |
 | --- | --- |
-| Windows | `%LOCALAPPDATA%\com.tauri.dev\logs\aprilio.log`（即 `C:\Users\<用户名>\AppData\Local\com.tauri.dev\logs\aprilio.log`） |
-| macOS | `~/Library/Logs/com.tauri.dev/aprilio.log` |
-| Linux | `~/.local/share/com.tauri.dev/logs/aprilio.log` |
+| Windows | `%LOCALAPPDATA%\io.github.simonchai.aprilio\logs\aprilio.log`（即 `C:\Users\<用户名>\AppData\Local\io.github.simonchai.aprilio\logs\aprilio.log`） |
+| macOS | `~/Library/Logs/io.github.simonchai.aprilio/aprilio.log` |
+| Linux | `~/.local/share/io.github.simonchai.aprilio/logs/aprilio.log` |
 
-> 目录中的 `com.tauri.dev` 来自 `src-tauri/tauri.conf.json` 的 `identifier`；文件名 `aprilio.log` 取自 `productName`。发布前若修改了这两项，日志位置会随之变化。Windows 上注意是 `Local` 而不是 `Roaming`（数据库在 Roaming，日志在 Local）。
+> 目录中的 `io.github.simonchai.aprilio` 来自 `src-tauri/tauri.conf.json` 的 `identifier`（同步改 `src-tauri/src/paths.rs` 的 `APP_IDENTIFIER`）；文件名 `aprilio.log` 取自 `productName`。Windows 上注意是 `Local` 而不是 `Roaming`（数据库在 Roaming，日志在 Local）。
+>
+> v1.0.0 打包前 identifier 由占位值 `com.tauri.dev` 换成现值：首次启动会自动把旧标识目录下的数据整份接管到新目录（含日志），见 `paths.rs` 的 `adopt_legacy_data_dir`。
 
 ## 日志行为
 
@@ -72,7 +74,7 @@ logError("上传失败", err); // 参数可为任意值，Error 会带 stack
 1. 先看日志尾部：
 
    ```powershell
-   Get-Content $env:LOCALAPPDATA\com.tauri.dev\logs\aprilio.log -Tail 50
+   Get-Content $env:LOCALAPPDATA\io.github.simonchai.aprilio\logs\aprilio.log -Tail 50
    ```
 
 2. `[renderer]` 前缀 = 前端错误；`target: ai` / `target: photos` / `target: rag` = 对应后端模块；

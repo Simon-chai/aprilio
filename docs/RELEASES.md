@@ -36,4 +36,10 @@
 - **课堂模式**：节课 = 会话容器 × 可组合活动 × 统一事件流（v9 四表），崩溃重放恢复
 - **界面与体验**：设计系统 token 与 design-token-guard 防退化门禁、背景图库、桌面宠物、评价报告
 
-兼容性：本版为基线，无历史版本需要兼容。
+发版打包时把 bundle identifier 从占位值 `com.tauri.dev` 换成 `io.github.simonchai.aprilio`
+（安装包要求全局唯一；同步改了 `src-tauri/src/paths.rs` 的 `APP_IDENTIFIER`）。
+数据目录随 identifier 变化（`%APPDATA%` / `%LOCALAPPDATA%` 下的标识层）：
+首次启动由 `paths.rs` 的 `adopt_legacy_data_dir` 把旧标识目录**整份接管**到新目录
+（数据库 / 照片 / 背景 / 日志，已有文件不覆盖），升级后老数据不丢。
+
+兼容性：本版为基线，无更早的发行版本需要兼容；旧标识数据目录的接管已内置。

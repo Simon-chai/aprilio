@@ -3,7 +3,7 @@ mod backgrounds;
 mod capabilities;
 mod db;
 pub mod mcp_server;
-mod paths;
+pub mod paths;
 mod photos;
 mod rag;
 mod roster;
@@ -551,6 +551,10 @@ fn migrations() -> Vec<Migration> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+  // identifier 换过之后，旧数据目录（%APPDATA%/%LOCALAPPDATA%/com.tauri.dev）的接管
+  // 必须早于任何插件初始化与路径解析（见 paths.rs）
+  let adopted_legacy_id = paths::adopt_legacy_data_dir();
+
   // 调试构建记录 Debug 级，正式构建记录 Info 级。
   let log_level = if cfg!(debug_assertions) {
     log::LevelFilter::Debug
@@ -570,8 +574,11 @@ pub fn run() {
         ])
         .build(),
     )
-    .setup(|_app| {
+    .setup(move |_app| {
       log::info!("aprilio 启动（debug={}）", cfg!(debug_assertions));
+      if let Some(legacy) = &adopted_legacy_id {
+        log::info!(target: "paths", "已接管旧数据目录「{legacy}」：数据库 / 照片 / 背景 / 日志沿用原内容");
+      }
       // Rust 执行面能力装载打点 + 与 invoke_handler 对账（漂移即报错）
       capabilities::log_inventory();
       // 把 panic 也记入日志文件，便于排查崩溃。

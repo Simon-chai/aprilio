@@ -7,6 +7,8 @@ fn main() {
   // 供外部 Agent 客户端（Goose / Claude Desktop 等）接入，见 src-tauri/src/mcp_server.rs。
   // 不会启动 GUI；进程占用 stdio 直到客户端断开。
   if args.get(1).map(String::as_str) == Some("mcp") && args.get(2).map(String::as_str) == Some("serve") {
+    // MCP 模式直接开库（不开 GUI）：identifier 换过之后旧数据目录的接管同样要先做
+    app_lib::paths::adopt_legacy_data_dir();
     std::process::exit(app_lib::mcp_server::run_blocking());
   }
   app_lib::run();
