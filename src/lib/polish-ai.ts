@@ -9,9 +9,10 @@
  */
 import { aiErrorMessage, isAiConfigured, loadAiConfig } from "./ai";
 import { isTauri } from "./env";
-import { createLlm } from "../agent/providers";
+import { tauriLlm } from "./llm";
+import { stripQuoteWrap } from "./ai-run";
 import { PROMPT_IDS, resolvePrompt } from "../prompts";
-import type { AgentLlm, AgentMessage } from "../agent/types";
+import type { AgentLlm, AgentMessage } from "./llm";
 
 /** 一次润色的输入：场景说清楚，模型才知道这段文字写在哪、给谁看 */
 export interface PolishContext {
@@ -37,11 +38,7 @@ export function isAiPolishReady(config = loadAiConfig()): boolean {
 export function parsePolishedText(raw: string, maxLen?: number): string {
   let text = String(raw ?? "").trim();
   if (!text) return "";
-  text = text
-    .replace(/^(润色后|改写后|修改后)[:：]\s*/, "")
-    .replace(/^[「“"'『【\[]+/, "")
-    .replace(/[」”"'』】\]]+$/, "")
-    .trim();
+  text = stripQuoteWrap(text.replace(/^(润色后|改写后|修改后)[:：]\s*/, "")).trim();
   if (maxLen !== undefined && maxLen > 0 && text.length > maxLen) {
     text = text.slice(0, maxLen);
   }
@@ -73,7 +70,7 @@ export async function polishText(
 
   let raw: string;
   try {
-    const llm = options.llm ?? createLlm();
+    const llm = options.llm ?? tauriLlm();
     const res = await llm.chat({
       system: resolvePrompt(PROMPT_IDS.textPolish),
       messages: buildMessages(ctx),

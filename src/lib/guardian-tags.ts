@@ -7,12 +7,10 @@
  * - 倾向结果缓存 localStorage，一次判定永久复用，不重复烧 token
  * 隐私：仅把标签词本身发给用户自己配置的模型服务。
  */
-import { loadAiConfig, isAiConfigured } from "./ai";
-import { isTauri } from "./env";
-import { createLlm } from "../agent/providers";
-import { PROMPT_IDS, resolvePrompt } from "../prompts";
+import { PROMPT_IDS } from "../prompts";
+import { extractJsonObject, runAiTask, stripQuoteWrap } from "./ai-run";
 import { readJsonStorage } from "./storage";
-import type { AgentLlm, AgentMessage } from "../agent/types";
+import type { AgentLlm, AgentMessage } from "./llm";
 import { GUARDIAN_TAG_POLARITIES, GUARDIAN_TAG_PRESETS } from "../types";
 import type { GuardianTagPolarity } from "../types";
 
@@ -124,30 +122,22 @@ export function parseTagPolarities(raw: string): Record<string, GuardianTagPolar
   const text = raw.trim();
   if (!text) return out;
 
-  const jsonMatch = text.match(/\{[\s\S]*\}/);
-  if (jsonMatch) {
-    try {
-      const parsed = JSON.parse(jsonMatch[0]) as Record<string, unknown>;
-      for (const [key, value] of Object.entries(parsed)) {
-        const tag = String(key).trim();
-        const polarity = String(value).trim().toLowerCase();
-        if (tag && (GUARDIAN_TAG_POLARITIES as readonly string[]).includes(polarity)) {
-          out[tag] = polarity as GuardianTagPolarity;
-        }
+  const parsed = extractJsonObject(text);
+  if (parsed) {
+    for (const [key, value] of Object.entries(parsed)) {
+      const tag = String(key).trim();
+      const polarity = String(value).trim().toLowerCase();
+      if (tag && (GUARDIAN_TAG_POLARITIES as readonly string[]).includes(polarity)) {
+        out[tag] = polarity as GuardianTagPolarity;
       }
-      if (Object.keys(out).length) return out;
-    } catch {
-      // 落到行式兜底
     }
+    if (Object.keys(out).length) return out;
   }
 
   for (const line of text.split(/\r?\n/)) {
     const m = line.match(/(.+?)\s*[：:]\s*(positive|neutral|negative)/i);
     if (!m) continue;
-    const tag = m[1]
-      .replace(/^[「"'『【\[]+/, "")
-      .replace(/[」"'』】\]]+$/, "")
-      .trim();
+    const tag = stripQuoteWrap(m[1]).trim();
     if (tag) out[tag] = m[2].toLowerCase() as GuardianTagPolarity;
   }
   return out;
@@ -173,25 +163,19 @@ export async function ensureGuardianTagPolarities(
   const missing = list.filter((t) => !cached[t]);
   if (!missing.length) return pickKnown();
 
-  const config = loadAiConfig();
-  const aiReady = options.aiReady ?? (isTauri() && isAiConfigured(config));
-  if (!aiReady) return pickKnown();
-
-  try {
-    const llm = options.llm ?? createLlm();
-    const res = await llm.chat({
-      system: resolvePrompt(PROMPT_IDS.guardianTag),
-      messages: buildMessages(missing),
-      tools: [],
-      config,
-    });
-    const parsed = parseTagPolarities(res.content);
+  // AI 不可用不上色，保持留白（runAiTask 失败返回 null）
+  const parsed = await runAiTask({
+    promptId: PROMPT_IDS.guardianTag,
+    messages: buildMessages(missing),
+    parse: parseTagPolarities,
+    llm: options.llm,
+    aiReady: options.aiReady,
+  });
+  if (parsed) {
     const fresh = Object.fromEntries(
       Object.entries(parsed).filter(([tag]) => missing.includes(tag))
     ) as Record<string, GuardianTagPolarity>;
     if (Object.keys(fresh).length) writeTagPolarities(fresh);
-  } catch {
-    // AI 不可用不上色，保持留白
   }
   return pickKnown();
 }

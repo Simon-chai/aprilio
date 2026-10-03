@@ -4,12 +4,10 @@
  * - 浏览器演示态 / 未配置模型 / 调用失败 → 返回 null，界面退回手动填写，录入永不阻塞
  * 隐私：仅把该生本学期的统计摘要与表现条目发给用户自己配置的模型服务，不写日志。
  */
-import { isAiConfigured, loadAiConfig } from "./ai";
-import { isTauri } from "./env";
-import { createLlm } from "../agent/providers";
-import { PROMPT_IDS, resolvePrompt } from "../prompts";
+import { PROMPT_IDS } from "../prompts";
 import { TERM_COMMENT_MAX_LEN } from "../prompts/contracts";
-import type { AgentLlm, AgentMessage } from "../agent/types";
+import { runAiTask, stripQuoteWrap } from "./ai-run";
+import type { AgentLlm, AgentMessage } from "./llm";
 
 /**
  * 评语正文硬截断上限（200）。注意它与提示词里的「不超过 120 字」**不是同一个值**：
@@ -43,11 +41,7 @@ function buildMessages(ctx: TermCommentContext): AgentMessage[] {
 export function parseTermComment(raw: string, maxLen = TERM_COMMENT_MAX_LEN): string {
   let text = raw.trim();
   if (!text) return "";
-  text = text
-    .replace(/^[「“"'『【]+/, "")
-    .replace(/[」”"'』】]+$/, "")
-    .replace(/^(评语[:：]\s*)/, "")
-    .trim();
+  text = stripQuoteWrap(text).replace(/^(评语[:：]\s*)/, "").trim();
   if (text.length > maxLen) text = text.slice(0, maxLen);
   return text;
 }
@@ -61,23 +55,13 @@ export async function generateTermComment(
   options: { llm?: AgentLlm; aiReady?: boolean } = {}
 ): Promise<string | null> {
   if (!ctx.studentName.trim()) return null;
-
-  const config = loadAiConfig();
-  const aiReady = options.aiReady ?? (isTauri() && isAiConfigured(config));
-  if (!aiReady) return null;
-
-  try {
-    const llm = options.llm ?? createLlm();
-    const res = await llm.chat({
-      system: resolvePrompt(PROMPT_IDS.termComment),
-      messages: buildMessages(ctx),
-      tools: [],
-      config,
-    });
-    return parseTermComment(res.content) || null;
-  } catch {
-    return null;
-  }
+  return runAiTask({
+    promptId: PROMPT_IDS.termComment,
+    messages: buildMessages(ctx),
+    parse: (content) => parseTermComment(content) || null,
+    llm: options.llm,
+    aiReady: options.aiReady,
+  });
 }
 
 /** 成绩摘要素材：一行 = 一次考试的科目分 */

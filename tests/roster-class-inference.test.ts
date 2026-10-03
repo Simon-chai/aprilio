@@ -29,9 +29,10 @@ vi.mock("../src/lib/ai", async (importOriginal) => {
   };
 });
 
-vi.mock("../src/agent/providers", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agent/providers")>();
-  return { ...actual, createLlm: () => fakeLlm };
+// AI 调用骨架统一走 lib/ai-run → 缺省传输在 lib/llm：在这里注入假模型
+vi.mock("../src/lib/llm", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/lib/llm")>();
+  return { ...actual, tauriLlm: () => fakeLlm };
 });
 
 import ImportRosterDialog from "../src/components/ImportRosterDialog.vue";

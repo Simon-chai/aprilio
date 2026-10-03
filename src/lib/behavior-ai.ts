@@ -5,13 +5,11 @@
  * - 浏览器演示态 / 未配置模型 / 调用失败 → 回落该维度「历史高频评语」，录入永不阻塞
  * - 采纳的推荐保存后由 db.addBehaviorRecord 沉淀为 source='ai' 词条
  */
-import { loadAiConfig, isAiConfigured } from "./ai";
-import { isTauri } from "./env";
-import { createLlm } from "../agent/providers";
-import { PROMPT_IDS, resolvePrompt } from "../prompts";
+import { PROMPT_IDS } from "../prompts";
 import { AI_COMMENT_MAX_LEN } from "../prompts/contracts";
+import { runAiTask, stripListDecoration } from "./ai-run";
 import { readJsonStorage } from "./storage";
-import type { AgentLlm, AgentMessage } from "../agent/types";
+import type { AgentLlm, AgentMessage } from "./llm";
 import type { BehaviorPolarity } from "../types";
 import { BEHAVIOR_POLARITY_LABEL } from "../types";
 
@@ -132,14 +130,7 @@ export function parseAiComments(raw: string, max = 2, maxLen = AI_COMMENT_MAX_LE
   const seen = new Set<string>();
   const items: string[] = [];
   for (const rawLine of raw.split(/\r?\n|；|;/)) {
-    let line = rawLine.trim();
-    if (!line) continue;
-    line = line
-      .replace(/^[0-9①-⑩]+[.、)．:：]\s*/, "")
-      .replace(/^[-·•*]+\s*/, "")
-      .replace(/^[「“"'『【\[]+/, "")
-      .replace(/[」”"'』】\]]+$/, "")
-      .trim();
+    let line = stripListDecoration(rawLine);
     if (!line) continue;
     if (line.length > maxLen) line = line.slice(0, maxLen);
     if (seen.has(line)) continue;
@@ -189,25 +180,17 @@ export async function recommendComments(
     if (cached) return { items: cached, source: "ai" };
   }
 
-  let config = loadAiConfig();
-  const aiReady = options.aiReady ?? (isTauri() && isAiConfigured(config));
-  if (!aiReady) return fallback();
-
-  try {
-    const llm = options.llm ?? createLlm();
-    const res = await llm.chat({
-      system: resolvePrompt(PROMPT_IDS.behaviorComment),
-      messages: buildMessages(ctx),
-      tools: [],
-      config,
-    });
-    const items = parseAiComments(res.content);
-    if (items.length) {
-      if (useCache) writeCachedComments(ctx, items);
-      return { items, source: "ai" };
-    }
-  } catch {
-    // AI 不可用不阻塞录入，静默回落高频评语
+  // AI 不可用不阻塞录入，静默回落高频评语（runAiTask 失败返回 null）
+  const items = await runAiTask({
+    promptId: PROMPT_IDS.behaviorComment,
+    messages: buildMessages(ctx),
+    parse: parseAiComments,
+    llm: options.llm,
+    aiReady: options.aiReady,
+  });
+  if (items?.length) {
+    if (useCache) writeCachedComments(ctx, items);
+    return { items, source: "ai" };
   }
   return fallback();
 }

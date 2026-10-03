@@ -3,11 +3,9 @@
  * - 已配置模型 → 5 节结构化长报告 + 末尾短评语行
  * - 未配置 / 失败 → 数据版 markdown（report.ts），录入永不阻塞
  */
-import { isAiConfigured, loadAiConfig } from "./ai";
-import { isTauri } from "./env";
-import { createLlm } from "../agent/providers";
-import { PROMPT_IDS, resolvePrompt } from "../prompts";
-import type { AgentLlm, AgentMessage } from "../agent/types";
+import { PROMPT_IDS } from "../prompts";
+import { runAiTask } from "./ai-run";
+import type { AgentLlm, AgentMessage } from "./llm";
 import type { ReportRange } from "../types";
 import { buildDataReportMarkdown, type ReportSummaries } from "./report";
 
@@ -68,22 +66,16 @@ export async function generateEvalReport(
   };
   if (!ctx.studentName.trim()) return fallback();
 
-  const config = loadAiConfig();
-  const aiReady = options.aiReady ?? (isTauri() && isAiConfigured(config));
-  if (!aiReady) return fallback();
-
-  try {
-    const llm = options.llm ?? createLlm();
-    const res = await llm.chat({
-      system: resolvePrompt(PROMPT_IDS.evalReport),
-      messages: buildMessages(ctx),
-      tools: [],
-      config,
-    });
-    const parsed = parseEvalReport(res.content);
-    if (!parsed.markdown) return fallback();
-    return { ...parsed, source: "ai" };
-  } catch {
-    return fallback();
-  }
+  const parsed = await runAiTask({
+    promptId: PROMPT_IDS.evalReport,
+    messages: buildMessages(ctx),
+    parse: (content) => {
+      const result = parseEvalReport(content);
+      return result.markdown ? result : null;
+    },
+    llm: options.llm,
+    aiReady: options.aiReady,
+  });
+  if (!parsed) return fallback();
+  return { ...parsed, source: "ai" };
 }

@@ -10,10 +10,10 @@
  */
 import { isAiConfigured, loadAiConfig, type AiConfig } from "./ai";
 import { PROMPT_IDS, resolvePrompt } from "../prompts";
+import { chatOnce, extractJsonObject } from "./ai-run";
 import {
   createStudent,
   findOrCreateExam,
-  isTauri,
   listStudents,
   upsertExamScore,
 } from "./db";
@@ -28,7 +28,7 @@ import {
   resolveColumn,
   type RosterTable,
 } from "./roster";
-import type { AgentLlm } from "../agent/types";
+import type { AgentLlm } from "./llm";
 import type { ClassScoreOverviewRow, Exam, ExamWithStats } from "../types";
 import { errorMessage } from "./error-message";
 
@@ -325,8 +325,8 @@ export interface AiScoreDetection {
  */
 export async function aiDetectScoreSheet(
   table: RosterTable,
-  llm: AgentLlm,
-  config: AiConfig
+  llm?: AgentLlm,
+  config?: AiConfig
 ): Promise<AiScoreDetection | null> {
   const titleLines = (table.titleText ?? []).join(" / ").slice(0, 80) || "（无标题行）";
   const columnLines = table.headers
@@ -341,55 +341,51 @@ export async function aiDetectScoreSheet(
     })
     .join("\n");
 
-  try {
-    const res = await llm.chat({
-      system: resolvePrompt(PROMPT_IDS.scoreSheet),
-      messages: [
-        {
-          role: "user",
-          content: `标题行：${titleLines}\n表格共 ${table.headers.length} 列：\n${columnLines}`,
-        },
-      ],
-      tools: [],
-      config,
-    });
-    const match = res.content.match(/\{[\s\S]*\}/);
-    if (!match) return null;
-    const parsed = JSON.parse(match[0]) as Partial<AiScoreDetection>;
-    const nameColumn = Number(parsed.name_column);
-    if (!Number.isInteger(nameColumn) || nameColumn < 1 || nameColumn > table.headers.length) {
-      return null;
-    }
-    const subjects = (Array.isArray(parsed.subjects) ? parsed.subjects : [])
-      .map((s) => ({ column: Number(s?.column) - 1, name: String(s?.name ?? "").trim() }))
-      .filter(
-        (s) =>
-          Number.isInteger(s.column) &&
-          s.column >= 0 &&
-          s.column < table.headers.length &&
-          s.column !== nameColumn - 1 &&
-          s.name &&
-          s.name.length <= 12
-      );
-    const examName =
-      typeof parsed.exam_name === "string" && parsed.exam_name.trim()
-        ? parsed.exam_name.trim().slice(0, 30)
-        : null;
-    const examDate =
-      typeof parsed.exam_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(parsed.exam_date)
-        ? parsed.exam_date
-        : null;
-    return {
-      name_column: nameColumn - 1,
-      subjects,
-      exam_name: examName,
-      exam_date: examDate,
-      confidence: Math.min(1, Math.max(0, Number(parsed.confidence) || 0)),
-      reason: typeof parsed.reason === "string" ? parsed.reason.slice(0, 40) : "",
-    };
-  } catch {
+  const content = await chatOnce({
+    system: resolvePrompt(PROMPT_IDS.scoreSheet),
+    messages: [
+      {
+        role: "user",
+        content: `标题行：${titleLines}\n表格共 ${table.headers.length} 列：\n${columnLines}`,
+      },
+    ],
+    llm,
+    config: config ?? loadAiConfig(),
+  });
+  if (!content) return null;
+  const parsed = extractJsonObject(content) as Partial<AiScoreDetection> | null;
+  if (!parsed) return null;
+  const nameColumn = Number(parsed.name_column);
+  if (!Number.isInteger(nameColumn) || nameColumn < 1 || nameColumn > table.headers.length) {
     return null;
   }
+  const subjects = (Array.isArray(parsed.subjects) ? parsed.subjects : [])
+    .map((s) => ({ column: Number(s?.column) - 1, name: String(s?.name ?? "").trim() }))
+    .filter(
+      (s) =>
+        Number.isInteger(s.column) &&
+        s.column >= 0 &&
+        s.column < table.headers.length &&
+        s.column !== nameColumn - 1 &&
+        s.name &&
+        s.name.length <= 12
+    );
+  const examName =
+    typeof parsed.exam_name === "string" && parsed.exam_name.trim()
+      ? parsed.exam_name.trim().slice(0, 30)
+      : null;
+  const examDate =
+    typeof parsed.exam_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(parsed.exam_date)
+      ? parsed.exam_date
+      : null;
+  return {
+    name_column: nameColumn - 1,
+    subjects,
+    exam_name: examName,
+    exam_date: examDate,
+    confidence: Math.min(1, Math.max(0, Number(parsed.confidence) || 0)),
+    reason: typeof parsed.reason === "string" ? parsed.reason.slice(0, 40) : "",
+  };
 }
 
 /** 规则结果 + AI 结果合成：AI 的科目/考试信息优先，列号经规则校验防幻觉 */
@@ -678,16 +674,13 @@ export async function runSmartScoreImport(
   let detection = detectScoreSheet(table, { fileName: options.fileName });
   const config = options.config ?? loadAiConfig();
   if (isAiConfigured(config)) {
-    const llm = options.llm ?? (isTauri() ? (await import("../agent/providers")).createLlm() : undefined);
-    if (llm) {
-      const ai = await aiDetectScoreSheet(table, llm, config);
-      if (ai && ai.subjects.length) {
-        detection = combineScoreDetection(
-          table,
-          detection ?? fallbackDetection(table, ai),
-          ai
-        );
-      }
+    const ai = await aiDetectScoreSheet(table, options.llm, config);
+    if (ai && ai.subjects.length) {
+      detection = combineScoreDetection(
+        table,
+        detection ?? fallbackDetection(table, ai),
+        ai
+      );
     }
   }
 
@@ -741,10 +734,7 @@ export async function runSmartScoreImport(
   let className = normalizeImportClass(options.className ?? detection.className);
   if (!className) className = (await inferClassNameFromRows(prep.rows)) ?? "";
   if (!className && isAiConfigured(config)) {
-    const llm = options.llm ?? (isTauri() ? (await import("../agent/providers")).createLlm() : undefined);
-    if (llm) {
-      className = (await aiInferClassName([options.fileName, ...(table.titleText ?? [])], llm, config)) ?? "";
-    }
+    className = (await aiInferClassName([options.fileName, ...(table.titleText ?? [])], options.llm, config)) ?? "";
   }
   if (!className) {
     return {

@@ -8,9 +8,9 @@
  * 用户通过 AI 助手导入时，底层走的就是智能导入（runSmartImport）。
  * 设计约定见 docs/ROSTER_IMPORT.md。
  */
-import { createLlm } from "../agent/providers";
 import { PROMPT_IDS, resolvePrompt } from "../prompts";
-import type { AgentLlm } from "../agent/types";
+import { chatOnce, extractJsonObject } from "./ai-run";
+import type { AgentLlm } from "./llm";
 import { isAiConfigured, loadAiConfig, type AiConfig } from "./ai";
 import { createClass, createStudent, isTauri, listClasses, listStudents, updateStudent } from "./db";
 import type { Gender, Guardian, StudentInput } from "../types";
@@ -580,8 +580,8 @@ export function detectNameColumn(table: RosterTable): NameDetection {
  */
 export async function aiDetectNameColumn(
   table: RosterTable,
-  llm: AgentLlm,
-  config: AiConfig,
+  llm?: AgentLlm,
+  config?: AiConfig,
 ): Promise<{ index: number; confidence: number; reason: string } | null> {
   const columnLines = table.headers
     .map((header, i) => {
@@ -595,24 +595,20 @@ export async function aiDetectNameColumn(
     })
     .join("\n");
 
-  try {
-    const res = await llm.chat({
-      system: resolvePrompt(PROMPT_IDS.rosterNameColumn),
-      messages: [{ role: "user", content: `表格共 ${table.headers.length} 列：\n${columnLines}` }],
-      tools: [],
-      config,
-    });
-    const match = res.content.match(/\{[\s\S]*?\}/);
-    if (!match) return null;
-    const parsed = JSON.parse(match[0]) as { column?: unknown; confidence?: unknown; reason?: unknown };
-    const column = Number(parsed.column);
-    if (!Number.isInteger(column) || column < 1 || column > table.headers.length) return null;
-    const confidence = Math.min(1, Math.max(0, Number(parsed.confidence) || 0));
-    const reason = typeof parsed.reason === "string" ? parsed.reason.slice(0, 40) : "";
-    return { index: column - 1, confidence, reason };
-  } catch {
-    return null;
-  }
+  const content = await chatOnce({
+    system: resolvePrompt(PROMPT_IDS.rosterNameColumn),
+    messages: [{ role: "user", content: `表格共 ${table.headers.length} 列：\n${columnLines}` }],
+    llm,
+    config: config ?? loadAiConfig(),
+  });
+  if (!content) return null;
+  const parsed = extractJsonObject(content);
+  if (!parsed) return null;
+  const column = Number(parsed.column);
+  if (!Number.isInteger(column) || column < 1 || column > table.headers.length) return null;
+  const confidence = Math.min(1, Math.max(0, Number(parsed.confidence) || 0));
+  const reason = typeof parsed.reason === "string" ? parsed.reason.slice(0, 40) : "";
+  return { index: column - 1, confidence, reason };
 }
 
 /** 规则结果 + AI 结果合成：AI 选择优先，置信度结合规则分数校准 */
@@ -665,31 +661,27 @@ function classNameContextLines(lines: (string | null | undefined)[]): string[] {
  */
 export async function aiInferClassName(
   lines: (string | null | undefined)[],
-  llm: AgentLlm,
-  config: AiConfig,
+  llm?: AgentLlm,
+  config?: AiConfig,
 ): Promise<string | null> {
   const contexts = classNameContextLines(lines);
   if (!contexts.length) return null;
 
-  try {
-    const res = await llm.chat({
-      system: resolvePrompt(PROMPT_IDS.rosterClassName),
-      messages: [{ role: "user", content: `文件名与标题行：\n${contexts.join("\n")}` }],
-      tools: [],
-      config,
-    });
-    const match = res.content.match(/\{[\s\S]*?\}/);
-    if (!match) return null;
-    const parsed = JSON.parse(match[0]) as { class_name?: unknown };
-    const name = (typeof parsed.class_name === "string" ? parsed.class_name : "")
-      .replace(/\s+/g, "")
-      .replace(/^(班级|年级班级)[：:]/, "");
-    if (!name || name.length > 12 || !name.includes("班")) return null;
-    if (/^(班级|年级班级|多个班级|若干班级)$/.test(name)) return null;
-    return name;
-  } catch {
-    return null;
-  }
+  const content = await chatOnce({
+    system: resolvePrompt(PROMPT_IDS.rosterClassName),
+    messages: [{ role: "user", content: `文件名与标题行：\n${contexts.join("\n")}` }],
+    llm,
+    config: config ?? loadAiConfig(),
+  });
+  if (!content) return null;
+  const parsed = extractJsonObject(content);
+  if (!parsed) return null;
+  const name = (typeof parsed.class_name === "string" ? parsed.class_name : "")
+    .replace(/\s+/g, "")
+    .replace(/^(班级|年级班级)[：:]/, "");
+  if (!name || name.length > 12 || !name.includes("班")) return null;
+  if (/^(班级|年级班级|多个班级|若干班级)$/.test(name)) return null;
+  return name;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1323,8 +1315,7 @@ export async function runSmartImportTable(
   let detection = detectNameColumn(table);
   const config = options.config ?? loadAiConfig();
   if (options.nameColumn === undefined && isAiConfigured(config)) {
-    const llm = options.llm ?? createLlm();
-    const ai = await aiDetectNameColumn(table, llm, config);
+    const ai = await aiDetectNameColumn(table, options.llm, config);
     if (ai) detection = combineNameDetection(detection, ai);
   }
 
@@ -1371,8 +1362,11 @@ export async function runSmartImportTable(
   // 班级列口径回填；模型不可用/没把握时保持原行为（未命名批次自动分班）。
   let inferredClass: string | null = null;
   if (isUnnamedBatch(prep.rows) && isAiConfigured(config)) {
-    const llm = options.llm ?? createLlm();
-    inferredClass = await aiInferClassName([options.fileName, ...(table.titleText ?? [])], llm, config);
+    inferredClass = await aiInferClassName(
+      [options.fileName, ...(table.titleText ?? [])],
+      options.llm,
+      config,
+    );
     if (inferredClass) {
       const cls = inferredClass;
       prep.rows = prep.rows.map((row) => ({ ...row, grade_class: row.grade_class || cls }));

@@ -4,13 +4,11 @@
  * - 浏览器演示态 / 未配置模型 / 调用失败 → 返回 null，界面退回手动填写，应用动作永不阻塞
  * 隐私：仅把该生时段内的评价统计与评语文本发给用户自己配置的模型服务，不写日志。
  */
-import { isAiConfigured, loadAiConfig } from "./ai";
-import { isTauri } from "./env";
-import { createLlm } from "../agent/providers";
-import { PROMPT_IDS, resolvePrompt } from "../prompts";
+import { PROMPT_IDS } from "../prompts";
 import { PARENT_SUMMARY_MAX_LEN } from "../prompts/contracts";
+import { runAiTask } from "./ai-run";
 import { parseTermComment } from "./comment-ai";
-import type { AgentLlm, AgentMessage } from "../agent/types";
+import type { AgentLlm, AgentMessage } from "./llm";
 
 /** 总结正文硬截断上限（200，与学期评语同上限，应用回档案不二次截断）。 */
 export { PARENT_SUMMARY_MAX_LEN };
@@ -57,23 +55,15 @@ export async function requestParentSummary(
   messages: AgentMessage[],
   options: { llm?: AgentLlm; aiReady?: boolean } = {}
 ): Promise<string | null> {
-  const config = loadAiConfig();
-  const aiReady = options.aiReady ?? (isTauri() && isAiConfigured(config));
-  if (!aiReady) return null;
-
-  try {
-    const llm = options.llm ?? createLlm();
-    const res = await llm.chat({
-      system: resolvePrompt(PROMPT_IDS.parentSummary),
-      messages,
-      tools: [],
-      config,
-    });
-    const text = parseParentSummary(res.content);
-    if (!text) return null;
-    messages.push({ role: "assistant", content: text });
-    return text;
-  } catch {
-    return null;
-  }
+  const text = await runAiTask({
+    promptId: PROMPT_IDS.parentSummary,
+    messages,
+    parse: parseParentSummary,
+    llm: options.llm,
+    aiReady: options.aiReady,
+  });
+  if (!text) return null;
+  // 返回前把助手回复 push 回线程（保持线程完整，供下一轮引用）
+  messages.push({ role: "assistant", content: text });
+  return text;
 }

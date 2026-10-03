@@ -18,7 +18,6 @@ import AppIcon from "./ui/AppIcon.vue";
 import AnalyzingOverlay from "./AnalyzingOverlay.vue";
 import { isTauri, listClasses } from "../lib/db";
 import { isAiConfigured, loadAiConfig } from "../lib/ai";
-import { createLlm } from "../agent/providers";
 import { logError, logInfo } from "../lib/logger";
 import { localDateStr } from "../lib/format";
 import { decodeRosterBytes, parseRosterTable, pickRosterFiles, type RosterTable } from "../lib/roster";
@@ -133,7 +132,7 @@ async function analyzeEntry(entry: ScoreFileEntry) {
       const config = loadAiConfig();
       if (isAiConfigured(config)) {
         try {
-          const ai = await aiDetectScoreSheet(t, createLlm(), config);
+          const ai = await aiDetectScoreSheet(t, undefined, config);
           if (ai && ai.subjects.length) {
             rule = {
               nameColumn: ai.name_column,
@@ -165,7 +164,7 @@ async function analyzeEntry(entry: ScoreFileEntry) {
     } else if (isAiConfigured(loadAiConfig())) {
       // 规则识别成功且配置了模型：叠加 AI，修正科目名与考试信息
       try {
-        const ai = await aiDetectScoreSheet(t, createLlm(), loadAiConfig());
+        const ai = await aiDetectScoreSheet(t, undefined, loadAiConfig());
         if (ai && ai.subjects.length) {
           rule = combineScoreDetection(t, rule, ai);
         }

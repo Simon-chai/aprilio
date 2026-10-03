@@ -5,27 +5,19 @@
  * - 循环（loop.ts）在 TS 侧驱动：LLM 返回 tool_calls → 注册表执行 → 结果回喂 → 直到给出最终回复
  * - 工具执行体全在前端（vue-router / db.ts / 内联文档），零 IPC 成本
  * - LLM 协议转换在 Rust（rig-core）：工具定义与多轮消息透传，返回文本 + tool_calls
+ *
+ * LLM 消息契约（ToolDefinition / AgentMessage / AgentLlm 等）统一在 lib/llm.ts，
+ * 这里转发导出保持既有引用点不变。
  */
+import type { AgentMessage, ToolCallPayload, ToolDefinition } from "../lib/llm";
 
-/** 传给 LLM 的工具声明（JSON Schema 形式，可序列化后透传给 Rust/rig-core） */
-export interface ToolDefinition {
-  name: string;
-  description: string;
-  parameters: {
-    type: "object";
-    properties: Record<
-      string,
-      {
-        type: string;
-        description: string;
-        enum?: string[];
-        /** 数组元素 schema（如 file_paths: string[]）；运行时经 JSON 原样透传给模型 */
-        items?: { type: string };
-      }
-    >;
-    required?: string[];
-  };
-}
+export type {
+  ToolDefinition,
+  ToolCallPayload,
+  AgentMessage,
+  LlmResponse,
+  AgentLlm,
+} from "../lib/llm";
 
 /** 工具执行期间可用的应用能力集合 */
 export interface AgentToolContext {
@@ -89,42 +81,6 @@ export interface AgentTool {
   /** 条件装配谓词（@Conditional 的对应物）；缺省恒可用 */
   condition?: (ctx: AgentToolContext) => boolean;
   execute(args: Record<string, unknown>, ctx: AgentToolContext): Promise<ToolResult>;
-}
-
-/** LLM 发起的工具调用 */
-export interface ToolCallPayload {
-  id: string;
-  name: string;
-  arguments: Record<string, unknown>;
-}
-
-/**
- * Agent 消息序列（与 Rust 侧 AiMessage 协议一一对应，serde tag = "role"）。
- * - assistant 携带 toolCalls 表示模型发起了调用
- * - tool 消息是把工具结果回喂给模型
- */
-export type AgentMessage =
-  | { role: "user"; content: string }
-  | { role: "assistant"; content: string; toolCalls?: ToolCallPayload[] }
-  | { role: "tool"; toolCallId: string; name: string; content: string };
-
-/** LLM 单轮响应 */
-export interface LlmResponse {
-  /** 助手文本（可能为空，比如只发起工具调用时） */
-  content: string;
-  toolCalls: ToolCallPayload[];
-}
-
-/** LLM 抽象：循环只依赖这个接口，方便 mock / 日后换实现 */
-export interface AgentLlm {
-  chat(req: {
-    system: string;
-    messages: AgentMessage[];
-    tools: ToolDefinition[];
-    config: import("../lib/ai").AiConfig;
-    /** 流式回调：助手文本增量（Rust Channel 推送 / mock 整段模拟）。可缺省 */
-    onDelta?: (text: string) => void;
-  }): Promise<LlmResponse>;
 }
 
 /** 循环过程中的事件，UI 用来实时渲染工具卡片与流式文本 */

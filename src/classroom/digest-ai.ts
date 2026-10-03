@@ -5,16 +5,14 @@
  *
  * 红线：本模块**永不抛错、永不阻塞**下课流程；模型输出只作为文本，不改动 stats。
  */
-import { isAiConfigured, loadAiConfig } from "../lib/ai";
-import { isTauri } from "../lib/env";
-import { createLlm } from "../agent/providers";
-import { PROMPT_IDS, resolvePrompt } from "../prompts";
-import type { AgentLlm, AgentMessage } from "../agent/types";
+import { PROMPT_IDS } from "../prompts";
+import { runAiTask } from "../lib/ai-run";
+import type { AgentLlm, AgentMessage } from "../lib/llm";
 import type { DigestInput } from "./digest";
 import type { LessonStats } from "./types";
 
 export interface LessonDigestAiOptions {
-  /** 测试注入（缺省走 createLlm：Tauri → Rust rig，演示态 → mock） */
+  /** 测试注入（缺省走 lib/llm 的桌面端 rig 传输） */
   llm?: AgentLlm;
   /** 测试注入；缺省 = 桌面端且模型已配置 */
   aiReady?: boolean;
@@ -58,21 +56,14 @@ export async function generateAiLessonDigest(
   stats: LessonStats,
   options: LessonDigestAiOptions = {},
 ): Promise<string | null> {
-  const config = loadAiConfig();
-  const aiReady = options.aiReady ?? (isTauri() && isAiConfigured(config));
-  if (!aiReady) return null;
-
-  try {
-    const llm = options.llm ?? createLlm();
-    const res = await llm.chat({
-      system: resolvePrompt(PROMPT_IDS.lessonDigest),
-      messages: buildMessages(input, stats),
-      tools: [],
-      config,
-    });
-    const text = (res.content ?? "").trim();
-    return text ? text : null;
-  } catch {
-    return null;
-  }
+  return runAiTask({
+    promptId: PROMPT_IDS.lessonDigest,
+    messages: buildMessages(input, stats),
+    parse: (content) => {
+      const text = (content ?? "").trim();
+      return text ? text : null;
+    },
+    llm: options.llm,
+    aiReady: options.aiReady,
+  });
 }

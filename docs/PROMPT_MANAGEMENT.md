@@ -167,6 +167,23 @@ registry.ts ──► modules/*.prompt.ts 的 defaultText（内置默认，唯�
 未在 `groups.ts` 登记过的 `group` 不会让模块丢失：会归入「其他」分组渲染（fail-safe）。
 补一条 vitest（框架用例 `tests/prompts-lib.test.ts` + 接线用例 `tests/prompt-wiring.test.ts`）。
 
+## 新增一个 AI 特性（调用约定）
+
+生成类 AI 特性**不要手写**「loadAiConfig → 就绪判断 → 建 LLM → chat → parse → catch 回落」
+骨架，统一走 `src/lib/ai-run.ts`：
+
+- 生成类（带兜底回落）：`runAiTask({ promptId, messages, parse, llm?, aiReady? })`，
+  失败一律返回 `null`，由调用方回落；`parse` 只做输出清洗与校验
+- 管道类（调用方自管就绪判断，如导入识别）：`chatOnce({ system, messages, llm?, config })`
+- 模型输出里的 JSON 一律用 `extractJsonObject` 提取；列表/引号清洗用
+  `stripListDecoration` / `stripQuoteWrap`
+- 需要向用户如实报错的主动动作（如 AI 润色）不用 `runAiTask`（它把错误吞成 null），
+  参考 `polish-ai.ts` 的自管变体
+
+分层红线：`src/lib` 与 `src/classroom` **不得 import `src/agent`**（含 type-only）。
+LLM 消息契约与桌面端传输在 `src/lib/llm.ts`；agent 侧的 `AgentLlm` 等类型是从那里
+转发导出的，agent 内部代码照旧从 `agent/types` 引用即可。
+
 ## 验收清单
 
 - [x] 框架：扫描装载 / 重复 id 报错 / 未知分组兜底 / 分组排序稳定

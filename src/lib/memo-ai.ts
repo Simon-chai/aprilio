@@ -6,12 +6,10 @@
  * - 生成成功后由 db.setCalendarEventTitle 落库，一次生成永久复用，不重复调用
  * 隐私：仅把单条备忘正文发给用户自己配置的模型服务，不写日志。
  */
-import { isAiConfigured, loadAiConfig } from "./ai";
-import { isTauri } from "./env";
-import { createLlm } from "../agent/providers";
-import { PROMPT_IDS, resolvePrompt } from "../prompts";
+import { PROMPT_IDS } from "../prompts";
 import { MEMO_TITLE_MAX_LEN } from "../prompts/contracts";
-import type { AgentLlm, AgentMessage } from "../agent/types";
+import { runAiTask, stripListDecoration } from "./ai-run";
+import type { AgentLlm, AgentMessage } from "./llm";
 
 /** 快速浏览标题的硬截断上限（与提示词模块的 {标题字数上限} 同源） */
 export { MEMO_TITLE_MAX_LEN };
@@ -22,12 +20,7 @@ export { MEMO_TITLE_MAX_LEN };
 export function parseMemoTitle(raw: string, maxLen = MEMO_TITLE_MAX_LEN): string {
   let line = (raw.trim().split(/\r?\n/)[0] ?? "").trim();
   if (!line) return "";
-  line = line
-    .replace(/^[0-9①-⑩]+[.、)．:：]\s*/, "")
-    .replace(/^[-·•*]+\s*/, "")
-    .replace(/^[「“"'『【\[]+/, "")
-    .replace(/[」”"'』】\]]+$/, "")
-    .trim();
+  line = stripListDecoration(line);
   if (line.length > maxLen) line = line.slice(0, maxLen);
   return line;
 }
@@ -48,21 +41,12 @@ export async function summarizeMemoTitle(
   const text = content.trim();
   if (!text) return null;
 
-  const config = loadAiConfig();
-  const aiReady = options.aiReady ?? (isTauri() && isAiConfigured(config));
-  if (!aiReady) return null;
-
-  try {
-    const llm = options.llm ?? createLlm();
-    const res = await llm.chat({
-      system: resolvePrompt(PROMPT_IDS.memoTitle),
-      messages: buildMessages(text),
-      tools: [],
-      config,
-    });
-    return parseMemoTitle(res.content) || null;
-  } catch {
-    // AI 不可用不阻塞备忘展示，静默退回全文前几个字
-    return null;
-  }
+  // AI 不可用不阻塞备忘展示，静默退回全文前几个字（runAiTask 失败返回 null）
+  return runAiTask({
+    promptId: PROMPT_IDS.memoTitle,
+    messages: buildMessages(text),
+    parse: (raw) => parseMemoTitle(raw) || null,
+    llm: options.llm,
+    aiReady: options.aiReady,
+  });
 }

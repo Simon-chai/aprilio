@@ -17,7 +17,6 @@ import AppIcon from "./ui/AppIcon.vue";
 import AnalyzingOverlay from "./AnalyzingOverlay.vue";
 import { isTauri } from "../lib/env";
 import { isAiConfigured, loadAiConfig } from "../lib/ai";
-import { createLlm } from "../agent/providers";
 import { logError, logInfo } from "../lib/logger";
 import {
   ROSTER_FIELD_LABELS,
@@ -140,7 +139,7 @@ async function analyzeEntry(entry: RosterFileEntry) {
     const config = loadAiConfig();
     if (isAiConfigured(config)) {
       try {
-        const ai = await aiDetectNameColumn(t, createLlm(), config);
+        const ai = await aiDetectNameColumn(t, undefined, config);
         if (ai) {
           entry.detection = combineNameDetection(rule, ai);
           entry.selectedColumn = entry.detection.selected;
@@ -158,7 +157,7 @@ async function analyzeEntry(entry: RosterFileEntry) {
         if (isUnnamedBatch(base.rows as StudentInput[])) {
           entry.inferredClass = await aiInferClassName(
             [entry.label, ...(t.titleText ?? [])],
-            createLlm(),
+            undefined,
             config,
           );
         }
