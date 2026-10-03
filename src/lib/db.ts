@@ -468,6 +468,19 @@ function getDb(): Promise<Database> {
   return dbPromise;
 }
 
+/**
+ * 多语句写批：一次 execute 内联 BEGIN IMMEDIATE … COMMIT，全部语句原子生效。
+ *
+ * 为什么不做「跨 execute 的 BEGIN/COMMIT」：tauri-plugin-sql 底层是 sqlx 连接池
+ * （Pool::connect 默认多连接），两次 execute 可能落在不同连接上，事务边界会失效；
+ * 多表写必须把同批语句与参数扁平化后拼进同一次调用（与 appendLessonEvent 样板一致）。
+ * 语句序列里引用其他语句新插入行的 id 时，用
+ * `(SELECT id FROM <表> WHERE rowid = last_insert_rowid())` 内联回填。
+ */
+async function executeBatch(db: Database, statements: string[], params: unknown[]): Promise<void> {
+  await db.execute(`BEGIN IMMEDIATE;\n${statements.join(";\n")};\nCOMMIT;`, params);
+}
+
 /* ------------------------------------------------------------------ */
 /* 内存兜底：浏览器里也能看到完整界面                                    */
 /* ------------------------------------------------------------------ */
@@ -1290,41 +1303,42 @@ export async function updateStudent(id: number, input: StudentInput): Promise<vo
   }
 
   const db = await getDb();
-  await db.execute(
+  // 学生字段更新与监护人重写同一写批原子生效
+  const statements = [
     `UPDATE students
         SET name = ?, gender = ?, birth_date = ?, student_no = ?, grade_class = ?,
             id_card = ?, address = ?, status = ?, note = ?, updated_at = datetime('now','localtime')
       WHERE id = ?`,
-    [
-      input.name,
-      input.gender,
-      input.birth_date,
-      input.student_no,
-      input.grade_class,
-      input.id_card,
-      input.address,
-      input.status,
-      input.note,
+    "DELETE FROM guardians WHERE student_id = ?",
+  ];
+  const params: unknown[] = [
+    input.name,
+    input.gender,
+    input.birth_date,
+    input.student_no,
+    input.grade_class,
+    input.id_card,
+    input.address,
+    input.status,
+    input.note,
+    id,
+    id,
+  ];
+  for (const g of input.guardians ?? []) {
+    statements.push(
+      "INSERT INTO guardians (student_id, name, phone, relation, is_primary, occupation, tags) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    );
+    params.push(
       id,
-    ]
-  );
-  await db.execute("DELETE FROM guardians WHERE student_id = ?", [id]);
-  if (input.guardians?.length) {
-    for (const g of input.guardians) {
-      await db.execute(
-        "INSERT INTO guardians (student_id, name, phone, relation, is_primary, occupation, tags) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        [
-          id,
-          g.name,
-          g.phone,
-          g.relation,
-          g.is_primary ? 1 : 0,
-          g.occupation ?? "",
-          JSON.stringify(g.tags ?? []),
-        ]
-      );
-    }
+      g.name,
+      g.phone,
+      g.relation,
+      g.is_primary ? 1 : 0,
+      g.occupation ?? "",
+      JSON.stringify(g.tags ?? [])
+    );
   }
+  await executeBatch(db, statements, params);
 }
 
 /** 学生完整快照（供回收站与恢复使用，浏览器/SQLite 双通道共用） */
@@ -1437,18 +1451,22 @@ export async function deleteStudent(id: number): Promise<void> {
   );
 
   const snap = buildStudentSnapshot(student, guardians, photos, behaviors, termComments);
-  await db.execute(
-    "INSERT INTO recycle_bin (entity_type, label, summary, payload) VALUES ('student', ?, ?, ?)",
-    [student.name, studentSummary(snap), JSON.stringify(snap)]
+  // 快照入回收站与全表删除同一写批原子生效
+  await executeBatch(
+    db,
+    [
+      "INSERT INTO recycle_bin (entity_type, label, summary, payload) VALUES ('student', ?, ?, ?)",
+      "DELETE FROM guardians WHERE student_id = ?",
+      "DELETE FROM photos WHERE student_id = ?",
+      "DELETE FROM student_behavior_records WHERE student_id = ?",
+      "DELETE FROM student_term_comments WHERE student_id = ?",
+      "DELETE FROM exam_scores WHERE student_id = ?",
+      "DELETE FROM student_homework_records WHERE student_id = ?",
+      "DELETE FROM student_eval_reports WHERE student_id = ?",
+      "DELETE FROM students WHERE id = ?",
+    ],
+    [student.name, studentSummary(snap), JSON.stringify(snap), id, id, id, id, id, id, id, id, id]
   );
-  await db.execute("DELETE FROM guardians WHERE student_id = ?", [id]);
-  await db.execute("DELETE FROM photos WHERE student_id = ?", [id]);
-  await db.execute("DELETE FROM student_behavior_records WHERE student_id = ?", [id]);
-  await db.execute("DELETE FROM student_term_comments WHERE student_id = ?", [id]);
-  await db.execute("DELETE FROM exam_scores WHERE student_id = ?", [id]);
-  await db.execute("DELETE FROM student_homework_records WHERE student_id = ?", [id]);
-  await db.execute("DELETE FROM student_eval_reports WHERE student_id = ?", [id]);
-  await db.execute("DELETE FROM students WHERE id = ?", [id]);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1499,67 +1517,72 @@ function snapshotFileNames(payload: ClassSnapshot | StudentSnapshot): string[] {
   return payload.photos.map((p) => p.file_name);
 }
 
-/** 恢复一条学生快照（重新分配 ID，照片/监护人/表现流水重新挂接） */
-async function insertStudentSnapshot(db: Database, snap: StudentSnapshot): Promise<number> {
-  const result = await db.execute(
+/**
+ * 把学生快照展开成语句批与参数（student_id 经 last_insert_rowid() 内联回填）。
+ * 供回收站恢复与单条恢复共用；快照内先插 students 行，随后的监护人/照片/表现/评语
+ * 都紧跟着引用该行，rowid 回填才可靠。
+ */
+function pushStudentSnapshotBatch(
+  snap: StudentSnapshot,
+  statements: string[],
+  params: unknown[]
+): void {
+  const sid = "(SELECT id FROM students WHERE rowid = last_insert_rowid())";
+  statements.push(
     `INSERT INTO students
        (name, gender, birth_date, student_no, grade_class, id_card,
         address, status, note, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'), datetime('now','localtime'))`,
-    [
-      snap.student.name,
-      snap.student.gender,
-      snap.student.birth_date,
-      snap.student.student_no,
-      snap.student.grade_class,
-      snap.student.id_card,
-      snap.student.address,
-      snap.student.status,
-      snap.student.note,
-    ]
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'), datetime('now','localtime'))`
   );
-  const studentId = Number(result.lastInsertId ?? 0);
-
+  params.push(
+    snap.student.name,
+    snap.student.gender,
+    snap.student.birth_date,
+    snap.student.student_no,
+    snap.student.grade_class,
+    snap.student.id_card,
+    snap.student.address,
+    snap.student.status,
+    snap.student.note
+  );
   for (const g of snap.guardians) {
-    await db.execute(
-      "INSERT INTO guardians (student_id, name, phone, relation, is_primary, occupation, tags) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      [studentId, g.name, g.phone, g.relation, g.is_primary ? 1 : 0, g.occupation ?? "", JSON.stringify(g.tags ?? [])]
+    statements.push(
+      `INSERT INTO guardians (student_id, name, phone, relation, is_primary, occupation, tags) VALUES (${sid}, ?, ?, ?, ?, ?, ?)`
     );
+    params.push(g.name, g.phone, g.relation, g.is_primary ? 1 : 0, g.occupation ?? "", JSON.stringify(g.tags ?? []));
   }
   for (const p of snap.photos) {
-    await db.execute(
-      "INSERT INTO photos (student_id, grade_class, file_name, caption, taken_at) VALUES (?, ?, ?, ?, ?)",
-      [studentId, p.grade_class ?? null, p.file_name, p.caption, p.taken_at]
+    statements.push(
+      `INSERT INTO photos (student_id, grade_class, file_name, caption, taken_at) VALUES (${sid}, ?, ?, ?, ?)`
     );
+    params.push(p.grade_class ?? null, p.file_name, p.caption, p.taken_at);
   }
   for (const b of snap.behaviors) {
-    await db.execute(
+    statements.push(
       `INSERT INTO student_behavior_records
          (student_id, dimension_id, dimension_name_snap, category_snap, type, comment, recorded_date, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        studentId,
-        b.dimension_id,
-        b.dimension_name_snap,
-        b.category_snap,
-        b.type,
-        b.comment,
-        b.recorded_date,
-        b.created_at,
-      ]
+       VALUES (${sid}, ?, ?, ?, ?, ?, ?, ?)`
+    );
+    params.push(
+      b.dimension_id,
+      b.dimension_name_snap,
+      b.category_snap,
+      b.type,
+      b.comment,
+      b.recorded_date,
+      b.created_at
     );
   }
   for (const c of snap.termComments ?? []) {
-    await db.execute(
+    statements.push(
       `INSERT INTO student_term_comments (student_id, semester, content, source)
-       VALUES (?, ?, ?, ?)
+       VALUES (${sid}, ?, ?, ?)
        ON CONFLICT(student_id, semester) DO UPDATE SET
          content = excluded.content,
-         source = excluded.source`,
-      [studentId, c.semester, c.content, c.source]
+         source = excluded.source`
     );
+    params.push(c.semester, c.content, c.source);
   }
-  return studentId;
 }
 
 /** 内存态恢复学生快照（返回新学生 ID） */
@@ -1658,20 +1681,26 @@ export async function restoreRecycleItem(itemId: number): Promise<void> {
   if (!rows.length) return;
   const item = toRecycleItem(rows[0]);
 
+  // 恢复的多条 INSERT 与回收站行的删除同一写批原子生效，中途失败不留半恢复状态
+  const statements: string[] = [];
+  const params: unknown[] = [];
   if (item.entity_type === "class") {
     const snap = item.payload as ClassSnapshot;
-    await db.execute("INSERT OR IGNORE INTO classes (name) VALUES (?)", [snap.name]);
-    for (const s of snap.students) await insertStudentSnapshot(db, s);
+    statements.push("INSERT OR IGNORE INTO classes (name) VALUES (?)");
+    params.push(snap.name);
+    for (const s of snap.students) pushStudentSnapshotBatch(s, statements, params);
     for (const p of snap.classPhotos) {
-      await db.execute(
-        "INSERT INTO photos (student_id, grade_class, file_name, caption, taken_at) VALUES (NULL, ?, ?, ?, ?)",
-        [snap.name, p.file_name, p.caption, p.taken_at]
+      statements.push(
+        "INSERT INTO photos (student_id, grade_class, file_name, caption, taken_at) VALUES (NULL, ?, ?, ?, ?)"
       );
+      params.push(snap.name, p.file_name, p.caption, p.taken_at);
     }
   } else {
-    await insertStudentSnapshot(db, item.payload as StudentSnapshot);
+    pushStudentSnapshotBatch(item.payload as StudentSnapshot, statements, params);
   }
-  await db.execute("DELETE FROM recycle_bin WHERE id = ?", [itemId]);
+  statements.push("DELETE FROM recycle_bin WHERE id = ?");
+  params.push(itemId);
+  await executeBatch(db, statements, params);
 }
 
 /** 彻底删除单条回收站条目（连带清落盘图片文件，尽力而为） */
@@ -2463,9 +2492,30 @@ export async function deleteClass(name: string): Promise<void> {
 
   const photoTotal = classPhotos.length + studentSnaps.reduce((n, s) => n + s.photos.length, 0);
   const behaviorTotal = studentSnaps.reduce((n, s) => n + s.behaviors.length, 0);
-  await db.execute(
-    "INSERT INTO recycle_bin (entity_type, label, summary, payload) VALUES ('class', ?, ?, ?)",
+  // 快照入回收站与全表清空同一写批原子生效（顺序：成绩 → 课表 → 流水 → 照片 → 监护人 → 学生 → 班级）
+  await executeBatch(
+    db,
     [
+      "INSERT INTO recycle_bin (entity_type, label, summary, payload) VALUES ('class', ?, ?, ?)",
+      `DELETE FROM exam_scores WHERE student_id IN (SELECT id FROM students WHERE ${memberWhere})`,
+      "DELETE FROM exam_scores WHERE exam_id IN (SELECT id FROM exams WHERE class_name = ?)",
+      "DELETE FROM exams WHERE class_name = ?",
+      // 课表随班级删除（不进回收站快照，与成绩同口径）
+      "DELETE FROM timetable_slots WHERE timetable_id IN (SELECT id FROM timetables WHERE class_name = ?)",
+      "DELETE FROM timetable_exceptions WHERE timetable_id IN (SELECT id FROM timetables WHERE class_name = ?)",
+      "DELETE FROM timetables WHERE class_name = ?",
+      "DELETE FROM calendar_events WHERE class_name = ?",
+      `DELETE FROM student_behavior_records WHERE student_id IN (SELECT id FROM students WHERE ${memberWhere})`,
+      `DELETE FROM student_term_comments WHERE student_id IN (SELECT id FROM students WHERE ${memberWhere})`,
+      `DELETE FROM student_homework_records WHERE student_id IN (SELECT id FROM students WHERE ${memberWhere})`,
+      `DELETE FROM student_eval_reports WHERE student_id IN (SELECT id FROM students WHERE ${memberWhere})`,
+      `DELETE FROM photos WHERE (grade_class = ? AND student_id IS NULL) OR student_id IN (SELECT id FROM students WHERE ${memberWhere})`,
+      `DELETE FROM guardians WHERE student_id IN (SELECT id FROM students WHERE ${memberWhere})`,
+      `DELETE FROM students WHERE ${memberWhere}`,
+      "DELETE FROM classes WHERE name = ?",
+    ],
+    [
+      // ① 快照入回收站
       trimmed,
       `${members.length} 名学生 · 照片 ${photoTotal} 张 · 表现 ${behaviorTotal} 条`,
       JSON.stringify({
@@ -2473,50 +2523,28 @@ export async function deleteClass(name: string): Promise<void> {
         students: studentSnaps,
         classPhotos: classPhotos.map(photoSnap),
       } satisfies ClassSnapshot),
+      // ② 成绩（按学生）
+      ...memberParams,
+      // ③ 成绩（按考试）④ 考试 ⑤ 节次 ⑥ 调课例外 ⑦ 课表 ⑧ 日程
+      trimmed,
+      trimmed,
+      trimmed,
+      trimmed,
+      trimmed,
+      trimmed,
+      // ⑨~⑫ 表现 / 评语 / 作业 / 评价报告（按学生）
+      ...memberParams,
+      ...memberParams,
+      ...memberParams,
+      ...memberParams,
+      // ⑬ 照片（班级照 + 学生照）⑭ 监护人 ⑮ 学生 ⑯ 班级
+      trimmed,
+      ...memberParams,
+      ...memberParams,
+      ...memberParams,
+      trimmed,
     ]
   );
-
-  // 学生已整体进回收站，这里按班级把主表数据清掉（顺序：成绩 → 流水 → 照片 → 监护人 → 学生）
-  await db.execute(
-    `DELETE FROM exam_scores WHERE student_id IN (SELECT id FROM students WHERE ${memberWhere})`,
-    memberParams
-  );
-  await db.execute(
-    "DELETE FROM exam_scores WHERE exam_id IN (SELECT id FROM exams WHERE class_name = ?)",
-    [trimmed]
-  );
-  await db.execute("DELETE FROM exams WHERE class_name = ?", [trimmed]);
-  // 课表随班级删除（不进回收站快照，与成绩同口径）
-  await db.execute("DELETE FROM timetable_slots WHERE timetable_id IN (SELECT id FROM timetables WHERE class_name = ?)", [trimmed]);
-  await db.execute("DELETE FROM timetable_exceptions WHERE timetable_id IN (SELECT id FROM timetables WHERE class_name = ?)", [trimmed]);
-  await db.execute("DELETE FROM timetables WHERE class_name = ?", [trimmed]);
-  await db.execute("DELETE FROM calendar_events WHERE class_name = ?", [trimmed]);
-  await db.execute(
-    `DELETE FROM student_behavior_records WHERE student_id IN (SELECT id FROM students WHERE ${memberWhere})`,
-    memberParams
-  );
-  await db.execute(
-    `DELETE FROM student_term_comments WHERE student_id IN (SELECT id FROM students WHERE ${memberWhere})`,
-    memberParams
-  );
-  await db.execute(
-    `DELETE FROM student_homework_records WHERE student_id IN (SELECT id FROM students WHERE ${memberWhere})`,
-    memberParams
-  );
-  await db.execute(
-    `DELETE FROM student_eval_reports WHERE student_id IN (SELECT id FROM students WHERE ${memberWhere})`,
-    memberParams
-  );
-  await db.execute(
-    `DELETE FROM photos WHERE (grade_class = ? AND student_id IS NULL) OR student_id IN (SELECT id FROM students WHERE ${memberWhere})`,
-    [trimmed, ...memberParams]
-  );
-  await db.execute(
-    `DELETE FROM guardians WHERE student_id IN (SELECT id FROM students WHERE ${memberWhere})`,
-    memberParams
-  );
-  await db.execute(`DELETE FROM students WHERE ${memberWhere}`, memberParams);
-  await db.execute("DELETE FROM classes WHERE name = ?", [trimmed]);
 }
 
 export async function batchUpdateStudentClass(
@@ -2543,16 +2571,19 @@ export async function batchUpdateStudentClass(
   }
 
   const db = await getDb();
-  if (targetClass) {
-    await db.execute("INSERT OR IGNORE INTO classes (name) VALUES (?)", [targetClass]);
-  }
+  // 建班与批量改班同一写批原子生效
   const placeholders = studentIds.map(() => "?").join(",");
-  await db.execute(
+  const statements = [
     `UPDATE students
         SET grade_class = ?, updated_at = datetime('now','localtime')
       WHERE id IN (${placeholders})`,
-    [targetClass, ...studentIds]
-  );
+  ];
+  const params: unknown[] = [targetClass, ...studentIds];
+  if (targetClass) {
+    statements.unshift("INSERT OR IGNORE INTO classes (name) VALUES (?)");
+    params.unshift(targetClass);
+  }
+  await executeBatch(db, statements, params);
 }
 
 export async function getClassSummary(name: string): Promise<ClassSummary | null> {
