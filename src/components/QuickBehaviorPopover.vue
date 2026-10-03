@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { errorMessage } from "../lib/error-message";
 /**
  * 快捷表现卡片（spec §5.2）：
  * 460px 轻量浮层，老师 2~3 秒完成一次日常表现记录。
@@ -279,7 +280,7 @@ async function save(keepOpen: boolean) {
       emit("close");
     }
   } catch (e) {
-    saveError.value = e instanceof Error ? e.message : String(e);
+    saveError.value = errorMessage(e);
   } finally {
     saving.value = false;
   }
@@ -296,7 +297,7 @@ async function confirmCustom() {
     customAdding.value = false;
     customName.value = "";
   } catch (e) {
-    customError.value = e instanceof Error ? e.message : String(e);
+    customError.value = errorMessage(e);
   }
 }
 

@@ -10,6 +10,8 @@ vi.mock("../src/lib/db", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/lib/db")>();
   return { ...actual, isTauri: () => true };
 });
+// 环境判断已挪到 lib/env（工具与 *-ai 链路改从这里读取），与 db 开关保持同真
+vi.mock("../src/lib/env", () => ({ isTauri: () => true }));
 
 import tool from "../src/agent/tools/parent-summary";
 import { buildCapabilityContainer } from "../src/agent/manifest";

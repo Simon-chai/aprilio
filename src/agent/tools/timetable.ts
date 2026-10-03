@@ -13,7 +13,7 @@ import {
   listTimetableExceptionsWithClass,
   listTimetableSlotsWithClass,
 } from "../../lib/db";
-import { toDateStr } from "../../lib/calendar";
+import { localDateStr } from "../../lib/format";
 import { ensureProfile, profile } from "../../lib/profile";
 import {
   WEEKDAY_LABELS,
@@ -137,7 +137,7 @@ export default defineAgentTool({
     }
 
     // 问「今天」（缺省或显式指认今天）：套用当天调课例外 + 附带今日日程
-    const todayStr = toDateStr(new Date());
+    const todayStr = localDateStr(new Date());
     if (weekday === weekdayOf()) {
       const exceptions = await listTimetableExceptionsWithClass(semester, todayStr, todayStr);
       const dayMap = buildMyDays(rows, exceptions, mineOf, [todayStr]);

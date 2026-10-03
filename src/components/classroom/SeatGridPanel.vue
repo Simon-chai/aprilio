@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { errorMessage } from "../../lib/error-message";
 /**
  * 座位大屏（seating 活动 UI）。
  *
@@ -183,7 +184,7 @@ async function submitBehavior() {
     });
     closeSheet();
   } catch (e) {
-    ctx.ui.toast(e instanceof Error ? e.message : String(e), { tone: "error" });
+    ctx.ui.toast(errorMessage(e), { tone: "error" });
   } finally {
     saving.value = false;
   }
@@ -203,7 +204,7 @@ async function toggleAbsent() {
     ctx.ui.toast(`${stu.name} · ${absent ? "已标记缺勤" : "已归班"}`, { tone: "success" });
     closeSheet();
   } catch (e) {
-    ctx.ui.toast(e instanceof Error ? e.message : String(e), { tone: "error" });
+    ctx.ui.toast(errorMessage(e), { tone: "error" });
   }
 }
 
@@ -250,7 +251,7 @@ async function moveTo(row: number, col: number) {
     // 幂等命令：先清旧座再占新格（一人一座）；课堂内外均可执行，不撤销
     await assignSeat(ctx.session.class_name, ctx.session.lesson_date, src.id, row, col, groupNo);
   } catch (e) {
-    ctx.ui.toast(e instanceof Error ? e.message : String(e), { tone: "error" });
+    ctx.ui.toast(errorMessage(e), { tone: "error" });
     return;
   }
   if (from) {
@@ -269,7 +270,7 @@ async function moveTo(row: number, col: number) {
     });
     ctx.ui.toast(`${src.name} 已调座`, { tone: "success" });
   } catch (e) {
-    ctx.ui.toast(e instanceof Error ? e.message : String(e), { tone: "error" });
+    ctx.ui.toast(errorMessage(e), { tone: "error" });
   }
 }
 
@@ -287,7 +288,7 @@ async function onRevoke(entry: SeatingTimelineEntry) {
     await ctx.revoke(entry.id);
     ctx.ui.toast("已撤销");
   } catch (e) {
-    ctx.ui.toast(e instanceof Error ? e.message : String(e), { tone: "error" });
+    ctx.ui.toast(errorMessage(e), { tone: "error" });
   }
 }
 </script>

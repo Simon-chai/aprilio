@@ -17,7 +17,7 @@ const mocks = vi.hoisted(() => {
   };
 });
 
-vi.mock("../src/lib/db", () => ({ isTauri: mocks.isTauri }));
+vi.mock("../src/lib/env", () => ({ isTauri: mocks.isTauri }));
 vi.mock("../src/lib/photos", () => ({
   getPhotosDir: mocks.getPhotosDir,
   photoUrl: mocks.photoUrl,

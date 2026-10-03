@@ -4,7 +4,18 @@
  * 设计见 docs/SEMESTER_MANAGEMENT.md。核心原则：班级只是稳定的文本标识，
  * 成绩 / 表现 / 评语 / 课表各自按日期或学期字段归属学期，不依赖班级级元信息。
  */
-import { currentSemester } from "./timetable";
+
+/**
+ * 学期号推导：9~12 月 → Y-(Y+1)-1（秋季）；1~2 月仍属上一年度秋季 → (Y-1)-Y-1；
+ * 3~8 月 → (Y-1)-Y-2（春季）。无需任何设置项。
+ */
+export function currentSemester(date = new Date()): string {
+  const y = date.getFullYear();
+  const m = date.getMonth() + 1;
+  if (m >= 9) return `${y}-${y + 1}-1`;
+  if (m <= 2) return `${y - 1}-${y}-1`;
+  return `${y - 1}-${y}-2`;
+}
 
 /**
  * 最近 N 个学期的候选列表（当前学期在前，向过去回溯），供学期下拉选择。

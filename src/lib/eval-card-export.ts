@@ -3,7 +3,7 @@
  * 桌面端走系统「另存为」对话框 + fs 写文件（capabilities 需 dialog:allow-save
  * 与 fs:allow-write-file）；浏览器演示态退化为浏览器下载，方便 dev:web 预览。
  */
-import { isTauri } from "./db";
+import { isTauri } from "./env";
 import { htmlToPng } from "./html-to-png";
 
 /**

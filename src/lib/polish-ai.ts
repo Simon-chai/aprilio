@@ -8,7 +8,7 @@
  * 隐私：仅把老师手输的这段文字与场景说明发给用户自己配置的模型服务，不写日志。
  */
 import { aiErrorMessage, isAiConfigured, loadAiConfig } from "./ai";
-import { isTauri } from "./db";
+import { isTauri } from "./env";
 import { createLlm } from "../agent/providers";
 import { PROMPT_IDS, resolvePrompt } from "../prompts";
 import type { AgentLlm, AgentMessage } from "../agent/types";

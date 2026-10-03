@@ -4,6 +4,13 @@ const PERMISSION_ERROR =
   /not\s+allowed|permission|denied|forbidden|not\s+permitted|unauthori[sz]ed|不允许|禁止/i;
 const EXECUTE_ERROR = /\bexecute\b|sql(?:ite)?[^\n]*(?:write|execute)/i;
 
+/** 任意抛出值 → 可展示字符串：Error 取 message，字符串原样，其余 String()。 */
+export function errorMessage(value: unknown): string {
+  if (value instanceof Error) return value.message;
+  if (typeof value === "string") return value;
+  return String(value);
+}
+
 function errorText(value: unknown): string {
   if (value instanceof Error) return `${value.name} ${value.message}`;
   if (typeof value === "string") return value;

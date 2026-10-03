@@ -8,6 +8,7 @@ import type {
   DocumentSource,
   DocumentSourceLoader,
 } from "./types";
+import { errorMessage } from "../../lib/error-message";
 
 export class AnalysisEngineImpl implements AnalysisEngine {
   private providers = new Map<string, AnalysisProvider>();
@@ -120,7 +121,7 @@ export class AnalysisEngineImpl implements AnalysisEngine {
         return {
           ok: false,
           summary: "",
-          error: `分析器 [${matchedProvider.id}] 执行异常: ${err instanceof Error ? err.message : String(err)}`,
+          error: `分析器 [${matchedProvider.id}] 执行异常: ${errorMessage(err)}`,
           provider: matchedProvider.id,
           durationMs: Date.now() - start,
         };
@@ -163,12 +164,12 @@ export class AnalysisEngineImpl implements AnalysisEngine {
       } as AnalysisResult<T>;
     } catch (fallbackErr) {
       const primaryErrDesc = primaryError
-        ? ` (原分析错误: ${primaryError instanceof Error ? primaryError.message : String(primaryError)})`
+        ? ` (原分析错误: ${errorMessage(primaryError)})`
         : "";
       return {
         ok: false,
         summary: "",
-        error: `降级分析器 [${this.fallbackProvider.id}] 失败: ${fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr)}${primaryErrDesc}`,
+        error: `降级分析器 [${this.fallbackProvider.id}] 失败: ${errorMessage(fallbackErr)}${primaryErrDesc}`,
         provider: this.fallbackProvider.id,
         fallbackUsed: true,
         durationMs: Date.now() - start,

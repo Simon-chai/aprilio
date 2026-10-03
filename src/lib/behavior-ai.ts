@@ -6,10 +6,11 @@
  * - 采纳的推荐保存后由 db.addBehaviorRecord 沉淀为 source='ai' 词条
  */
 import { loadAiConfig, isAiConfigured } from "./ai";
-import { isTauri } from "./db";
+import { isTauri } from "./env";
 import { createLlm } from "../agent/providers";
 import { PROMPT_IDS, resolvePrompt } from "../prompts";
 import { AI_COMMENT_MAX_LEN } from "../prompts/contracts";
+import { readJsonStorage } from "./storage";
 import type { AgentLlm, AgentMessage } from "../agent/types";
 import type { BehaviorPolarity } from "../types";
 import { BEHAVIOR_POLARITY_LABEL } from "../types";
@@ -50,16 +51,11 @@ interface CachedSuggestion {
 type SuggestionCache = Record<string, CachedSuggestion>;
 
 function readCacheStore(): SuggestionCache {
-  if (typeof localStorage === "undefined") return {};
-  try {
-    const raw = localStorage.getItem(CACHE_STORAGE_KEY);
-    if (!raw) return {};
+  return readJsonStorage(CACHE_STORAGE_KEY, (): SuggestionCache => ({}), (raw) => {
     const parsed: unknown = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return {};
     return parsed as SuggestionCache;
-  } catch {
-    return {};
-  }
+  });
 }
 
 function writeCacheStore(store: SuggestionCache): void {

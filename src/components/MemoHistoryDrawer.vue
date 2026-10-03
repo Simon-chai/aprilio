@@ -20,7 +20,8 @@ import {
   listTimetableSlotsWithClass,
   setCalendarEventDone,
 } from "../lib/db";
-import { fromDateStr, toDateStr } from "../lib/calendar";
+import { fromDateStr } from "../lib/calendar";
+import { localDateStr } from "../lib/format";
 import { ensureProfile, profile } from "../lib/profile";
 import {
   CALENDAR_EVENT_META,
@@ -58,7 +59,7 @@ const onlyUndone = ref(false);
 const keyword = ref("");
 const range = ref<"all" | "recent">("all");
 
-const todayStr = computed(() => toDateStr(new Date()));
+const todayStr = computed(() => localDateStr(new Date()));
 
 /** 每班生效的「我的科目」判定器（口径与我的课表一致） */
 const mineOf = computed(() => mineOfClassResolver(rows.value, profile.value.my_subjects ?? []));
@@ -109,7 +110,7 @@ watch(
 /* ---------------- 筛选与分组 ---------------- */
 
 const filtered = computed(() => {
-  const cutoff = toDateStr(
+  const cutoff = localDateStr(
     new Date(Date.now() - RANGE_DAYS * 24 * 60 * 60 * 1000)
   );
   const kw = keyword.value.trim().toLowerCase();

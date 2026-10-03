@@ -4,6 +4,7 @@
  * 网格固定 6 行 × 7 列、周一起始（国内习惯），跨月部分前后补齐；
  * 课表课程与备忘都按「日期 → 条目」映射到这个网格上（见 docs/TIMETABLE.md）。
  */
+import { localDateStr } from "./format";
 
 /** 日历表头：周一起始 */
 export const CALENDAR_WEEKDAY_LABELS = [
@@ -28,12 +29,6 @@ export interface CalendarCell {
   inMonth: boolean;
   /** 是否周末 */
   isWeekend: boolean;
-}
-
-/** 本地日期 → YYYY-MM-DD（不用 toISOString，避免时区偏移错天） */
-export function toDateStr(date: Date): string {
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())}`;
 }
 
 /** YYYY-MM-DD → 本地 Date（当天零点） */
@@ -87,7 +82,7 @@ export function buildMonthGrid(year: number, month: number): CalendarCell[][] {
     const d = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
     const weekday = weekdayIndexOf(d);
     cells.push({
-      date: toDateStr(d),
+      date: localDateStr(d),
       day: d.getDate(),
       weekday,
       inMonth: d.getFullYear() === year && d.getMonth() === month - 1,

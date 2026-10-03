@@ -30,9 +30,9 @@ import {
   gridRange,
   monthTitle,
   shiftMonth,
-  toDateStr,
   type CalendarCell,
 } from "../lib/calendar";
+import { localDateStr } from "../lib/format";
 import { summarizeMemoTitle } from "../lib/memo-ai";
 import {
   CALENDAR_EVENT_META,
@@ -78,7 +78,7 @@ const editable = computed(() => props.editable && !isDark.value);
 
 const SEMESTER = currentSemester();
 const now = new Date();
-const today = toDateStr(now);
+const today = localDateStr(now);
 const viewYear = ref(now.getFullYear());
 const viewMonth = ref(now.getMonth() + 1);
 const selectedDate = ref(today);
@@ -161,7 +161,7 @@ watch([viewYear, viewMonth], () => {
     (c) => c.date === selectedDate.value && c.inMonth
   );
   if (!inViewMonth) {
-    selectedDate.value = toDateStr(new Date(viewYear.value, viewMonth.value - 1, 1));
+    selectedDate.value = localDateStr(new Date(viewYear.value, viewMonth.value - 1, 1));
   }
   void reloadMonth();
 });

@@ -4,6 +4,7 @@
  */
 import { archiveClass } from "../../lib/db";
 import { definePageAction } from "../define";
+import { errorMessage } from "../../lib/error-message";
 
 function classNameArg(rawArgs: Record<string, unknown>): string {
   const raw =
@@ -28,7 +29,7 @@ export default definePageAction({
     try {
       await archiveClass(className);
     } catch (e) {
-      return { ok: false, summary: "", error: e instanceof Error ? e.message : String(e) };
+      return { ok: false, summary: "", error: errorMessage(e) };
     }
     return { ok: true, summary: `已归档班级「${className}」，可在「历史带过的班」里查看或恢复。` };
   },

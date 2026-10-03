@@ -19,6 +19,7 @@ import type {
   ToolDefinition,
   ToolResult,
 } from "./types";
+import { errorMessage } from "../lib/error-message";
 
 /** ui_action 工具名，内置注册，不占 tools/ 目录（避免与容器循环依赖） */
 export const UI_ACTION_TOOL = "ui_action";
@@ -89,7 +90,7 @@ function toRustBridgeTool(report: RustCapabilityReport, exec: RustExecutor): Age
           data,
         };
       } catch (e) {
-        return { ok: false, summary: "", error: e instanceof Error ? e.message : String(e) };
+        return { ok: false, summary: "", error: errorMessage(e) };
       }
     },
   };
@@ -240,7 +241,7 @@ export function createCapabilityContainer(input: CapabilityContainerInput): Capa
       try {
         return await found.run(ctx, args);
       } catch (e) {
-        return { ok: false, summary: "", error: e instanceof Error ? e.message : String(e) };
+        return { ok: false, summary: "", error: errorMessage(e) };
       }
     },
 

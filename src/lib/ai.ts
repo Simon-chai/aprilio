@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { ref } from "vue";
-import { isTauri } from "./db";
+import { isTauri } from "./env";
 
 /* ------------------------------------------------------------------ */
 /* 供应商预设                                                           */

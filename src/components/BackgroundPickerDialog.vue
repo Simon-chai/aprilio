@@ -22,7 +22,7 @@ import {
   selectProfileImage,
 } from "../lib/profile";
 import { pickLocalFile } from "../lib/image";
-import { isTauri } from "../lib/db";
+import { isTauri } from "../lib/env";
 import type { BackgroundImage, BackgroundKind, BackgroundSource } from "../types";
 
 /**

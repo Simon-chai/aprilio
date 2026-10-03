@@ -28,8 +28,8 @@ import {
   gridRange,
   monthTitle,
   shiftMonth,
-  toDateStr,
 } from "../lib/calendar";
+import { localDateStr } from "../lib/format";
 import {
   CALENDAR_EVENT_META,
   CALENDAR_EVENT_TYPES,
@@ -63,8 +63,8 @@ const emit = defineEmits<{ edit: [] }>();
 const now = new Date();
 const viewYear = ref(now.getFullYear());
 const viewMonth = ref(now.getMonth() + 1);
-const selectedDate = ref(toDateStr(now));
-const today = toDateStr(now);
+const selectedDate = ref(localDateStr(now));
+const today = localDateStr(now);
 
 const grid = computed(() => buildMonthGrid(viewYear.value, viewMonth.value));
 const title = computed(() => monthTitle(viewYear.value, viewMonth.value));

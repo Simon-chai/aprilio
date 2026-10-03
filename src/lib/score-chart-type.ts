@@ -5,6 +5,7 @@
  * 所有展示各科成绩分布的页面（学生详情页「成绩」栏目等）立即同步换图，下次打开仍是它。
  */
 import { ref } from "vue";
+import { readJsonStorage } from "./storage";
 
 export type ScoreChartType = "bar" | "hbar" | "line" | "pie" | "radar";
 
@@ -32,13 +33,9 @@ export function normalizeScoreChartType(input: unknown): ScoreChartType {
 }
 
 function load(): ScoreChartType {
-  if (typeof localStorage === "undefined") return "bar";
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? normalizeScoreChartType(JSON.parse(raw)) : "bar";
-  } catch {
-    return "bar";
-  }
+  return readJsonStorage(STORAGE_KEY, () => "bar", (raw) =>
+    normalizeScoreChartType(JSON.parse(raw)),
+  );
 }
 
 /** 当前生效的图表类型（响应式：切换后所有用到它的图形立即换图） */

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { errorMessage } from "../lib/error-message";
 /**
  * 学期评语面板：一个学生在一个学期一条期末评语。
  * 有 AI 时可生成草稿，未配置 / 失败则手动填写（永不阻塞）。
@@ -18,7 +19,7 @@ import {
   generateTermComment,
 } from "../lib/comment-ai";
 import { isAiConfigured, loadAiConfig } from "../lib/ai";
-import { isTauri } from "../lib/db";
+import { isTauri } from "../lib/env";
 import { semesterOfDate } from "../lib/semester";
 import { semesterLabel } from "../lib/timetable";
 import type {
@@ -102,7 +103,7 @@ async function onSave() {
     await refresh();
     setMessage("已保存");
   } catch (e) {
-    setMessage(e instanceof Error ? e.message : String(e), "error");
+    setMessage(errorMessage(e), "error");
   } finally {
     saving.value = false;
   }
@@ -129,7 +130,7 @@ async function onGenerate() {
     await refresh();
     setMessage("已生成 AI 草稿，可继续修改后保存");
   } catch (e) {
-    setMessage(e instanceof Error ? e.message : String(e), "error");
+    setMessage(errorMessage(e), "error");
   } finally {
     generating.value = false;
   }

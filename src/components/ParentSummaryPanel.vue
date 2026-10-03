@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { errorMessage } from "../lib/error-message";
 /**
  * 家校沟通总结面板（学生档案「家校沟通」页签）：
  * 按指定时段内该生的评价生成给家长的表现总结。
@@ -137,7 +138,7 @@ async function generate(opts: { requirement?: string; fresh?: boolean } = {}) {
   try {
     range = resolveCurrentRange();
   } catch (e) {
-    toast(e instanceof Error ? e.message : String(e), { tone: "error" });
+    toast(errorMessage(e), { tone: "error" });
     return;
   }
   if (job.status === "running") return;
@@ -205,7 +206,7 @@ async function applyToProfile() {
   try {
     range = resolveCurrentRange();
   } catch (e) {
-    toast(e instanceof Error ? e.message : String(e), { tone: "error" });
+    toast(errorMessage(e), { tone: "error" });
     return;
   }
   try {
@@ -227,7 +228,7 @@ async function applyToProfile() {
     job.source = source;
     toast(`已写入${semesterLabel(semesterOf)}学期评语`);
   } catch (e) {
-    toast(e instanceof Error ? e.message : String(e), { tone: "error" });
+    toast(errorMessage(e), { tone: "error" });
   }
 }
 

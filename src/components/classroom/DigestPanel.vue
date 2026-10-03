@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { errorMessage } from "../../lib/error-message";
 /**
  * 实时小结面板（digest 活动 UI，只读）。
  *
@@ -115,7 +116,7 @@ async function onGenerate() {
     previewSource.value = res.digest_source;
     ctx.ui.toast(res.digest_source === "ai" ? "已生成 AI 版小结" : "已生成数据版小结（未配置 AI）");
   } catch (e) {
-    ctx.ui.toast(e instanceof Error ? e.message : String(e), { tone: "error" });
+    ctx.ui.toast(errorMessage(e), { tone: "error" });
   } finally {
     generating.value = false;
   }

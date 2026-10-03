@@ -14,6 +14,7 @@ import {
   scoreLinesOf,
   type ScoreLines,
 } from "./score-analysis";
+import { readJsonStorage } from "./storage";
 import type { ScoreLevel, ScoreLevelBand, ScoreLevelConfig } from "../types";
 
 const STORAGE_KEY = "aprilio.score.levels";
@@ -47,14 +48,11 @@ export function normalizeScoreLevelConfig(input: unknown): ScoreLevelConfig {
 }
 
 function load(): ScoreLevelConfig {
-  if (typeof localStorage === "undefined") return normalizeScoreLevelConfig(DEFAULT_SCORE_LEVEL_CONFIG);
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return normalizeScoreLevelConfig(DEFAULT_SCORE_LEVEL_CONFIG);
-    return normalizeScoreLevelConfig(JSON.parse(raw));
-  } catch {
-    return normalizeScoreLevelConfig(DEFAULT_SCORE_LEVEL_CONFIG);
-  }
+  return readJsonStorage(
+    STORAGE_KEY,
+    () => normalizeScoreLevelConfig(DEFAULT_SCORE_LEVEL_CONFIG),
+    (raw) => normalizeScoreLevelConfig(JSON.parse(raw)),
+  );
 }
 
 /** 当前生效的等级映射（响应式，界面改完立即刷新） */

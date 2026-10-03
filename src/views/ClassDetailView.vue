@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { errorMessage } from "../lib/error-message";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import AppIconButton from "../components/ui/AppIconButton.vue";
@@ -347,7 +348,7 @@ async function handleRenameClass(value: ClassFormValue) {
     await renameClass(props.name, newName);
   } catch (e) {
     // 失败保持弹窗打开，错误上浮到 toast——不再静默只进日志
-    toast(`重命名失败：${e instanceof Error ? e.message : String(e)}`, { tone: "error" });
+    toast(`重命名失败：${errorMessage(e)}`, { tone: "error" });
     return;
   }
   renameDialogOpen.value = false;
@@ -366,7 +367,7 @@ async function onArchiveClass() {
   try {
     await archiveClass(props.name);
   } catch (e) {
-    toast(`归档失败：${e instanceof Error ? e.message : String(e)}`, { tone: "error" });
+    toast(`归档失败：${errorMessage(e)}`, { tone: "error" });
     return;
   }
   router.push({ name: "classes" });
@@ -377,7 +378,7 @@ async function onRestoreClass() {
   try {
     await restoreClass(props.name);
   } catch (e) {
-    toast(`恢复失败：${e instanceof Error ? e.message : String(e)}`, { tone: "error" });
+    toast(`恢复失败：${errorMessage(e)}`, { tone: "error" });
     return;
   }
   toast("已恢复到在用班级");
@@ -397,7 +398,7 @@ async function onDeleteClass() {
   try {
     await deleteClass(props.name);
   } catch (e) {
-    toast(`删除失败：${e instanceof Error ? e.message : String(e)}`, { tone: "error" });
+    toast(`删除失败：${errorMessage(e)}`, { tone: "error" });
     return;
   }
   router.push({ name: "classes" });

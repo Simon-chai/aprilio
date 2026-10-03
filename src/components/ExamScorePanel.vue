@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { errorMessage } from "../lib/error-message";
 /**
  * 班级考试成绩面板：班级详情页「考试成绩」Tab 的主体。
  *
@@ -503,7 +504,7 @@ async function saveCorrect() {
     correctOpen.value = false;
     await refresh(true);
   } catch (e) {
-    correctError.value = e instanceof Error ? e.message : String(e);
+    correctError.value = errorMessage(e);
   } finally {
     correctSaving.value = false;
   }

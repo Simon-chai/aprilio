@@ -30,6 +30,7 @@ import {
 } from "./roster";
 import type { AgentLlm } from "../agent/types";
 import type { ClassScoreOverviewRow, Exam, ExamWithStats } from "../types";
+import { errorMessage } from "./error-message";
 
 /* ------------------------------------------------------------------ */
 /* 识别结果类型                                                        */
@@ -572,7 +573,7 @@ export async function importScoreBatch(
         } catch (e) {
           result.failed.push({
             name: row.name,
-            reason: e instanceof Error ? e.message : String(e),
+            reason: errorMessage(e),
           });
           continue;
         }
@@ -591,7 +592,7 @@ export async function importScoreBatch(
       } catch (e) {
         result.failed.push({
           name: `${row.name}·${s.subject}`,
-          reason: e instanceof Error ? e.message : String(e),
+          reason: errorMessage(e),
         });
       }
     }

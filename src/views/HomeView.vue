@@ -40,7 +40,8 @@ import {
   type MineOfClass,
   type MyDaySession,
 } from "../lib/timetable";
-import { fromDateStr, toDateStr } from "../lib/calendar";
+import { fromDateStr } from "../lib/calendar";
+import { localDateStr } from "../lib/format";
 import {
   avatarSrc,
   ensureProfile,
@@ -98,7 +99,7 @@ const weekDates = ref<string[]>([]);
 const weekMyDays = ref<Map<string, MyDaySession[]>>(new Map());
 const weekPeriods = ref<TimetablePeriod[]>(defaultPeriods());
 /** 今天的日期串（列高亮判断） */
-const todayStr = ref(toDateStr(new Date()));
+const todayStr = ref(localDateStr(new Date()));
 
 function sessionsAt(date: string, period: number): MyDaySession[] {
   return (weekMyDays.value.get(date) ?? []).filter((s) => s.period === period);
@@ -195,7 +196,7 @@ function shortDate(date: string): string {
 function mondayOfThisWeek(): string {
   const d = new Date();
   const weekday = ((d.getDay() + 6) % 7) + 1;
-  return toDateStr(new Date(d.getFullYear(), d.getMonth(), d.getDate() - (weekday - 1)));
+  return localDateStr(new Date(d.getFullYear(), d.getMonth(), d.getDate() - (weekday - 1)));
 }
 
 /** 第二屏「课程表」卡的描述文案：短句，不做长说明 */
@@ -221,11 +222,11 @@ function onHeroMouseMove(e: MouseEvent) {
 }
 
 async function loadTodayTimetable() {
-  todayStr.value = toDateStr(new Date());
+  todayStr.value = localDateStr(new Date());
   const semester = currentSemester();
   const monday = fromDateStr(mondayOfThisWeek());
   const dates = Array.from({ length: 5 }, (_, i) =>
-    toDateStr(new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i))
+    localDateStr(new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i))
   );
   weekDates.value = dates;
   try {

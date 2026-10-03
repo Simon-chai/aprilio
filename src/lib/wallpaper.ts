@@ -8,8 +8,10 @@
  */
 
 import { invoke } from "@tauri-apps/api/core";
-import { isTauri } from "./db";
+import { isTauri } from "./env";
+import { localDateStr } from "./format";
 import { backgroundLibrary, ensureBackgroundLibrary, importUrlBackground } from "./backgrounds";
+import { readJsonStorage } from "./storage";
 import type { BackgroundImage } from "../types";
 
 const LS_KEY = "aprilio.wallpaper.v1";
@@ -40,31 +42,18 @@ export function clampWallpaperCount(count: unknown): number {
 }
 
 export function loadWallpaperConfig(): WallpaperConfig {
-  if (typeof localStorage === "undefined") return { ...DEFAULT_WALLPAPER_CONFIG };
-  try {
-    const raw = localStorage.getItem(LS_KEY);
-    if (!raw) return { ...DEFAULT_WALLPAPER_CONFIG };
+  return readJsonStorage(LS_KEY, () => ({ ...DEFAULT_WALLPAPER_CONFIG }), (raw) => {
     // 旧版配置里还有 enabled / last_url 等字段，这里显式只取仍在使用的
     const parsed = JSON.parse(raw) as Partial<WallpaperConfig>;
     return {
       count: clampWallpaperCount(parsed.count),
       last_date: typeof parsed.last_date === "string" ? parsed.last_date : "",
     };
-  } catch {
-    return { ...DEFAULT_WALLPAPER_CONFIG };
-  }
+  });
 }
 
 export function saveWallpaperConfig(config: WallpaperConfig): void {
   localStorage.setItem(LS_KEY, JSON.stringify(config));
-}
-
-/** 本地日期 YYYY-MM-DD（跟随系统时区） */
-export function localDateStr(date = new Date()): string {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
 }
 
 /** fetch_bing_wallpaper 的返回结构（Rust backgrounds.rs::BingWallpaper，按新到旧排序） */

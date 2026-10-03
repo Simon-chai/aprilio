@@ -1,3 +1,4 @@
+import { errorMessage } from "./error-message";
 /**
  * 图片解码 / 降采样：本地选图与网络图片共用。
  *
@@ -80,7 +81,7 @@ export async function fetchImageDataUrl(url: string, max: number): Promise<strin
     blob = await resp.blob();
   } catch (cause) {
     throw new Error(
-      `下载图片失败：${cause instanceof Error ? cause.message : String(cause)}`,
+      `下载图片失败：${errorMessage(cause)}`,
     );
   }
   return readImageAsDataUrl(blob, max, false);

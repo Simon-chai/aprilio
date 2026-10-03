@@ -6,7 +6,7 @@
  * 红线：本模块**永不抛错、永不阻塞**下课流程；模型输出只作为文本，不改动 stats。
  */
 import { isAiConfigured, loadAiConfig } from "../lib/ai";
-import { isTauri } from "../lib/db";
+import { isTauri } from "../lib/env";
 import { createLlm } from "../agent/providers";
 import { PROMPT_IDS, resolvePrompt } from "../prompts";
 import type { AgentLlm, AgentMessage } from "../agent/types";

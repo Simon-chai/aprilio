@@ -7,7 +7,7 @@
  * 隐私：仅把单条备忘正文发给用户自己配置的模型服务，不写日志。
  */
 import { isAiConfigured, loadAiConfig } from "./ai";
-import { isTauri } from "./db";
+import { isTauri } from "./env";
 import { createLlm } from "../agent/providers";
 import { PROMPT_IDS, resolvePrompt } from "../prompts";
 import { MEMO_TITLE_MAX_LEN } from "../prompts/contracts";

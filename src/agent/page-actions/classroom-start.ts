@@ -12,6 +12,7 @@ import { detectCurrentLesson, startLesson } from "../../classroom/session";
 import { localDateStr } from "../../lib/format";
 import { resolveClassName } from "../tools/navigation";
 import { definePageAction } from "../define";
+import { errorMessage } from "../../lib/error-message";
 
 /** 动作参数：兼容模型把参数放在顶层或 args 子对象里的两种写法 */
 function actionArgs(rawArgs: Record<string, unknown>): Record<string, unknown> {
@@ -57,7 +58,7 @@ export default definePageAction({
           period: null,
         };
       } catch (e) {
-        return { ok: false, summary: "", error: e instanceof Error ? e.message : String(e) };
+        return { ok: false, summary: "", error: errorMessage(e) };
       }
     } else {
       // 无班级名：按当前时间课表命中，无命中则引导手动选班
@@ -81,7 +82,7 @@ export default definePageAction({
     try {
       res = await startLesson(input);
     } catch (e) {
-      return { ok: false, summary: "", error: e instanceof Error ? e.message : String(e) };
+      return { ok: false, summary: "", error: errorMessage(e) };
     }
 
     // AgentToolContext.router 的 push 类型只声明了 name / params，课堂路由需要 query（session id）

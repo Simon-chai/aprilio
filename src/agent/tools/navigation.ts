@@ -10,6 +10,7 @@ import { getStudent, listClasses } from "../../lib/db";
 import type { ClassSummary } from "../../types";
 import { defineAgentTool } from "../define";
 import type { ToolDefinition } from "../types";
+import { errorMessage } from "../../lib/error-message";
 
 /** 实体条目解析结果：路由参数 + 展示用页面标题 */
 export interface NavResolution {
@@ -184,7 +185,7 @@ export default defineAgentTool({
         params = resolved.params;
         label = resolved.label;
       } catch (e) {
-        return { ok: false, summary: "", error: e instanceof Error ? e.message : String(e) };
+        return { ok: false, summary: "", error: errorMessage(e) };
       }
     }
 

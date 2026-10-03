@@ -10,7 +10,7 @@
 
 import { ref } from "vue";
 import { invoke } from "@tauri-apps/api/core";
-import { isTauri } from "./db";
+import { isTauri } from "./env";
 import { photoUrl, getPhotosDir, deletePhotoFile } from "./photos";
 import {
   base64ToBlobUrl,

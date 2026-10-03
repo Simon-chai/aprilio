@@ -36,7 +36,8 @@ import {
   setCalendarEventDone,
   setCalendarEventTitle,
 } from "../lib/db";
-import { fromDateStr, mondayOf, toDateStr } from "../lib/calendar";
+import { fromDateStr, mondayOf } from "../lib/calendar";
+import { localDateStr } from "../lib/format";
 import { startDetectedLesson } from "../classroom/session";
 import { summarizeMemoTitle } from "../lib/memo-ai";
 import { useToast } from "../composables/useToast";
@@ -104,7 +105,7 @@ const weekDates = computed<string[]>(() => {
   const monday = mondayOf();
   return Array.from({ length: 5 }, (_, i) => {
     const d = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i);
-    return toDateStr(d);
+    return localDateStr(d);
   });
 });
 
@@ -581,7 +582,7 @@ onBeforeUnmount(() => {
               data-test="week-day-header"
               class="relative flex min-h-9 cursor-pointer flex-col items-center justify-center rounded-sm px-1 py-1 text-center text-fine transition-colors"
               :class="[
-                toDateStr(new Date()) === date
+                localDateStr(new Date()) === date
                   ? 'bg-primary-soft font-medium text-primary'
                   : filterHitAt(date, null)
                     ? 'bg-primary-soft/60 font-medium text-primary ring-1 ring-inset ring-primary/50'

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { errorMessage } from "../lib/error-message";
 /**
  * 导入课表对话框：Excel/CSV → 识别星期表头/节次表头 → 预览周网格 → 落库。
  * 与 ImportRosterDialog 同一交互骨架；文件管道复用 roster.ts（桌面 xlsx 走 Rust，浏览器仅 CSV）。
@@ -111,7 +112,7 @@ async function saveMarking(): Promise<void> {
       `课表我的科目标记：班级=${props.presetClass || selectedClass.value} 科目=[${markedDraft.value.join("、")}]`,
     );
   } catch (e) {
-    error.value = `保存标记失败：${e instanceof Error ? e.message : String(e)}`;
+    error.value = `保存标记失败：${errorMessage(e)}`;
   } finally {
     markingSaving.value = false;
   }
@@ -243,7 +244,7 @@ async function loadText(text: string, label = "") {
     table.value = parseRosterTable(text);
   } catch (e) {
     table.value = null;
-    error.value = `解析失败：${e instanceof Error ? e.message : String(e)}`;
+    error.value = `解析失败：${errorMessage(e)}`;
     return;
   }
   await analyze();
@@ -258,7 +259,7 @@ async function chooseFile() {
       if (!loaded) return;
       await loadTable(loaded, loaded.fileName);
     } catch (e) {
-      error.value = `读取文件失败：${e instanceof Error ? e.message : String(e)}`;
+      error.value = `读取文件失败：${errorMessage(e)}`;
     }
     return;
   }
@@ -349,7 +350,7 @@ async function doImport() {
       } catch (e) {
         failed.push(
           `${WEEKDAY_LABELS[cell.day_of_week - 1]} 第${cell.period}节 ${cell.subject}：${
-            e instanceof Error ? e.message : String(e)
+            errorMessage(e)
           }`,
         );
       }
@@ -367,7 +368,7 @@ async function doImport() {
     }
   } catch (e) {
     logError("课表导入失败", e);
-    error.value = `导入失败：${e instanceof Error ? e.message : String(e)}`;
+    error.value = `导入失败：${errorMessage(e)}`;
   } finally {
     importing.value = false;
   }

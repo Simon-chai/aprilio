@@ -21,6 +21,11 @@ vi.mock("../src/lib/db", () => ({
   saveProfile: profileMocks.saveProfile,
 }));
 
+// backgrounds 等模块的环境判断已挪到 lib/env，与 db 的 isTauri 保持同一开关
+vi.mock("../src/lib/env", () => ({
+  isTauri: profileMocks.isTauri,
+}));
+
 vi.mock("../src/lib/photos", () => ({
   deletePhotoFile: profileMocks.deletePhotoFile,
   getPhotosDir: profileMocks.getPhotosDir,

@@ -29,7 +29,8 @@ import {
   setCalendarEventDone,
   setCalendarEventTitle,
 } from "../lib/db";
-import { fromDateStr, mondayOf, toDateStr } from "../lib/calendar";
+import { fromDateStr, mondayOf } from "../lib/calendar";
+import { localDateStr } from "../lib/format";
 import { summarizeMemoTitle } from "../lib/memo-ai";
 import {
   CALENDAR_EVENT_META,
@@ -220,7 +221,7 @@ async function clearCell() {
 const weekDates = computed<string[]>(() => {
   const monday = mondayOf();
   return Array.from({ length: 5 }, (_, i) =>
-    toDateStr(new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i))
+    localDateStr(new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i))
   );
 });
 

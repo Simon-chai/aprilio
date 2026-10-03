@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { errorMessage } from "../lib/error-message";
 /**
  * 导入花名册对话框：指定格式导入 / 智能导入两种模式，支持一次选择多个文件。
  *
@@ -14,7 +15,7 @@ import AppButton from "./ui/AppButton.vue";
 import AppDialog from "./ui/AppDialog.vue";
 import AppIcon from "./ui/AppIcon.vue";
 import AnalyzingOverlay from "./AnalyzingOverlay.vue";
-import { isTauri } from "../lib/db";
+import { isTauri } from "../lib/env";
 import { isAiConfigured, loadAiConfig } from "../lib/ai";
 import { createLlm } from "../agent/providers";
 import { logError, logInfo } from "../lib/logger";
@@ -202,7 +203,7 @@ async function loadText(text: string, label = "") {
   try {
     await addTable(parseRosterTable(text), label);
   } catch (e) {
-    readError.value = `解析失败：${e instanceof Error ? e.message : String(e)}`;
+    readError.value = `解析失败：${errorMessage(e)}`;
   }
 }
 
@@ -227,7 +228,7 @@ async function chooseFile() {
         await addTable(loaded.table, loaded.fileName, loaded.sheet ?? "");
       }
     } catch (e) {
-      readError.value = `读取文件失败：${e instanceof Error ? e.message : String(e)}`;
+      readError.value = `读取文件失败：${errorMessage(e)}`;
     }
     return;
   }
@@ -239,7 +240,7 @@ async function chooseFile() {
       const text = decodeRosterBytes(await file.arrayBuffer()).text;
       await addTable(parseRosterTable(text), file.name);
     } catch (e) {
-      failures.push(`${file.name}：${e instanceof Error ? e.message : String(e)}`);
+      failures.push(`${file.name}：${errorMessage(e)}`);
     }
   }
   if (failures.length) readError.value = `部分文件解析失败：${failures.join("；")}`;
@@ -417,7 +418,7 @@ async function doImport() {
         }
       } catch (e) {
         logError("花名册导入失败", e);
-        entry.error = `导入失败：${e instanceof Error ? e.message : String(e)}`;
+        entry.error = `导入失败：${errorMessage(e)}`;
       }
     }
 

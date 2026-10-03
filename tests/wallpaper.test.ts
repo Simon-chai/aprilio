@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { localDateStr } from "../src/lib/format";
 
 // jsdom 没有 createObjectURL：blob URL 转换（loadCropSource 桌面端分支）需要它
 let blobSeq = 0;
@@ -17,7 +18,7 @@ const mocks = vi.hoisted(() => {
   };
 });
 
-vi.mock("../src/lib/db", () => ({ isTauri: mocks.isTauri }));
+vi.mock("../src/lib/env", () => ({ isTauri: mocks.isTauri }));
 vi.mock("../src/lib/photos", () => ({
   getPhotosDir: mocks.getPhotosDir,
   photoUrl: mocks.photoUrl,
@@ -96,7 +97,7 @@ describe("bing wallpaper import", () => {
     expect(library.every((item) => item.kind === "timetable_bg")).toBe(true);
     expect(library.map((item) => item.name)).toContain("印度西海岸的生活");
     // 推进「上次拉取」日期
-    expect(storedConfig().last_date).toBe(mod.localDateStr());
+    expect(storedConfig().last_date).toBe(localDateStr());
   });
 
   it("passes the configured count to the rust side", async () => {
@@ -148,7 +149,7 @@ describe("bing wallpaper import", () => {
     expect(imported).toBe(2);
     expect(bgMod.backgroundLibrary.value).toHaveLength(2);
     expect(errSpy).toHaveBeenCalledWith(expect.stringContaining("必应壁纸入库失败"));
-    expect(storedConfig().last_date).toBe(mod.localDateStr());
+    expect(storedConfig().last_date).toBe(localDateStr());
   });
 
   it("throws when nothing was imported at all", async () => {

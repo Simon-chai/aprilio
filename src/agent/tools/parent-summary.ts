@@ -18,6 +18,7 @@ import { getStudent, isTauri, listStudents } from "../../lib/db";
 import { resolveReportRange } from "../../lib/report";
 import { currentSemester } from "../../lib/timetable";
 import { defineAgentTool } from "../define";
+import { errorMessage } from "../../lib/error-message";
 
 /** 校验并归一时间范围参数；非法时抛出带中文提示的错误 */
 function resolveRangePreset(args: Record<string, unknown>): ParentSummaryRangePreset {
@@ -158,7 +159,7 @@ export default defineAgentTool({
       return {
         ok: false,
         summary: "",
-        error: e instanceof Error ? e.message : String(e),
+        error: errorMessage(e),
       };
     }
     const requirement = typeof args.requirement === "string" ? args.requirement.trim() : "";

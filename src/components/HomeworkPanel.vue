@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { errorMessage } from "../lib/error-message";
 /**
  * 作业台账面板：按学期过滤展示 + 新增/编辑/删除。
  * 数据口径与报告共用 lib/homework.ts。
@@ -111,7 +112,7 @@ async function onSave() {
     dialogOpen.value = false;
     await refresh();
   } catch (e) {
-    setMessage(e instanceof Error ? e.message : String(e));
+    setMessage(errorMessage(e));
   }
 }
 

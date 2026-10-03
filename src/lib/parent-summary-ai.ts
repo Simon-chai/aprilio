@@ -5,7 +5,7 @@
  * 隐私：仅把该生时段内的评价统计与评语文本发给用户自己配置的模型服务，不写日志。
  */
 import { isAiConfigured, loadAiConfig } from "./ai";
-import { isTauri } from "./db";
+import { isTauri } from "./env";
 import { createLlm } from "../agent/providers";
 import { PROMPT_IDS, resolvePrompt } from "../prompts";
 import { PARENT_SUMMARY_MAX_LEN } from "../prompts/contracts";

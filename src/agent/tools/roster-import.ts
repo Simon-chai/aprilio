@@ -10,7 +10,7 @@
  * 标记为写操作（dangerous: true），必须包含 confirm 参数；识别置信度低或没有
  * 发现姓名列时不落库，返回候选列让模型向用户确认后带 name_column 重试。
  */
-import { isTauri } from "../../lib/db";
+import { isTauri } from "../../lib/env";
 import { logError, logInfo } from "../../lib/logger";
 import {
   loadRosterTable,
@@ -21,6 +21,7 @@ import {
 } from "../../lib/roster";
 import { detectScoreSheet, runSmartScoreImport, type SmartScoreImportOutcome } from "../../lib/scores";
 import { defineAgentTool } from "../define";
+import { errorMessage } from "../../lib/error-message";
 
 export default defineAgentTool({
   name: "import_student_roster",
@@ -89,7 +90,7 @@ export default defineAgentTool({
         try {
           loadedList.push(await loadRosterTable(p));
         } catch (e) {
-          return { ok: false, summary: "", error: `读取花名册失败「${p}」：${e instanceof Error ? e.message : String(e)}` };
+          return { ok: false, summary: "", error: `读取花名册失败「${p}」：${errorMessage(e)}` };
         }
       }
     } else {
@@ -145,7 +146,7 @@ export default defineAgentTool({
         });
       } catch (e) {
         logError("花名册导入失败", e);
-        return { ok: false, summary: "", error: `花名册导入失败「${loaded.fileName}」：${e instanceof Error ? e.message : String(e)}` };
+        return { ok: false, summary: "", error: `花名册导入失败「${loaded.fileName}」：${errorMessage(e)}` };
       }
 
       if (outcome.status === "error") {
@@ -239,7 +240,7 @@ async function importScoreFromRosterTool(loaded: LoadedRoster, nameColumnArg?: s
     });
   } catch (e) {
     logError("成绩单导入失败", e);
-    return { ok: false, summary: "", error: `成绩单导入失败：${e instanceof Error ? e.message : String(e)}` };
+    return { ok: false, summary: "", error: `成绩单导入失败：${errorMessage(e)}` };
   }
 
   if (outcome.status !== "ok") {

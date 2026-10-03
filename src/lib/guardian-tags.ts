@@ -8,9 +8,10 @@
  * 隐私：仅把标签词本身发给用户自己配置的模型服务。
  */
 import { loadAiConfig, isAiConfigured } from "./ai";
-import { isTauri } from "./db";
+import { isTauri } from "./env";
 import { createLlm } from "../agent/providers";
 import { PROMPT_IDS, resolvePrompt } from "../prompts";
+import { readJsonStorage } from "./storage";
 import type { AgentLlm, AgentMessage } from "../agent/types";
 import { GUARDIAN_TAG_POLARITIES, GUARDIAN_TAG_PRESETS } from "../types";
 import type { GuardianTagPolarity } from "../types";
@@ -31,16 +32,11 @@ export const GUARDIAN_TAG_PRESETS_MAX = 20;
 export const GUARDIAN_TAG_MAX_LEN = 10;
 
 export function loadGuardianTagPresets(): string[] {
-  if (typeof localStorage === "undefined") return [...GUARDIAN_TAG_PRESETS];
-  try {
-    const raw = localStorage.getItem(GUARDIAN_TAG_PRESETS_KEY);
-    if (!raw) return [...GUARDIAN_TAG_PRESETS];
+  return readJsonStorage(GUARDIAN_TAG_PRESETS_KEY, () => [...GUARDIAN_TAG_PRESETS], (raw) => {
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [...GUARDIAN_TAG_PRESETS];
     return parsed.filter((t): t is string => typeof t === "string" && t.trim().length > 0);
-  } catch {
-    return [...GUARDIAN_TAG_PRESETS];
-  }
+  });
 }
 
 /** 新增自定义预设候选词：去重、限长限数；返回是否真的新增 */
@@ -75,10 +71,7 @@ function writeGuardianTagPresets(list: string[]): boolean {
 /* ------------------------------------------------------------------ */
 
 export function loadTagPolarities(): Record<string, GuardianTagPolarity> {
-  if (typeof localStorage === "undefined") return {};
-  try {
-    const raw = localStorage.getItem(POLARITY_STORAGE_KEY);
-    if (!raw) return {};
+  return readJsonStorage(POLARITY_STORAGE_KEY, () => ({}), (raw) => {
     const parsed: unknown = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return {};
     const out: Record<string, GuardianTagPolarity> = {};
@@ -88,9 +81,7 @@ export function loadTagPolarities(): Record<string, GuardianTagPolarity> {
       }
     }
     return out;
-  } catch {
-    return {};
-  }
+  });
 }
 
 function writeTagPolarities(entries: Record<string, GuardianTagPolarity>): void {

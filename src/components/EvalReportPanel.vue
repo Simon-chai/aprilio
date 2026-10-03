@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { errorMessage } from "../lib/error-message";
 /**
  * 评价报告面板：区间选择 → 一键生成（AI 双输出/数据版兜底）→ 预览 → 存档/打印/回写短评语。
  */
@@ -113,7 +114,7 @@ async function onGenerate() {
     source.value = res.source;
     if (res.source === "manual") setMessage("已生成数据版报告（未配置 AI）");
   } catch (e) {
-    setMessage(e instanceof Error ? e.message : String(e));
+    setMessage(errorMessage(e));
   } finally {
     generating.value = false;
   }
@@ -144,7 +145,7 @@ async function onSave() {
     setMessage("已存档");
     await refreshHistory();
   } catch (e) {
-    setMessage(e instanceof Error ? e.message : String(e));
+    setMessage(errorMessage(e));
   } finally {
     saving.value = false;
   }

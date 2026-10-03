@@ -15,6 +15,7 @@ import { resolveReportRange } from "../../../lib/report";
 import { currentSemester } from "../../../lib/timetable";
 import { defaultAnalysisEngine } from "../engine";
 import type { AnalysisEngine, AnalysisProvider, AnalysisQuery, AnalysisResult } from "../types";
+import { errorMessage } from "../../../lib/error-message";
 
 export const REPORT_ANALYSIS_KINDS = ["student_eval_report"] as const;
 
@@ -60,7 +61,7 @@ async function analyzeEvalReport(payload: Record<string, unknown>): Promise<Anal
       range = resolveReportRange({ mode: "semester", semester: currentSemester() });
     }
   } catch (e) {
-    return { ok: false, summary: "", error: e instanceof Error ? e.message : String(e) };
+    return { ok: false, summary: "", error: errorMessage(e) };
   }
 
   const [scoreReport, behaviors, homeworks] = await Promise.all([

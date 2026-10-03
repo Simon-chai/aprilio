@@ -9,6 +9,7 @@
  * 历史版本没有该键 = 全部走默认，行为与引入本机制前逐字一致。
  */
 import { ref } from "vue";
+import { readJsonStorage } from "../lib/storage";
 import type { PromptOverride, PromptStoreState } from "./types";
 
 const STORAGE_KEY = "aprilio.prompts.v1";
@@ -44,14 +45,7 @@ export function sanitizePromptState(parsed: unknown): PromptStoreState {
 
 /** 读取全部覆盖值；存储不可用 / 损坏时返回空集 */
 export function loadPromptOverrides(): Record<string, PromptOverride> {
-  if (typeof localStorage === "undefined") return {};
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return {};
-    return sanitizePromptState(JSON.parse(raw)).overrides;
-  } catch {
-    return {};
-  }
+  return readJsonStorage(STORAGE_KEY, () => ({}), (raw) => sanitizePromptState(JSON.parse(raw)).overrides);
 }
 
 /** 取单个模块的覆盖正文；没有自定义返回 undefined */

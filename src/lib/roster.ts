@@ -14,6 +14,7 @@ import type { AgentLlm } from "../agent/types";
 import { isAiConfigured, loadAiConfig, type AiConfig } from "./ai";
 import { createClass, createStudent, isTauri, listClasses, listStudents, updateStudent } from "./db";
 import type { Gender, Guardian, StudentInput } from "../types";
+import { errorMessage } from "./error-message";
 
 /* ------------------------------------------------------------------ */
 /* 类型                                                                */
@@ -1115,7 +1116,7 @@ export async function importRosterStudents(prep: RosterPrepareResult): Promise<R
               result.failed.push({
                 row: 0,
                 name: row.name,
-                reason: e instanceof Error ? e.message : String(e),
+                reason: errorMessage(e),
               });
             }
           } else {
@@ -1147,7 +1148,7 @@ export async function importRosterStudents(prep: RosterPrepareResult): Promise<R
         result.failed.push({
           row: 0,
           name: row.name,
-          reason: e instanceof Error ? e.message : String(e),
+          reason: errorMessage(e),
         });
       }
     }
@@ -1226,7 +1227,7 @@ export async function importRosterStudents(prep: RosterPrepareResult): Promise<R
             result.failed.push({
               row: 0,
               name: row.name,
-              reason: e instanceof Error ? e.message : String(e),
+              reason: errorMessage(e),
             });
           }
         } else {
@@ -1259,7 +1260,7 @@ export async function importRosterStudents(prep: RosterPrepareResult): Promise<R
       result.failed.push({
         row: 0,
         name: row.name,
-        reason: e instanceof Error ? e.message : String(e),
+        reason: errorMessage(e),
       });
     }
   }
@@ -1395,7 +1396,7 @@ export async function runSmartImport(
   try {
     table = parseRosterTable(text);
   } catch (e) {
-    return { status: "error", message: `解析表格失败：${e instanceof Error ? e.message : String(e)}` };
+    return { status: "error", message: `解析表格失败：${errorMessage(e)}` };
   }
   return runSmartImportTable(table, options);
 }

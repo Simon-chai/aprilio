@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { errorMessage } from "../../lib/error-message";
 /**
  * 「AI 润色」通用按钮：挂在人工文本输入旁，一键把已输入的文字交给模型按场景润色。
  *
@@ -71,7 +72,7 @@ async function onPolish() {
     toast("已润色，可继续编辑");
   } catch (e) {
     // 失败原文不动，报错走全局轻反馈唯一模式
-    toast(e instanceof Error ? e.message : String(e), { tone: "error" });
+    toast(errorMessage(e), { tone: "error" });
   } finally {
     busy.value = false;
   }

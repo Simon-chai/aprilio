@@ -69,9 +69,15 @@ import type {
   Seating,
 } from "../classroom/types";
 
-/** 是否在 Tauri 外壳里运行；浏览器里跑 dev 时走内存兜底，方便调样式。 */
-export const isTauri = (): boolean =>
+/**
+ * db 内部通道切换用：读真实运行环境（不给 mock 入口），
+ * 单测里恒为 false ⇒ 全部走内存库；SQLite 通道等价性靠 schema-sync 与按域 db 测试兜底。
+ */
+const isTauri = (): boolean =>
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
+/** 环境判断的实现挪到了 lib/env.ts；这里保留同名导出，旧引用点不用改。 */
+export { isTauri } from "./env";
 
 const DB_URL = "sqlite:aprilio.db";
 

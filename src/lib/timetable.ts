@@ -1,10 +1,12 @@
 /**
- * 课程表纯函数：学期推导 / 节次配置 / 网格构建 / 我的课表聚合。
+ * 课程表纯函数：节次配置 / 网格构建 / 我的课表聚合。
  *
  * 与 db.ts 分离，方便 vitest 直测；「我的课表」永远是从班级课表格子
  * （subject ∈ profile.my_subjects）推导的投影，不落库。
  * 设计说明见 docs/TIMETABLE.md。
+ * 学期推导统一在 lib/semester.ts（下方转发导出兼容既有引用点）。
  */
+import { currentSemester, semesterOfDate } from "./semester";
 import type {
   CalendarEvent,
   TimetableExceptionWithClass,
@@ -13,6 +15,8 @@ import type {
   TimetableSlot,
   TimetableSlotWithClass,
 } from "../types";
+
+export { currentSemester, semesterOfDate };
 
 /** 网格固定周一~周五（不考虑周六补课，见 docs/TIMETABLE.md 决策 ④） */
 export const WEEKDAY_COUNT = 5;
@@ -36,27 +40,8 @@ export const SUBJECT_PRESETS = [
 ];
 
 /* ------------------------------------------------------------------ */
-/* 学期                                                                 */
+/* 学期（实现统一在 lib/semester.ts，转发导出保持既有引用点不变）          */
 /* ------------------------------------------------------------------ */
-
-/**
- * 学期号推导：9~12 月 → Y-(Y+1)-1（秋季）；1~2 月仍属上一年度秋季 → (Y-1)-Y-1；
- * 3~8 月 → (Y-1)-Y-2（春季）。无需任何设置项。
- */
-export function currentSemester(date = new Date()): string {
-  const y = date.getFullYear();
-  const m = date.getMonth() + 1;
-  if (m >= 9) return `${y}-${y + 1}-1`;
-  if (m <= 2) return `${y - 1}-${y}-1`;
-  return `${y - 1}-${y}-2`;
-}
-
-/** 学期号推导（按指定日期）：同 currentSemester，供历史日期/课堂会话落库用 */
-export function semesterOfDate(date: string): string {
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(date);
-  if (!m) throw new Error("日期格式应为 YYYY-MM-DD");
-  return currentSemester(new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
-}
 
 /** 学期展示标签：2026-2027-1 → 「2026–2027 秋季学期」；非学期号原样返回 */
 export function semesterLabel(semester: string): string {

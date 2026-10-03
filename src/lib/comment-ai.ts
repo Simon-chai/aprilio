@@ -5,7 +5,7 @@
  * 隐私：仅把该生本学期的统计摘要与表现条目发给用户自己配置的模型服务，不写日志。
  */
 import { isAiConfigured, loadAiConfig } from "./ai";
-import { isTauri } from "./db";
+import { isTauri } from "./env";
 import { createLlm } from "../agent/providers";
 import { PROMPT_IDS, resolvePrompt } from "../prompts";
 import { TERM_COMMENT_MAX_LEN } from "../prompts/contracts";

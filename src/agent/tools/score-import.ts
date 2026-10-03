@@ -12,11 +12,12 @@
  * 成绩必须归属班级：班级来自入口参数 → 成绩单「班级」列 → 档案学生推断；
  * 都无法确定时不落库，返回错误让模型向用户确认班级后带 class_name 重试。
  */
-import { isTauri } from "../../lib/db";
+import { isTauri } from "../../lib/env";
 import { logError, logInfo } from "../../lib/logger";
 import { loadRosterTable, pickRosterFiles, type LoadedRoster } from "../../lib/roster";
 import { runSmartScoreImport, type SmartScoreImportOutcome } from "../../lib/scores";
 import { defineAgentTool } from "../define";
+import { errorMessage } from "../../lib/error-message";
 
 export default defineAgentTool({
   name: "import_score_sheet",
@@ -96,7 +97,7 @@ export default defineAgentTool({
         try {
           loadedList.push(await loadRosterTable(p));
         } catch (e) {
-          return { ok: false, summary: "", error: `读取成绩单失败「${p}」：${e instanceof Error ? e.message : String(e)}` };
+          return { ok: false, summary: "", error: `读取成绩单失败「${p}」：${errorMessage(e)}` };
         }
       }
     } else {
@@ -134,7 +135,7 @@ export default defineAgentTool({
         });
       } catch (e) {
         logError("成绩单导入失败", e);
-        return { ok: false, summary: "", error: `成绩单导入失败「${loaded.fileName}」：${e instanceof Error ? e.message : String(e)}` };
+        return { ok: false, summary: "", error: `成绩单导入失败「${loaded.fileName}」：${errorMessage(e)}` };
       }
 
       if (outcome.status !== "ok") {

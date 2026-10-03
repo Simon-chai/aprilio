@@ -21,6 +21,7 @@ import type {
   ToolRunRecord,
 } from "./types";
 import type { AiConfig } from "../lib/ai";
+import { errorMessage } from "../lib/error-message";
 
 export interface AgentTurnOptions {
   userText: string;
@@ -107,7 +108,7 @@ async function executeTool(
   try {
     return await tool.execute(call.arguments ?? {}, ctx);
   } catch (e) {
-    const message = e instanceof Error ? e.message : String(e);
+    const message = errorMessage(e);
     return { ok: false, summary: "", error: message };
   }
 }

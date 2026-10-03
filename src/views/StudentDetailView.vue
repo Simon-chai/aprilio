@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { errorMessage } from "../lib/error-message";
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import AppCard from "../components/ui/AppCard.vue";
@@ -128,7 +129,7 @@ async function refresh() {
     behaviors.value = b;
     examScores.value = es;
   } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e);
+    error.value = errorMessage(e);
   } finally {
     loading.value = false;
   }
@@ -186,7 +187,7 @@ async function onAddPhoto() {
       await refresh();
     }
   } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e);
+    error.value = errorMessage(e);
   } finally {
     busy.value = false;
   }

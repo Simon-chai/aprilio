@@ -5,7 +5,7 @@
  * 非 Tauri 环境（浏览器演示态、单测）下所有函数静默失效，不影响运行。
  */
 import { debug, error, info, warn } from "@tauri-apps/plugin-log";
-import { isTauri } from "./db";
+import { isTauri } from "./env";
 
 type Level = "debug" | "info" | "warn" | "error";
 

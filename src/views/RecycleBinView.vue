@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { errorMessage } from "../lib/error-message";
 import { computed, onMounted, ref } from "vue";
 import AppButton from "../components/ui/AppButton.vue";
 import AppIcon from "../components/ui/AppIcon.vue";
@@ -29,7 +30,7 @@ async function refresh() {
   try {
     items.value = await listRecycleItems();
   } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e);
+    error.value = errorMessage(e);
   } finally {
     loading.value = false;
   }
@@ -44,7 +45,7 @@ async function onRestore(item: RecycleItem) {
     await restoreRecycleItem(item.id);
     await refresh();
   } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e);
+    error.value = errorMessage(e);
   } finally {
     busyId.value = null;
   }
@@ -64,7 +65,7 @@ async function onPurge(item: RecycleItem) {
     await purgeRecycleItem(item.id);
     await refresh();
   } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e);
+    error.value = errorMessage(e);
   } finally {
     busyId.value = null;
   }
@@ -83,7 +84,7 @@ async function onClearAll() {
     await clearRecycleBin();
     await refresh();
   } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e);
+    error.value = errorMessage(e);
   }
 }
 

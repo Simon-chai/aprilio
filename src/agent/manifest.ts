@@ -8,7 +8,7 @@
  * 对应 Spring 的 classpath 扫描；dev 下新文件热更新即被感知）。
  */
 import { createCapabilityContainer, type CapabilityContainer } from "./container";
-import { isTauri } from "../lib/db";
+import { isTauri } from "../lib/env";
 import type { AgentTool, PageAction, RustCapabilityReport, RustExecutor } from "./types";
 
 const toolModules = import.meta.glob<AgentTool>("./tools/*.ts", {

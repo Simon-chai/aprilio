@@ -4,7 +4,7 @@
  * - 未配置 / 失败 → 数据版 markdown（report.ts），录入永不阻塞
  */
 import { isAiConfigured, loadAiConfig } from "./ai";
-import { isTauri } from "./db";
+import { isTauri } from "./env";
 import { createLlm } from "../agent/providers";
 import { PROMPT_IDS, resolvePrompt } from "../prompts";
 import type { AgentLlm, AgentMessage } from "../agent/types";

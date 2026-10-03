@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { errorMessage } from "../lib/error-message";
 /**
  * 家校沟通总结批量对话框（班级层，全局唯一实例挂在 App.vue）：
  * 按指定时段内的评价，对本班学生一键批量生成给家长的表现总结。
@@ -290,7 +291,7 @@ async function generateWholeClass(requirement = "") {
   try {
     resolveCurrentRange();
   } catch (e) {
-    toast(e instanceof Error ? e.message : String(e), { tone: "error" });
+    toast(errorMessage(e), { tone: "error" });
     return;
   }
   const targets = students.value.filter((s) => statusOf(s.id) !== "done");
@@ -341,7 +342,7 @@ async function applyToProfile(student: StudentRow) {
   try {
     range = resolveCurrentRange();
   } catch (e) {
-    toast(e instanceof Error ? e.message : String(e), { tone: "error" });
+    toast(errorMessage(e), { tone: "error" });
     return;
   }
   try {
@@ -363,7 +364,7 @@ async function applyToProfile(student: StudentRow) {
     job.source = source;
     toast(`已写入 ${student.name} 的${semesterLabel(semesterOf)}学期评语`);
   } catch (e) {
-    toast(e instanceof Error ? e.message : String(e), { tone: "error" });
+    toast(errorMessage(e), { tone: "error" });
   }
 }
 

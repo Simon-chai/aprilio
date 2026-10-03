@@ -7,15 +7,15 @@ import {
   mondayOf,
   monthTitle,
   shiftMonth,
-  toDateStr,
   weekdayIndexOf,
 } from "../src/lib/calendar";
+import { localDateStr } from "../src/lib/format";
 
 describe("calendar pure functions", () => {
   it("converts between Date and date string without timezone drift", () => {
     const d = new Date(2026, 8, 6);
-    expect(toDateStr(d)).toBe("2026-09-06");
-    expect(toDateStr(fromDateStr("2026-09-06"))).toBe("2026-09-06");
+    expect(localDateStr(d)).toBe("2026-09-06");
+    expect(localDateStr(fromDateStr("2026-09-06"))).toBe("2026-09-06");
   });
 
   it("computes weekday with Monday as 1 and Sunday as 7", () => {
@@ -25,10 +25,10 @@ describe("calendar pure functions", () => {
   });
 
   it("finds the Monday of the week, with Sunday still in the previous week's block", () => {
-    expect(toDateStr(mondayOf(new Date(2026, 8, 7)))).toBe("2026-09-07"); // 周一 → 当天
-    expect(toDateStr(mondayOf(new Date(2026, 8, 9)))).toBe("2026-09-07"); // 周三 → 本周一
-    expect(toDateStr(mondayOf(new Date(2026, 8, 13)))).toBe("2026-09-07"); // 周日 → 仍归本周
-    expect(toDateStr(mondayOf(new Date(2026, 8, 6)))).toBe("2026-08-31"); // 周日 → 上月末尾的周一
+    expect(localDateStr(mondayOf(new Date(2026, 8, 7)))).toBe("2026-09-07"); // 周一 → 当天
+    expect(localDateStr(mondayOf(new Date(2026, 8, 9)))).toBe("2026-09-07"); // 周三 → 本周一
+    expect(localDateStr(mondayOf(new Date(2026, 8, 13)))).toBe("2026-09-07"); // 周日 → 仍归本周
+    expect(localDateStr(mondayOf(new Date(2026, 8, 6)))).toBe("2026-08-31"); // 周日 → 上月末尾的周一
   });
 
   it("knows month lengths including leap years", () => {
