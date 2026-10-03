@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
+import AppIcon from "./ui/AppIcon.vue";
 import type { BehaviorPolarity, StudentBehaviorRecord } from "../types";
 import { confirmAction } from "../composables/useConfirm";
 
@@ -11,6 +12,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   add: [];
   remove: [recordId: number];
+  /** 右键菜单「编辑」：上抛整条记录与菜单弹出坐标（用作编辑卡片锚点） */
+  edit: [record: StudentBehaviorRecord, anchor: { x: number; y: number } | null];
 }>();
 
 /** 删除评语所在的表现记录：全局确认弹层（armed 两步模式已退役） */
@@ -22,6 +25,69 @@ async function onRemoveClick(recordId: number) {
     confirmText: "删除",
   });
   if (ok) emit("remove", recordId);
+}
+
+/* ---------------- 条目右键菜单：编辑 / 删除 ----------------
+ * 收起口径与课表格子备忘浮层一致：Esc、点空白、右键其他位置、滚动。
+ * 菜单挂在条目上弹出（Teleport 到 body 定宽小卡），右键其他条目时切换归属。 */
+const menu = ref<{ x: number; y: number; record: StudentBehaviorRecord } | null>(null);
+const menuEl = ref<HTMLElement | null>(null);
+const MENU_SIZE = { w: 128, h: 92, margin: 8 };
+
+function openContextMenu(e: MouseEvent, record: StudentBehaviorRecord) {
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  menu.value = {
+    x: Math.max(MENU_SIZE.margin, Math.min(e.clientX, vw - MENU_SIZE.w - MENU_SIZE.margin)),
+    y: Math.max(MENU_SIZE.margin, Math.min(e.clientY, vh - MENU_SIZE.h - MENU_SIZE.margin)),
+    record,
+  };
+  document.addEventListener("mousedown", onMenuOutsideMousedown);
+  document.addEventListener("keydown", onMenuEscKey);
+  document.addEventListener("contextmenu", onDocContextmenu);
+  document.addEventListener("scroll", onDocScroll, true);
+}
+
+function closeMenu() {
+  if (!menu.value) return;
+  menu.value = null;
+  document.removeEventListener("mousedown", onMenuOutsideMousedown);
+  document.removeEventListener("keydown", onMenuEscKey);
+  document.removeEventListener("contextmenu", onDocContextmenu);
+  document.removeEventListener("scroll", onDocScroll, true);
+}
+
+function onMenuOutsideMousedown(e: MouseEvent) {
+  if (menuEl.value && e.target instanceof Node && menuEl.value.contains(e.target)) return;
+  closeMenu();
+}
+
+function onMenuEscKey(e: KeyboardEvent) {
+  if (e.key === "Escape") closeMenu();
+}
+
+/** 右键其他位置：收起本菜单（落在条目上时由条目自身接管切换，不会走到这里） */
+function onDocContextmenu() {
+  closeMenu();
+}
+
+function onDocScroll() {
+  closeMenu();
+}
+
+onBeforeUnmount(closeMenu);
+
+function onMenuEdit() {
+  const record = menu.value?.record;
+  const anchor = menu.value ? { x: menu.value.x, y: menu.value.y } : null;
+  closeMenu();
+  if (record) emit("edit", record, anchor);
+}
+
+async function onMenuDelete() {
+  const record = menu.value?.record;
+  closeMenu();
+  if (record) await onRemoveClick(record.id);
 }
 
 const selectedPolarity = ref<"all" | BehaviorPolarity>("all");
@@ -220,6 +286,8 @@ const groupedRecords = computed<DateGroup[]>(() => {
             :key="item.id"
             data-test="timeline-item"
             class="group relative flex items-start gap-3 rounded-lg border border-divider bg-canvas p-3.5 transition-colors hover:border-hairline hover:bg-parchment/40"
+            title="右键可编辑 / 删除"
+            @contextmenu.prevent.stop="openContextMenu($event, item)"
           >
             <!-- 节点圆点锚定在时间线上 -->
             <div
@@ -285,5 +353,36 @@ const groupedRecords = computed<DateGroup[]>(() => {
         </div>
       </div>
     </div>
+
+    <!-- 条目右键菜单：编辑 / 删除（Teleport 到 body，固定定位跟随右键坐标） -->
+    <Teleport to="body">
+      <div
+        v-if="menu"
+        ref="menuEl"
+        data-test="item-context-menu"
+        class="fixed z-[60] min-w-[128px] rounded-md border border-hairline bg-canvas py-1 shadow-[var(--shadow-window)]"
+        :style="{ left: `${menu.x}px`, top: `${menu.y}px` }"
+        @contextmenu.prevent
+      >
+        <button
+          type="button"
+          data-test="menu-edit"
+          class="flex w-full items-center gap-2 px-3 py-1.5 text-caption text-ink transition-colors hover:bg-parchment"
+          @click="onMenuEdit"
+        >
+          <AppIcon name="edit" :size="13" class="shrink-0 text-weak" />
+          编辑
+        </button>
+        <button
+          type="button"
+          data-test="menu-delete"
+          class="flex w-full items-center gap-2 px-3 py-1.5 text-caption text-danger transition-colors hover:bg-danger-soft"
+          @click="onMenuDelete"
+        >
+          <AppIcon name="trash" :size="13" class="shrink-0" />
+          删除
+        </button>
+      </div>
+    </Teleport>
   </div>
 </template>

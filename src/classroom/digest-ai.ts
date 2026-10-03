@@ -8,6 +8,7 @@
 import { isAiConfigured, loadAiConfig } from "../lib/ai";
 import { isTauri } from "../lib/db";
 import { createLlm } from "../agent/providers";
+import { PROMPT_IDS, resolvePrompt } from "../prompts";
 import type { AgentLlm, AgentMessage } from "../agent/types";
 import type { DigestInput } from "./digest";
 import type { LessonStats } from "./types";
@@ -18,13 +19,6 @@ export interface LessonDigestAiOptions {
   /** 测试注入；缺省 = 桌面端且模型已配置 */
   aiReady?: boolean;
 }
-
-const SYSTEM_PROMPT =
-  "你是一位班主任，刚上完一节课，正在写一段课堂小结。" +
-  "写作要求：1）只依据给出的事实数据，不编造姓名、分数与事例；" +
-  "2）以 markdown 输出，含 3 个小节：## 课堂回顾 / ## 亮点与提醒 / ## 下一步建议，每节 2~3 句；" +
-  "3）语气温暖具体，先肯定再给建议，涉及待改进时用「建议课后轻声提醒」这类不点破的措辞；" +
-  "4）全文 150~350 字，只输出小结正文，不要解释。";
 
 /** 把 stats 压成事实表：模型只做润色，不做聚合（防双源漂移） */
 function buildMessages(input: DigestInput, stats: LessonStats): AgentMessage[] {
@@ -71,7 +65,7 @@ export async function generateAiLessonDigest(
   try {
     const llm = options.llm ?? createLlm();
     const res = await llm.chat({
-      system: SYSTEM_PROMPT,
+      system: resolvePrompt(PROMPT_IDS.lessonDigest),
       messages: buildMessages(input, stats),
       tools: [],
       config,

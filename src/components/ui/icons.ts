@@ -53,6 +53,11 @@ export const ICONS: Record<string, string> = {
     '<path d="M4.5 16.5l4.5-4.2 3.4 3.1 3-2.7 3.8 3.6" />' +
     '<circle cx="8.8" cy="9.4" r="1.5" fill="currentColor" stroke="none" />',
 
+  /* 奖章（评价卡片）：圆章 + 绶带的奖牌轮廓 */
+  card:
+    '<circle cx="12" cy="9" r="4.5" stroke-width="1.8" />' +
+    '<path d="M9.3 12.7 8 20l4-2.3L16 20l-1.3-7.3" stroke-width="1.8" />',
+
   /* 人像：拷贝自 RecycleBinView 学生类型图标（填充式，原图自带 0.85 透明度保留） */
   person:
     '<circle cx="12" cy="8.5" r="4" fill="currentColor" stroke="none" opacity="0.85" />' +
@@ -101,4 +106,10 @@ export const ICONS: Record<string, string> = {
 
   /* 对勾：拷贝自 ModelSwitcher 模型菜单选中勾（弹层确认场景同款） */
   check: '<path d="M5 13l4 4L19 7" stroke-width="2.4" />',
+
+  /* 提示词（对话气泡 + 文字行）：现有代码无同款，按同风格手绘
+     （24 网格、细线条、圆角端点；气泡左上收角，内两条文字行） */
+  prompt:
+    '<path d="M4.2 5.4h15.6a1.6 1.6 0 0 1 1.6 1.6v9.2a1.6 1.6 0 0 1-1.6 1.6H9l-4.4 3.4V7a1.6 1.6 0 0 1 1.6-1.6Z" stroke-width="1.8" />' +
+    '<path d="M7.6 10h8.8M7.6 13.4h5.6" stroke-width="1.8" />',
 };

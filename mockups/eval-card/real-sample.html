@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>学生评价卡片</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { margin: 0; background: #ffffff; }
+  .card {
+    position: relative;
+    width: 750px; min-height: 1240px;
+    background: linear-gradient(180deg, #eef7f0 0%, #fdfefd 30%);
+    padding: 28px;
+    display: flex; flex-direction: column;
+    font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    color: #1d1d1f;
+  }
+  /* 学生姓名平铺水印：盖在整卡上，透明度 8%，不影响阅读 */
+  .wm {
+    position: absolute; inset: 0; pointer-events: none;
+    background-image: url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22240%22%20height%3D%22170%22%3E%3Ctext%20x%3D%2216%22%20y%3D%2298%22%20transform%3D%22rotate(-18%20120%2085)%22%20font-size%3D%2222%22%20font-weight%3D%22600%22%20letter-spacing%3D%222%22%20fill%3D%22%231d1d1f%22%20fill-opacity%3D%220.08%22%20font-family%3D%22PingFang%20SC%2C%20Microsoft%20YaHei%2C%20sans-serif%22%3E%E6%9D%8E%E6%A2%93%E6%B6%B5%3C%2Ftext%3E%3C%2Fsvg%3E');
+  }
+  .card > *:not(.wm) { position: relative; }
+  .banner {
+    height: 196px; border-radius: 24px;
+    background: linear-gradient(120deg, #2e9e57 0%, #6fc189 100%);
+    padding: 28px 30px;
+    display: flex; align-items: center; gap: 22px;
+    color: #fff;
+  }
+  .avatar {
+    width: 92px; height: 92px; border-radius: 50%;
+    background: rgba(255, 255, 255, 0.92);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 42px; font-weight: 700; color: #2e9e57;
+    flex-shrink: 0;
+  }
+  .banner .name { font-size: 34px; font-weight: 700; letter-spacing: 1px; }
+  .banner .meta { font-size: 19px; opacity: 0.92; margin-top: 8px; }
+  .banner .stars { margin-left: auto; text-align: right; }
+  .banner .stars .on { font-size: 26px; color: #ffe08a; letter-spacing: 4px; }
+  .banner .stars .off { font-size: 26px; color: rgba(255, 255, 255, 0.38); letter-spacing: 4px; }
+  .banner .stars .label { font-size: 15px; opacity: 0.9; margin-top: 6px; }
+  .sec-title { font-size: 24px; font-weight: 700; margin: 26px 0 14px; }
+  .sec-title .sub { font-size: 17px; font-weight: 400; color: #7a7a7a; margin-left: 12px; }
+  .chips { display: flex; gap: 14px; margin-top: 22px; }
+  .chip {
+    flex: 1; background: #fff; border-radius: 999px;
+    padding: 13px 0; text-align: center;
+    font-size: 20px; color: #333;
+    box-shadow: 0 2px 10px rgba(46, 158, 87, 0.08);
+  }
+  .chip b { font-size: 22px; color: #248a3d; margin-left: 6px; }
+  .score-row { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
+  .score-row .subj { width: 96px; font-size: 21px; color: #333; }
+  .score-row .track { flex: 1; height: 14px; border-radius: 999px; background: #e8f2ea; overflow: hidden; }
+  .score-row .fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, #6fc189, #2e9e57); }
+  .score-row .num { width: 56px; text-align: right; font-size: 25px; font-weight: 800; }
+  .rank-note { font-size: 19px; color: #248a3d; margin-top: 2px; }
+  .rank-note.down { color: #d97706; }
+  .tags { display: flex; gap: 12px; flex-wrap: wrap; }
+  .tag { background: #e8f5e9; color: #248a3d; border-radius: 999px; padding: 9px 18px; font-size: 19px; }
+  .tl { margin-top: 16px; }
+  .tl-item { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 14px; }
+  .tl-item .dot { width: 10px; height: 10px; border-radius: 50%; background: #248a3d; margin-top: 9px; flex-shrink: 0; }
+  .tl-item .date { width: 62px; font-size: 17px; color: #7a7a7a; margin-top: 2px; flex-shrink: 0; }
+  .tl-item .txt { font-size: 20px; color: #333; line-height: 1.5; }
+  .comment { background: #f2faf4; border-radius: 18px; padding: 22px 24px; margin-top: 4px; position: relative; }
+  .comment .q { position: absolute; top: 2px; left: 18px; font-size: 52px; color: #bfe3cb; font-weight: 700; line-height: 1; }
+  .comment p { font-size: 21px; line-height: 1.78; color: #333; position: relative; }
+  .footer { margin-top: auto; border-top: 1px solid #e0e8e2; padding-top: 18px; }
+  .footer .row { display: flex; justify-content: space-between; align-items: baseline; }
+  .footer .teacher { font-size: 20px; font-weight: 600; }
+  .footer .date { font-size: 18px; color: #7a7a7a; }
+  .footer .brand { text-align: center; font-size: 14px; color: #c2d3c6; margin-top: 14px; letter-spacing: 2px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="wm" aria-hidden="true"></div>
+  <div class="banner">
+    <div class="avatar">梓</div>
+    <div>
+      <div class="name">李梓涵</div>
+      <div class="meta">三年二班 · 2026 年 9 月</div>
+    </div>
+    <div class="stars">
+      <div><span class="on">★</span><span class="on">★</span><span class="on">★</span><span class="on">★</span><span class="off">★</span></div>
+      <div class="label">本阶段综合评价 · 优秀</div>
+    </div>
+  </div>
+  <div class="chips"><div class="chip">📚 学习<b>95</b></div><div class="chip">🤝 表现<b>优</b></div><div class="chip">✍️ 作业<b>优</b></div></div>
+  <div class="sec-title">📊 9月月考<span class="sub">2026-09-25 · 班级第 3 名</span></div>
+  <div class="score-row"><div class="subj">语文</div><div class="track"><div class="fill" style="width:92%"></div></div><div class="num">92</div></div><div class="score-row"><div class="subj">数学</div><div class="track"><div class="fill" style="width:98%"></div></div><div class="num">98</div></div><div class="score-row"><div class="subj">英语</div><div class="track"><div class="fill" style="width:95%"></div></div><div class="num">95</div></div>
+  <div class="rank-note up">↑ 总分较上次提高 5 分，班级第 3 名（共 42 人）</div>
+  <div class="sec-title">🌟 亮点时刻</div>
+  <div class="tags"><div class="tag">课堂表现 ×3</div><div class="tag">劳动情况</div><div class="tag">作业按时 19/20</div></div>
+  <div class="tl"><div class="tl-item"><div class="dot"></div><div class="date">09-26</div><div class="txt">连续一周数学作业全对，当选作业示范</div></div><div class="tl-item"><div class="dot"></div><div class="date">09-19</div><div class="txt">国旗下讲话落落大方，获全校表扬</div></div><div class="tl-item"><div class="dot"></div><div class="date">09-08</div><div class="txt">主动帮同桌讲解数学题，讲解思路清晰</div></div></div>
+  <div class="sec-title">💬 老师想对你说</div>
+  <div class="comment"><div class="q">“</div><p>梓涵这一个月状态很好，课堂上小手举得越来越高，回答问题有自己的想法。数学一直是你的强项，语文阅读理解也在稳步进步。希望下个月继续保持专注，把「爱思考」变成每一天的习惯。</p></div>
+  <div class="footer">
+    <div class="row">
+      <div class="teacher">班主任 · 王老师</div>
+      <div class="date">2026 年 10 月 3 日</div>
+    </div>
+    <div class="brand">APRILIO · 班级管理</div>
+  </div>
+</div>
+</body>
+</html>

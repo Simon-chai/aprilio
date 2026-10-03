@@ -19,7 +19,7 @@ import { computed, nextTick, onBeforeUnmount, ref, useId, watch } from "vue";
 
 defineOptions({ inheritAttrs: false });
 
-type Variant = "center" | "drawer";
+type Variant = "center" | "drawer" | "photo";
 type Width = "sm" | "md" | "lg";
 
 const props = withDefaults(
@@ -29,7 +29,8 @@ const props = withDefaults(
     title: string;
     /** 标题下的弱化说明（可选） */
     description?: string;
-    /** drawer = 右侧抽屉（全高贴右）；默认 center 居中 */
+    /** drawer = 右侧抽屉（全高贴右）；photo = 沉浸式看图（深色遮罩 + 透明全宽面板，
+     *  供 ImageLightbox 用，标题仅 sr-only 保 aria）；默认 center 居中 */
     variant?: Variant;
     /** 面板宽度：sm 440 / md 560 / lg 720，默认 md */
     width?: Width;
@@ -57,11 +58,17 @@ const panelShiftClass = computed(() =>
   props.variant === "drawer" ? "opacity-0 translate-x-full" : "opacity-0 translate-y-2"
 );
 
-const panelClass = computed(() => [
-  "pointer-events-auto max-w-full rounded-lg bg-canvas p-6 shadow-window focus:outline-none",
-  PANEL_WIDTH[props.width],
-  props.variant === "drawer" ? "fixed bottom-0 right-0 top-0" : "relative",
-]);
+const panelClass = computed(() => {
+  // 沉浸式看图：无底色无内边距，宽度撑满遮罩内区，视觉全交给插槽内容
+  if (props.variant === "photo") {
+    return "pointer-events-auto relative w-full focus:outline-none";
+  }
+  return [
+    "pointer-events-auto max-w-full rounded-lg bg-canvas p-6 shadow-window focus:outline-none",
+    PANEL_WIDTH[props.width],
+    props.variant === "drawer" ? "fixed bottom-0 right-0 top-0" : "relative",
+  ];
+});
 
 let stackToken: object | null = null;
 let savedActiveElement: HTMLElement | null = null;
@@ -176,7 +183,8 @@ function onOverlayMousedown() {
       <div
         v-if="open"
         data-test="dialog-overlay"
-        class="pointer-events-auto absolute inset-0 bg-black/30"
+        class="pointer-events-auto absolute inset-0"
+        :class="variant === 'photo' ? 'bg-black/80' : 'bg-black/30'"
         @mousedown="onOverlayMousedown"
       />
     </Transition>
@@ -197,7 +205,10 @@ function onOverlayMousedown() {
         tabindex="-1"
         :class="panelClass"
       >
-        <h2 :id="titleId" class="text-tagline font-semibold text-ink">{{ title }}</h2>
+        <!-- photo 变体不占版面，仅保留 sr-only 标题供 aria-labelledby 关联 -->
+        <h2 :id="titleId" :class="variant === 'photo' ? 'sr-only' : 'text-tagline font-semibold text-ink'">
+          {{ title }}
+        </h2>
         <p v-if="description" class="mt-3 text-caption leading-relaxed text-muted">
           {{ description }}
         </p>

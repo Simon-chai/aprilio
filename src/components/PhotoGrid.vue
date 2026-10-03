@@ -1,7 +1,9 @@
 <script setup lang="ts">
+import { computed, ref } from "vue";
 import type { Photo } from "../types";
 import { photoUrl } from "../lib/photos";
 import { formatDate } from "../lib/format";
+import ImageLightbox from "./ui/ImageLightbox.vue";
 
 const props = withDefaults(
   defineProps<{ photos: Photo[]; dir?: string; canAdd?: boolean }>(),
@@ -9,6 +11,24 @@ const props = withDefaults(
 );
 
 const emit = defineEmits<{ add: []; remove: [photo: Photo] }>();
+
+/** 可查看原图的照片（演示模式没有文件地址的除外）；缩略图只等比缩放，全貌在这里看 */
+const viewable = computed(() =>
+  props.photos
+    .map((photo) => ({
+      id: photo.id,
+      src: photoUrl(props.dir, photo.file_name),
+      caption: photo.caption || "未命名",
+    }))
+    .filter((item) => item.src)
+);
+
+const previewIndex = ref<number | null>(null);
+
+function openPreview(photo: Photo) {
+  const index = viewable.value.findIndex((item) => item.id === photo.id);
+  if (index >= 0) previewIndex.value = index;
+}
 </script>
 
 <template>
@@ -19,7 +39,10 @@ const emit = defineEmits<{ add: []; remove: [photo: Photo] }>();
           v-if="photoUrl(props.dir, photo.file_name)"
           :src="photoUrl(props.dir, photo.file_name)"
           :alt="photo.caption ?? ''"
-          class="h-full w-full object-cover"
+          title="点击查看原图"
+          class="h-full w-full cursor-zoom-in object-contain"
+          data-test="photo-thumb"
+          @click="openPreview(photo)"
         />
         <div v-else class="flex h-full items-center justify-center text-fine text-weak">
           示例图片
@@ -59,5 +82,12 @@ const emit = defineEmits<{ add: []; remove: [photo: Photo] }>();
       </svg>
       <span class="text-fine">关联图片</span>
     </button>
+
+    <ImageLightbox
+      :open="previewIndex !== null"
+      :items="viewable"
+      :index="previewIndex ?? 0"
+      @close="previewIndex = null"
+    />
   </div>
 </template>

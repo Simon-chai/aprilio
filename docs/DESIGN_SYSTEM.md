@@ -88,7 +88,7 @@ aprilio 的视觉规范与 token 约定。**token 唯一事实源是 `src/style.
 
 ### AI 生成内容标识
 
-AI 生成 / 推荐内容（如快捷记表现的 AI 推荐评语 chips）的标识色，用于与人工内容区分：
+AI 生成 / 推荐内容（如快捷记表现的 AI 推荐评语 chips、输入框旁的「AI 润色」按钮 `AiPolishButton`）的标识色，用于与人工内容区分：
 
 | Token | 值 | 用途 |
 | --- | --- | --- |
@@ -192,17 +192,25 @@ canvas 绘制的图表**读不到 CSS 变量**，图表配色不登记在 `@them
 | `AppInput` | `variant="search"`（胶囊）/ `variant="field"`（方角） |
 | `AppCard` | 18px 圆角 + 发丝线，不加阴影 |
 | `AppIconButton` | 渐变描边图标按钮；`show-label` 升级为「图标+文字」胶囊；`tone="danger"`；`size="sm"` 卡片行内小号。极低频操作（一个对象生命周期约一次，如班级归档/删除）优先收进「⋯」溢出菜单，不与标题争空间 |
+| `AiPolishButton` | 「AI 润色」通用按钮（ai/ai-soft/ai-line 标识色胶囊 + ✨ 前缀，与 AI 推荐气泡同一语言）：挂任意人工文本输入旁，`text/scene/hint/context/maxLen` 传当前文本与场景，`@apply` 回写润色结果；AI 未配置时置灰 + 悬浮说明。`size="sm"` 用于课表格速记等紧凑行 |
 | `StatusChip` | `info` / `neutral` / `success` 状态胶囊 |
 | `EmptyState` | 空态占位 |
-| `AppDialog` | 统一弹层壳（详见下文「交互基建四件套」）：`variant="center"/"drawer"`、`width="sm"/"md"/"lg"`（440/560/720）、Esc 只关栈顶、焦点圈定 |
+| `AppDialog` | 统一弹层壳（详见下文「交互基建四件套」）：`variant="center"/"drawer"/"photo"`、`width="sm"/"md"/"lg"`（440/560/720）、Esc 只关栈顶、焦点圈定 |
 | `ConfirmDialog` | 破坏性确认·组件形态：`tone="danger"` 红确认按钮，`footer` 插槽放自定义按钮组（如 ClassesView 三按钮）；日常场景用命令式 `confirmAction` |
 | `confirmAction` | 破坏性确认·命令式（`composables/useConfirm.ts`）：`await confirmAction({ ... }) → boolean`，宿主 `ConfirmHost` 已挂 `App.vue` |
 | `useToast` + `ToastHost` | 全局轻反馈唯一模式：`toast("已保存")`，顶部居中、`z-[70]` 高于一切弹层 |
 | `AppIcon` | 轻量图标注册表（不引图标库）：`<AppIcon name="trash" :size="16" />`，`currentColor` 继承文字色 |
+| `ImageLightbox` | 查看原图唯一模式（点照片缩略图进入）：壳为 `AppDialog` 的 `photo` 变体，← / → 键与按钮翻页、点击图片切换适应窗口 ↔ 原始尺寸、Esc / 遮罩关闭；props `open / items / index` |
 
 ### 侧边导航「提起感」（专属例外）
 
 `AppSidebar` 选中项不使用方案 C 皮肤：整行 `origin-left scale-[1.04] -translate-x-0.5 -translate-y-0.5` + `shadow-[0_4px_12px_rgba(29,29,31,0.10)]`，像被从导航里轻轻拎起；浅影只属于这个提起瞬间。
+
+### 图片缩略图与查看原图
+
+- **照片类缩略图**（学生图片网格、图片记录总览、班级相册、班级页最近记录）一律 `object-contain` 等比缩放完整展示，禁止 `object-cover` 裁剪——缩略图必须能看全貌；留白底用 `bg-parchment`
+- **头像 / 首页大图 / 课表背景**等「铺满即用途」的展示位维持 `object-cover`（或上传时裁剪），不受上条约束
+- **查看原图**唯一入口是 `ImageLightbox`：缩略图 `cursor-zoom-in` + 点击进入，壳为 `AppDialog` 的 `photo` 变体（`bg-black/80` 遮罩、标题 sr-only 保 aria），灯箱自身只补 ← / → 翻页与「适应窗口 ↔ 原始尺寸」切换
 
 ### 交互基建四件套（弹层 / 确认 / 反馈 / 图标）
 
@@ -214,7 +222,7 @@ canvas 绘制的图表**读不到 CSS 变量**，图表配色不登记在 `@them
 
 | 项 | 规则 |
 | --- | --- |
-| Props | `open`；`title`（面板自带 `h2`，`aria-labelledby` 自动关联）；`description?` 标题下弱化说明；`variant` `"center" \| "drawer"`（默认 center，drawer = 右侧全高抽屉）；`width` `"sm" \| "md" \| "lg"` = 440 / 560 / 720px（默认 md）；`z` 默认 50，嵌套弹层透传抬高（如图片裁剪传 60）；`closeOnOverlay` 默认 true，导入向导等防误关场景传 false |
+| Props | `open`；`title`（面板自带 `h2`，`aria-labelledby` 自动关联）；`description?` 标题下弱化说明；`variant` `"center" \| "drawer" \| "photo"`（默认 center，drawer = 右侧全高抽屉，photo = 沉浸式看图：`bg-black/80` 遮罩 + 透明全宽面板，标题仅 sr-only 保 aria，供 `ImageLightbox` 用）；`width` `"sm" \| "md" \| "lg"` = 440 / 560 / 720px（默认 md）；`z` 默认 50，嵌套弹层透传抬高（如图片裁剪传 60）；`closeOnOverlay` 默认 true，导入向导等防误关场景传 false |
 | Emit | `close`（Esc / 遮罩 / 业务触发的统一出口） |
 | 插槽与透传 | `default` 内容、`footer` 操作区（可选）；`$attrs`（class / `data-test`）落在面板上 |
 | 遮罩 | 统一 `bg-black/30`，`mousedown` 即关（比 click 跟手，不误触拖拽释放） |
@@ -252,6 +260,7 @@ canvas 绘制的图表**读不到 CSS 变量**，图表配色不登记在 `@them
 - `size` 默认 16；统一 24×24 网格、`stroke-width="1.5"`（个别图标按来源保留原粗细）
 - 未知 name 渲染空 + dev 环境 `console.warn`，不崩溃
 - 首批 20 个 name：`trash` / `chevron-left` / `chevron-right` / `chevron-down` / `close` / `arrow-left` / `plus` / `gear` / `podium` / `photo` / `person` / `home` / `calendar` / `clock` / `more-horiz` / `edit` / `archive` / `restore` / `warn` / `check`
+- 后续新增：`prompt`（提示词管理，侧栏用）
 - 新增图标在 `src/components/ui/icons.ts` 登记静态常量；注册表全部为编译期常量、不接收任何外部 SVG 输入，`v-html` 渲染安全
 
 ### 交互模式唯一约定

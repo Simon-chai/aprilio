@@ -5,6 +5,7 @@ import AppDialog from "./ui/AppDialog.vue";
 import AppIcon from "./ui/AppIcon.vue";
 import AppInput from "./ui/AppInput.vue";
 import AppLink from "./ui/AppLink.vue";
+import AiPolishButton from "./ui/AiPolishButton.vue";
 import { STATUS_LABEL } from "../types";
 import {
   addGuardianTagPreset,
@@ -614,10 +615,19 @@ function submit() {
             </option>
           </select>
         </label>
-        <label class="space-y-1.5">
-          <span class="text-fine text-weak">备注</span>
+        <div class="space-y-1.5">
+          <div class="flex items-center justify-between">
+            <span class="text-fine text-weak">备注</span>
+            <AiPolishButton
+              :text="form.note"
+              scene="学生备注"
+              hint="学生档案里的备注，记录老师想长期记住的情况"
+              :context="`学生：${form.name || '未命名'}；班级：${form.grade_class || '未分班'}`"
+              @apply="form.note = $event"
+            />
+          </div>
           <AppInput v-model="form.note" variant="field" width="100%" />
-        </label>
+        </div>
       </div>
 
       <p v-if="error" class="mt-4 text-caption text-danger">{{ error }}</p>

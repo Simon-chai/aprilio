@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<!-- 提示词管理页 · 三版样式样稿导览（仅供设计评审） -->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>提示词管理 · 改版样稿导览</title>
+<style>
+:root {
+  --primary: #0066cc; --ink: #1d1d1f; --muted: #333; --weak: #7a7a7a; --faint: #ccc;
+  --canvas: #fff; --parchment: #f5f5f7; --pearl: #fafafc;
+  --hairline: #e0e0e0; --divider: #f0f0f0;
+  --grad-primary: linear-gradient(135deg, #0066cc, #0091ff);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  min-height: 100vh; background: var(--parchment); color: var(--ink); padding: 56px 32px;
+  font-family: "Inter", system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 14px; line-height: 1.43; letter-spacing: -.22px; -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 980px; margin: 0 auto; }
+h1 { font-size: 34px; font-weight: 600; letter-spacing: -.37px; line-height: 1.25; }
+.sub { margin-top: 10px; font-size: 14px; color: var(--weak); line-height: 1.6; max-width: 720px; }
+.cards { margin-top: 34px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+.card { background: var(--canvas); border: 1px solid var(--hairline); border-radius: 18px; padding: 22px; display: flex; flex-direction: column; }
+.tag { align-self: flex-start; font-size: 12px; color: #fff; background: var(--grad-primary); border-radius: 999px; padding: 3px 12px; }
+.card h2 { margin-top: 14px; font-size: 21px; font-weight: 600; letter-spacing: .23px; }
+.card p { margin-top: 8px; font-size: 14px; color: var(--muted); line-height: 1.6; flex: 1; }
+.card ul { margin: 12px 0 0; padding: 0; list-style: none; font-size: 12px; color: var(--weak); line-height: 2; }
+.card li::before { content: "·"; margin-right: 6px; color: var(--faint); }
+.go { margin-top: 18px; display: inline-flex; align-items: center; justify-content: center; height: 36px; border-radius: 999px; color: #fff; background: var(--grad-primary); text-decoration: none; font-size: 14px; transition: .15s; }
+.go:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(0, 102, 204, .35); }
+.note { margin-top: 28px; font-size: 12px; color: var(--weak); background: var(--pearl); border: 1px solid var(--divider); border-radius: 11px; padding: 12px 16px; line-height: 1.8; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>提示词管理 · 改版样稿</h1>
+  <p class="sub">
+    三版都基于同一套真实数据（src/prompts 全部 10 个模块）与应用设计 token，可直接点选模块、编辑正文、保存、恢复默认（仅前端演示，内存态）。
+    差别在「模块导航」的组织方式——这是这页样式好坏的关键。
+  </p>
+  <div class="cards">
+    <div class="card">
+      <span class="tag">方案 A</span>
+      <h2>分组 Tab + 模块轨道</h2>
+      <p>模块导航全部压进顶部两条横带：分组 Tab（能量线选中态）+ 模块胶囊横排。纵向空间全部让给编辑区，模块一眼可见、单点即切。</p>
+      <ul>
+        <li>切换最快，模块在哪最直观</li>
+        <li>变量 / 预览收进右侧分段器，少一层卡片</li>
+        <li>模块多时轨道横向滚动 + 搜索兜底</li>
+      </ul>
+      <a class="go" href="./a-rail.html">打开方案 A</a>
+    </div>
+    <div class="card">
+      <span class="tag">方案 B</span>
+      <h2>分组筛选 + 模块列表</h2>
+      <p>左侧列表常驻（主从布局），分组从三张卡片收敛为一段分段器，列表变扁平紧凑行；右侧放弃卡片堆叠，改为单画布分区编辑，模块头吸顶。</p>
+      <ul>
+        <li>最耐扩展：模块翻倍列表也不乱</li>
+        <li>「全部」视图保留分组语境</li>
+        <li>信息密度最高，操作都吸顶常在</li>
+      </ul>
+      <a class="go" href="./b-master-detail.html">打开方案 B</a>
+    </div>
+    <div class="card">
+      <span class="tag">方案 C</span>
+      <h2>沉浸编辑 + 模块切换器</h2>
+      <p>不做常驻列表，编辑视野最大化；「看模块」收进一个醒目的「切换模块」按钮（展开分组搜索面板），配合上/下一模块与 ←/→ 快捷键。</p>
+      <ul>
+        <li>当前模块存在感最强</li>
+        <li>←/→ 秒切、Esc 关面板</li>
+        <li>变量 / 预览折叠收纳，默认最简</li>
+      </ul>
+      <a class="go" href="./c-immersive.html">打开方案 C</a>
+    </div>
+  </div>
+  <p class="note">
+    共同保底：三版都保留了现有页的全部能力——分组化模块列表、已自定义标识、变量插入（点变量名落光标处）、
+    契约变量只读展示、未知占位符告警、未保存提示、单模块 / 全部恢复默认、与运行期同语义的预览。
+    差别只在组织与视觉密度，定稿后按所选方案改造 PromptsView.vue。
+  </p>
+</div>
+</body>
+</html>

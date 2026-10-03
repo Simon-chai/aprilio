@@ -8,6 +8,7 @@ import {
   listBehaviorRecords,
   listBehaviorRecordsByClass,
   listCommentPresets,
+  updateBehaviorRecord,
 } from "../src/lib/db";
 import { localDateStr } from "../src/lib/format";
 import type { BehaviorDimension, BehaviorInput, BehaviorPolarity } from "../src/types";
@@ -228,5 +229,121 @@ describe("behavior records + comment preset self-learning loop", () => {
     }
     // 跨班级学生陈嘉树不应该出现在三年级二班
     expect(classRecords.some((r) => r.student_name === "陈嘉树")).toBe(false);
+  });
+});
+
+describe("behavior record update (edit flow)", () => {
+  it("updates fields with re-derived dimension snapshot and migrates the comment preset", async () => {
+    const homework = await dimByCode("homework");
+    const classroom = await dimByCode("classroom");
+    const oldComment = "更新前作业评语甲";
+    const newComment = "更新后课堂评语乙";
+
+    const id = await addBehaviorRecord(
+      buildInput({
+        student_id: 7,
+        dimension_id: homework.id,
+        dimension_name_snap: homework.name,
+        category_snap: homework.category,
+        comment: oldComment,
+      })
+    );
+
+    await updateBehaviorRecord(id, {
+      student_id: 7,
+      dimension_id: classroom.id,
+      dimension_name_snap: classroom.name,
+      category_snap: classroom.category,
+      type: "improve",
+      comment: newComment,
+      recorded_date: "2026-09-10",
+    });
+
+    const rec = (await listBehaviorRecords(7)).find((r) => r.id === id);
+    expect(rec).toBeTruthy();
+    expect(rec?.dimension_name_snap).toBe("课堂表现");
+    expect(rec?.category_snap).toBe("behavior");
+    expect(rec?.type).toBe("improve");
+    expect(rec?.comment).toBe(newComment);
+    expect(rec?.recorded_date).toBe("2026-09-10");
+
+    // 沉淀迁移：旧 (作业情况, 表扬) 词条随编辑回退移除，新 (课堂表现, 待改进) 词条按 history 沉淀
+    expect(
+      (await listCommentPresets(homework.id, "praise")).find((p) => p.content === oldComment)
+    ).toBeUndefined();
+    const migrated = (await listCommentPresets(classroom.id, "improve")).find(
+      (p) => p.content === newComment
+    );
+    expect(migrated?.source).toBe("history");
+    expect(migrated?.use_count).toBe(1);
+  });
+
+  it("does not churn presets when only the date changes", async () => {
+    const classroom = await dimByCode("classroom");
+    const comment = "只改日期的评语";
+    const id = await addBehaviorRecord(
+      buildInput({
+        student_id: 8,
+        dimension_id: classroom.id,
+        dimension_name_snap: classroom.name,
+        category_snap: classroom.category,
+        comment,
+      })
+    );
+
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    await updateBehaviorRecord(id, {
+      student_id: 8,
+      dimension_id: classroom.id,
+      dimension_name_snap: classroom.name,
+      category_snap: classroom.category,
+      type: "praise",
+      comment,
+      recorded_date: localDateStr(yesterday),
+    });
+
+    // (维度, 倾向, 内容) 未变：沉淀词条保持原计数，不回退重建
+    const preset = (await listCommentPresets(classroom.id, "praise")).find(
+      (p) => p.content === comment
+    );
+    expect(preset?.use_count).toBe(1);
+  });
+
+  it("is a no-op for a missing record id", async () => {
+    const classroom = await dimByCode("classroom");
+    await expect(
+      updateBehaviorRecord(999999, {
+        student_id: 8,
+        dimension_id: classroom.id,
+        dimension_name_snap: classroom.name,
+        category_snap: classroom.category,
+        type: "praise",
+        comment: "不存在的记录",
+        recorded_date: localDateStr(),
+      })
+    ).resolves.toBeUndefined();
+  });
+
+  it("rejects future dates, blank comments and bad polarity (same as add)", async () => {
+    const homework = await dimByCode("homework");
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    // 校验先于任何读写：recordId 用占位值即可
+    await expect(
+      updateBehaviorRecord(
+        1,
+        buildInput({ dimension_id: homework.id, recorded_date: localDateStr(tomorrow) })
+      )
+    ).rejects.toThrow("不能录入未来日期");
+    await expect(
+      updateBehaviorRecord(1, buildInput({ dimension_id: homework.id, comment: "   " }))
+    ).rejects.toThrow("评语内容不能为空");
+    await expect(
+      updateBehaviorRecord(
+        1,
+        buildInput({ dimension_id: homework.id, type: "great" as BehaviorPolarity })
+      )
+    ).rejects.toThrow("评价倾向不合法");
   });
 });

@@ -9,13 +9,12 @@
 import { isAiConfigured, loadAiConfig } from "./ai";
 import { isTauri } from "./db";
 import { createLlm } from "../agent/providers";
+import { PROMPT_IDS, resolvePrompt } from "../prompts";
+import { MEMO_TITLE_MAX_LEN } from "../prompts/contracts";
 import type { AgentLlm, AgentMessage } from "../agent/types";
 
-export const MEMO_TITLE_MAX_LEN = 12;
-
-const SYSTEM_PROMPT =
-  `你是小学班主任助手。把日程备忘浓缩成一个不超过 ${MEMO_TITLE_MAX_LEN} 个字的快速浏览标题：` +
-  "保留时间、班级、科目、事项等关键信息，只输出标题本身，不要引号、句号或任何解释。";
+/** 快速浏览标题的硬截断上限（与提示词模块的 {标题字数上限} 同源） */
+export { MEMO_TITLE_MAX_LEN };
 
 /**
  * 解析模型输出为干净标题：取首行，兼容编号 / 项目符号 / 引号包裹，超长截断。
@@ -56,7 +55,7 @@ export async function summarizeMemoTitle(
   try {
     const llm = options.llm ?? createLlm();
     const res = await llm.chat({
-      system: SYSTEM_PROMPT,
+      system: resolvePrompt(PROMPT_IDS.memoTitle),
       messages: buildMessages(text),
       tools: [],
       config,

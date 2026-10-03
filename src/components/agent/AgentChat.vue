@@ -34,7 +34,7 @@ function goManageModels() {
 const hasConversation = computed(() => items.value.length > 0);
 
 const placeholder = computed(() =>
-  aiReady.value ? "让助手跳转页面、查数据、找文档…" : "先在「数据与设置」配置 AI 模型",
+  aiReady.value ? "让助手跳转页面、查数据、找文档…" : "先在「设置中心 · 数据与设置」配置 AI 模型",
 );
 
 // 新消息 / 工具状态变化时贴底

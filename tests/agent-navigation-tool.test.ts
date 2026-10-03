@@ -20,7 +20,9 @@ async function makeRouter(): Promise<Router> {
       { path: "/classroom", name: "classroom", component: Blank },
       { path: "/recycle-bin", name: "recycle-bin", component: Blank },
       { path: "/profile", name: "profile", component: Blank },
+      { path: "/prompts", name: "prompts", component: Blank },
       { path: "/settings", name: "settings", component: Blank },
+      { path: "/settings-center", name: "settings-center", component: Blank },
     ],
   });
   await router.push("/home");

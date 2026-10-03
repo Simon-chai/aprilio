@@ -383,12 +383,12 @@ export function aiErrorMessage(value: unknown): string {
 const AI_ERROR_RULES: [RegExp, string][] = [
   // 网关把请求落到网页上（常见于 Base URL 写错、被风控劫持）
   [/not json|content[- ]type/i, "模型服务返回了无效内容，请检查「接口地址」是否正确（一般以 /v1 结尾），或稍后再试。"],
-  [/401|unauthorized|invalid[ _-]?(api[ _-]?)?key|authentication/i, "API 密钥无效或已过期，请到「数据与设置」核对密钥。"],
+  [/401|unauthorized|invalid[ _-]?(api[ _-]?)?key|authentication/i, "API 密钥无效或已过期，请到「设置中心 · 数据与设置」核对密钥。"],
   [/403|forbidden|region|restrict/i, "服务拒绝了本次请求，请确认密钥可用、账号未受限制（部分服务商有地区限制）。"],
   [/404|not[ _-]found|no such model|does not exist/i, "模型 ID 或接口地址不存在，请核对模型 ID 与服务商文档。"],
   [/429|rate[ _-]?limit|quota|insufficient|balance/i, "请求太频繁或额度不足，请稍后再试，或检查服务商账户余额。"],
   [/timed?[ _-]?out|timeout|connection|network|dns|refused|unreachable|reset/i, "网络连接失败，请检查网络后重试；若用代理请确认代理可用。"],
-  [/serializ|invalid args|missing field/i, "请求参数异常，请到「数据与设置」重新保存模型配置。"],
+  [/serializ|invalid args|missing field/i, "请求参数异常，请到「设置中心 · 数据与设置」重新保存模型配置。"],
 ];
 
 /**

@@ -7,8 +7,10 @@ import RecycleBinView from "../views/RecycleBinView.vue";
 import MyTimetableView from "../views/MyTimetableView.vue";
 import ClassroomView from "../views/ClassroomView.vue";
 import SettingsView from "../views/SettingsView.vue";
+import SettingsHubView from "../views/SettingsHubView.vue";
 import StudentDetailView from "../views/StudentDetailView.vue";
 import ProfileView from "../views/ProfileView.vue";
+import PromptsView from "../views/PromptsView.vue";
 
 // 桌面端用 hash 模式，避免打包后刷新路由 404
 export const router = createRouter({
@@ -36,6 +38,10 @@ export const router = createRouter({
     { path: "/classroom", name: "classroom", component: ClassroomView },
     { path: "/recycle-bin", name: "recycle-bin", component: RecycleBinView },
     { path: "/profile", name: "profile", component: ProfileView },
+    // 提示词管理：按分组统一调整各 AI 功能的系统提示词
+    { path: "/prompts", name: "prompts", component: PromptsView },
     { path: "/settings", name: "settings", component: SettingsView },
+    // 设置中心：配置类页面的枢纽（方案 B 双世界），侧栏在教学世界只留此一个配置入口
+    { path: "/settings-center", name: "settings-center", component: SettingsHubView },
   ],
 });

@@ -29,7 +29,15 @@ src/
 │   ├── score-analysis.ts  # 成绩分析纯函数（班级统计 / 排名 / 档位 / 趋势，界面与 AI 共用）
 │   ├── semester.ts        # 学期化纯函数（学期线性化 / 日期归属学期）
 │   ├── comment-ai.ts      # 学期评语 AI 草稿（无 AI 返回 null，手工兜底）
+│   ├── parent-summary.ts  # 家校沟通总结：时段聚合纯函数（AI 层见 parent-summary-ai.ts，见 docs/PARENT_SUMMARY.md）
 │   └── timetable.ts       # 课程表纯函数（学期推导 / 网格构建 / 我的课表聚合）
+├── prompts/               # 系统提示词统一管理（见 docs/PROMPT_MANAGEMENT.md）
+│   ├── define.ts          # definePromptModule() 工厂：字段校验 + 归一
+│   ├── registry.ts        # modules/*.prompt.ts 扫描装载 + 重复 id fail-fast
+│   ├── store.ts           # 本机覆盖值（aprilio.prompts.v1，只存与默认值的差异）
+│   ├── resolve.ts         # resolvePrompt()：取「覆盖 ?? 默认」→ 替换占位符
+│   ├── contracts.ts       # 与程序共享的常量（字数上限 / JSON 输出结构，叶子模块）
+│   └── modules/           # 各 AI 功能一处 *.prompt.ts，放文件即接入
 ├── components/
 │   ├── AppSidebar.vue
 │   ├── StudentTable.vue
@@ -38,7 +46,7 @@ src/
 │   ├── ImportRosterDialog.vue / ImportScoreDialog.vue
 │   ├── ExamScorePanel.vue / StudentScorePanel.vue
 │   └── ui/                # AppButton / AppInput / AppCard / StatusChip / EmptyState
-└── views/                 # ClassesView · ClassDetailView · StudentDetailView · PhotosView · RecycleBinView · SettingsView
+└── views/                 # ClassesView · ClassDetailView · StudentDetailView · PhotosView · RecycleBinView · PromptsView · SettingsView
 
 src-tauri/
 ├── src/db.rs              # SQLite 直连（MCP 子进程只读 / RAG 读写）

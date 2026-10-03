@@ -8,11 +8,14 @@
 import { loadAiConfig, isAiConfigured } from "./ai";
 import { isTauri } from "./db";
 import { createLlm } from "../agent/providers";
+import { PROMPT_IDS, resolvePrompt } from "../prompts";
+import { AI_COMMENT_MAX_LEN } from "../prompts/contracts";
 import type { AgentLlm, AgentMessage } from "../agent/types";
 import type { BehaviorPolarity } from "../types";
 import { BEHAVIOR_POLARITY_LABEL } from "../types";
 
-export const AI_COMMENT_MAX_LEN = 25;
+/** 单条推荐评语的硬截断上限（与提示词模块的 {每条字数上限} 同源） */
+export { AI_COMMENT_MAX_LEN };
 
 export interface RecommendContext {
   studentName: string;
@@ -103,14 +106,12 @@ export function clearCommentCache(): void {
   }
 }
 
-const SYSTEM_PROMPT =
-  "你是一位经验丰富的小学班主任助手，擅长用简短、具体、措辞得体的中文评语记录学生日常表现。" +
-  "写作要求：1）语气必须严格贴合老师指定的「评价倾向」，不同倾向不得混用；" +
-  "2）每条评语不超过 25 个字；3）一行一条，只输出评语本身，不要编号、引号、前缀或任何解释。";
-
 /**
  * 每种评价倾向对应的语气约束与参考示例。
  * 明确写出「禁止项」是为了压住小模型偷懒——否则不同倾向容易产出同一批表扬式评语。
+ *
+ * 这些内容随**本次调用**变化（属于用户消息），不进系统提示词模块：
+ * 模块只定总基调与格式。
  */
 const POLARITY_TONE: Record<BehaviorPolarity, { tone: string; sample: string }> = {
   praise: {
@@ -199,7 +200,7 @@ export async function recommendComments(
   try {
     const llm = options.llm ?? createLlm();
     const res = await llm.chat({
-      system: SYSTEM_PROMPT,
+      system: resolvePrompt(PROMPT_IDS.behaviorComment),
       messages: buildMessages(ctx),
       tools: [],
       config,

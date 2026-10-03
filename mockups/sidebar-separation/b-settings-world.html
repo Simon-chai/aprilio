@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<!-- 方案 B · 设置中心（双世界）：侧栏只留业务，底部「设置中心」切换到配置世界（仅供设计评审） -->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>方案 B · 设置中心（双世界）</title>
+<style>
+:root {
+  --primary: #0066cc; --ink: #1d1d1f; --muted: #333; --weak: #7a7a7a; --faint: #ccc;
+  --canvas: #fff; --parchment: #f5f5f7; --pearl: #fafafc;
+  --hairline: #e0e0e0; --divider: #f0f0f0;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  min-height: 100vh; background: var(--parchment); color: var(--ink); padding: 48px 32px 64px;
+  font-family: "Inter", system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 14px; line-height: 1.43; letter-spacing: -.22px; -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1080px; margin: 0 auto; }
+.topbar { display: flex; align-items: center; gap: 14px; }
+.back { font-size: 13px; color: var(--weak); text-decoration: none; }
+.back:hover { color: var(--primary); }
+.tag { font-size: 12px; color: #fff; background: linear-gradient(135deg, #0066cc, #0091ff); border-radius: 999px; padding: 3px 12px; }
+h1 { margin-top: 14px; font-size: 28px; font-weight: 600; letter-spacing: -.35px; }
+.desc { margin-top: 8px; font-size: 14px; color: var(--weak); line-height: 1.6; max-width: 780px; }
+.hint { display: inline-flex; align-items: center; gap: 6px; margin-top: 12px; font-size: 12px; color: var(--primary); background: #eaf3fc; border-radius: 999px; padding: 6px 14px; }
+
+/* ---- 应用框架 ---- */
+.stage { margin-top: 26px; display: flex; justify-content: center; }
+.app { display: flex; width: 1080px; height: 660px; background: var(--canvas); border: 1px solid var(--hairline); border-radius: 18px; overflow: hidden; box-shadow: 0 24px 64px rgba(29, 29, 31, .09); }
+.side { width: 240px; flex-shrink: 0; background: var(--parchment); padding: 20px; display: flex; flex-direction: column; gap: 20px; }
+.main { flex: 1; position: relative; padding: 34px 38px; overflow: hidden; }
+.hidden { display: none !important; }
+
+.brand { display: flex; align-items: center; gap: 10px; }
+.brand img { width: 28px; height: 28px; border-radius: 6px; object-fit: cover; }
+.brand span { font-size: 19px; font-weight: 600; letter-spacing: -.4px; }
+
+.nav { display: flex; flex-direction: column; gap: 2px; }
+.nav-item { display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 12px; border-radius: 8px; font-size: 14px; letter-spacing: -.22px; color: var(--weak); cursor: pointer; transition: all .18s; user-select: none; }
+.nav-item:hover { background: rgba(255, 255, 255, .6); color: var(--muted); }
+.nav-item.active { background: #fff; color: var(--ink); font-weight: 600; transform: translate(-2px, -2px) scale(1.04); transform-origin: left center; box-shadow: 0 4px 12px rgba(29, 29, 31, .10); }
+
+/* 设置中心入口按钮 */
+.gear-btn { display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--hairline); background: var(--pearl); font-family: inherit; font-size: 14px; letter-spacing: -.22px; color: var(--muted); cursor: pointer; transition: .18s; }
+.gear-btn:hover { background: #fff; color: var(--primary); box-shadow: 0 4px 12px rgba(29, 29, 31, .08); }
+.gear-btn kbd { margin-left: auto; font-size: 11px; color: var(--faint); font-family: inherit; }
+
+.spacer { flex: 1; }
+.fs-row { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 12px; border-radius: 8px; font-size: 14px; color: var(--weak); cursor: pointer; }
+.fs-row:hover { background: rgba(255, 255, 255, .6); }
+.fs-row kbd { margin-left: auto; font-size: 11px; color: var(--faint); font-family: inherit; }
+.db-card { border: 1px solid var(--hairline); background: var(--pearl); border-radius: 12px; padding: 12px; }
+.db-card p { font-size: 12px; letter-spacing: -.12px; color: var(--weak); }
+.db-status { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 12px; color: var(--muted); }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: #248a3d; }
+
+/* 配置世界侧栏 */
+.cfg-head { margin-top: 4px; }
+.cfg-head h3 { font-size: 17px; font-weight: 600; letter-spacing: -.3px; }
+.cfg-head p { margin-top: 4px; font-size: 12px; color: var(--weak); }
+.back-row { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; margin-left: -10px; border-radius: 8px; font-size: 13px; color: var(--primary); cursor: pointer; transition: .15s; }
+.back-row:hover { background: #eaf3fc; }
+
+/* ---- 业务内容 ---- */
+.page-head h2 { font-size: 24px; font-weight: 600; letter-spacing: -.5px; }
+.page-head .sub { margin-top: 6px; font-size: 13px; color: var(--weak); }
+.class-grid { margin-top: 24px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+.class-card { border: 1px solid var(--hairline); border-radius: 14px; padding: 18px; cursor: pointer; transition: .18s; }
+.class-card:hover { box-shadow: 0 8px 24px rgba(29, 29, 31, .07); transform: translateY(-1px); }
+.class-card h3 { font-size: 15px; font-weight: 600; letter-spacing: -.2px; display: flex; align-items: center; gap: 8px; }
+.chip { font-size: 11px; color: var(--primary); background: #eaf3fc; border-radius: 999px; padding: 2px 8px; font-weight: 500; }
+.class-card .meta { margin-top: 8px; font-size: 12px; color: var(--weak); line-height: 1.7; }
+.class-card.new { border-style: dashed; color: var(--weak); display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 13px; min-height: 104px; }
+
+/* ---- 设置中心 Hub 页 ---- */
+.hub-grid { margin-top: 24px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.hub-card { border: 1px solid var(--hairline); border-radius: 14px; padding: 18px; cursor: pointer; transition: .18s; }
+.hub-card:hover { box-shadow: 0 8px 24px rgba(29, 29, 31, .07); transform: translateY(-1px); }
+.hub-card.active { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); }
+.hub-card .ic-box { width: 34px; height: 34px; border-radius: 9px; background: var(--pearl); border: 1px solid var(--hairline); display: flex; align-items: center; justify-content: center; color: var(--muted); }
+.hub-card h3 { margin-top: 12px; font-size: 15px; font-weight: 600; letter-spacing: -.2px; }
+.hub-card p { margin-top: 6px; font-size: 12px; color: var(--weak); line-height: 1.65; min-height: 40px; }
+.hub-card .enter { margin-top: 12px; font-size: 12px; color: var(--primary); font-weight: 500; }
+
+/* ---- 配置子页（骨架示意） ---- */
+.crumb { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--primary); cursor: pointer; }
+.crumb:hover { text-decoration: underline; }
+.sk-card { border: 1px solid var(--hairline); border-radius: 14px; padding: 18px; margin-top: 14px; }
+.sk-line { height: 12px; border-radius: 6px; background: var(--divider); }
+.sk-line + .sk-line { margin-top: 10px; }
+.sk-row { display: flex; gap: 12px; align-items: center; }
+.sk-row .sk-line { flex: 1; }
+
+.cols { max-width: 1080px; margin: 30px auto 0; display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.panel { border: 1px solid var(--hairline); background: var(--canvas); border-radius: 14px; padding: 18px 20px; }
+.panel h4 { font-size: 14px; font-weight: 600; }
+.panel ul { margin: 10px 0 0; padding: 0; list-style: none; font-size: 13px; color: var(--muted); line-height: 1.9; }
+.panel li::before { content: "·"; margin-right: 8px; color: var(--faint); }
+.foot { max-width: 1080px; margin: 22px auto 0; font-size: 12px; color: var(--faint); text-align: center; }
+</style>
+</head>
+<body>
+<svg style="display:none" aria-hidden="true">
+  <symbol id="i-home" viewBox="0 0 16 16"><path d="M2.2 7.2L8 2.4l5.8 4.8M3.6 6.4v6.8h8.8V6.4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/></symbol>
+  <symbol id="i-classes" viewBox="0 0 16 16"><rect x="2" y="2.5" width="12" height="9" rx="1.5" stroke="currentColor" stroke-width="1.4" fill="none"/><path d="M5 13.5l1.5-2h3l1.5 2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M5 6h4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" fill="none"/></symbol>
+  <symbol id="i-image" viewBox="0 0 16 16"><rect x="1.8" y="2.8" width="12.4" height="10.4" rx="2.2" stroke="currentColor" stroke-width="1.4" fill="none"/><circle cx="5.7" cy="6.3" r="1.15" fill="currentColor"/><path d="M2.3 11.7l3.4-3.2 2.6 2.4 2.4-2.2 3 2.9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 16 16"><path d="M2.5 4.5h11M6.5 4.5V3h3v1.5M4 4.5l.7 8.2a1 1 0 0 0 1 .8h4.6a1 1 0 0 0 1-.8l.7-8.2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M6.7 7.2v3.6M9.3 7.2v3.6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" fill="none"/></symbol>
+  <symbol id="i-prompt" viewBox="0 0 16 16"><path d="M2.8 3.6h10.4a1.1 1.1 0 0 1 1.1 1.1v6.1a1.1 1.1 0 0 1-1.1 1.1H6l-2.9 2.3V4.7a1.1 1.1 0 0 1 1.1-1.1Z" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M5 6.6h6M5 9h3.8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" fill="none"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.2" stroke="currentColor" stroke-width="1.4" fill="none"/><path d="M8 1.7v1.5M8 12.8v1.5M2.9 2.9l1.1 1.1M12 12l1.1 1.1M1.7 8h1.5M12.8 8h1.5M2.9 13.1l1.1-1.1M12 4l1.1-1.1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" fill="none"/></symbol>
+  <symbol id="i-expand" viewBox="0 0 16 16"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 16 16"><path d="M8 3.5v9M3.5 8h9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" fill="none"/></symbol>
+  <symbol id="i-back" viewBox="0 0 16 16"><path d="M9.5 3.5L5 8l4.5 4.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/></symbol>
+</svg>
+
+<div class="wrap">
+  <div class="topbar"><a class="back" href="./index.html">← 返回导览</a><span class="tag">方案 B</span></div>
+  <h1>设置中心 · 双世界</h1>
+  <p class="desc">
+    侧栏只保留业务三项；底部一枚带描边的「设置中心」按钮。点进去后整个侧栏切换为「配置世界」（带返回教学），
+    右侧对应设置中心枢纽页——提示词管理、回收站、数据与设置都是配置世界里的完整页面。回到教学再点业务项，一切如常。
+  </p>
+  <span class="hint">💡 点侧栏底部「设置中心」试试，再点「← 返回教学」</span>
+
+  <div class="stage">
+    <div class="app">
+      <!-- 业务世界侧栏 -->
+      <aside class="side" id="side-biz">
+        <div class="brand"><img src="../../src/assets/app-icon.png" alt="aprilio" draggable="false" /><span>aprilio</span></div>
+
+        <nav class="nav">
+          <a class="nav-item"><svg width="16" height="16"><use href="#i-home"/></svg>首页</a>
+          <a class="nav-item active"><svg width="16" height="16"><use href="#i-classes"/></svg>班级管理</a>
+          <a class="nav-item"><svg width="16" height="16"><use href="#i-image"/></svg>图片记录</a>
+        </nav>
+
+        <div class="spacer"></div>
+
+        <!-- 唯一的配置入口 -->
+        <button class="gear-btn" data-enter><svg width="16" height="16"><use href="#i-gear"/></svg>设置中心<kbd>Ctrl+,</kbd></button>
+
+        <div class="fs-row"><svg width="14" height="14"><use href="#i-expand"/></svg>进入全屏<kbd>F11</kbd></div>
+        <div class="db-card">
+          <p>本地数据库</p>
+          <div class="db-status"><span class="dot"></span>SQLite · 已连接</div>
+        </div>
+      </aside>
+
+      <!-- 配置世界侧栏 -->
+      <aside class="side hidden" id="side-cfg">
+        <div class="brand"><img src="../../src/assets/app-icon.png" alt="aprilio" draggable="false" /><span>aprilio</span></div>
+
+        <div class="cfg-head">
+          <a class="back-row" data-exit><svg width="14" height="14"><use href="#i-back"/></svg>返回教学</a>
+          <h3>设置中心</h3>
+          <p>影响全局的基础配置，与日常教学分开</p>
+        </div>
+
+        <nav class="nav" style="margin-top: 4px;">
+          <a class="nav-item" data-page="prompts"><svg width="16" height="16"><use href="#i-prompt"/></svg>提示词管理</a>
+          <a class="nav-item" data-page="recycle"><svg width="16" height="16"><use href="#i-trash"/></svg>回收站</a>
+          <a class="nav-item" data-page="settings"><svg width="16" height="16"><use href="#i-gear"/></svg>数据与设置</a>
+        </nav>
+
+        <div class="spacer"></div>
+
+        <div class="fs-row"><svg width="14" height="14"><use href="#i-expand"/></svg>进入全屏<kbd>F11</kbd></div>
+        <div class="db-card">
+          <p>本地数据库</p>
+          <div class="db-status"><span class="dot"></span>SQLite · 已连接</div>
+        </div>
+      </aside>
+
+      <!-- 业务世界内容 -->
+      <main class="main" id="main-biz">
+        <div class="page-head">
+          <h2>班级管理</h2>
+          <p class="sub">2 个班级 · 本学期 · 点进班级查看学生与日常</p>
+        </div>
+        <div class="class-grid">
+          <div class="class-card">
+            <h3>三年级 2 班<span class="chip">本学期</span></h3>
+            <p class="meta">42 名学生 · 男生 22 / 女生 20<br />最近更新 · 今天 09:41</p>
+          </div>
+          <div class="class-card">
+            <h3>三年级 1 班<span class="chip">本学期</span></h3>
+            <p class="meta">41 名学生 · 男生 21 / 女生 20<br />最近更新 · 昨天 17:20</p>
+          </div>
+          <div class="class-card new"><svg width="15" height="15"><use href="#i-plus"/></svg>新建班级</div>
+        </div>
+      </main>
+
+      <!-- 配置世界：Hub 页 -->
+      <main class="main hidden" id="main-hub">
+        <div class="page-head">
+          <h2>设置中心</h2>
+          <p class="sub">日常教学用不到的都在这里 · 改完随时返回</p>
+        </div>
+        <div class="hub-grid">
+          <div class="hub-card" data-page="prompts">
+            <div class="ic-box"><svg width="16" height="16"><use href="#i-prompt"/></svg></div>
+            <h3>提示词管理</h3>
+            <p>按分组调整各 AI 功能的系统提示词，支持本机覆盖与恢复默认。</p>
+            <div class="enter">进入 →</div>
+          </div>
+          <div class="hub-card" data-page="recycle">
+            <div class="ic-box"><svg width="16" height="16"><use href="#i-trash"/></svg></div>
+            <h3>回收站</h3>
+            <p>已删除的班级与学生先落在这里，可随时恢复，防误删。</p>
+            <div class="enter">进入 →</div>
+          </div>
+          <div class="hub-card" data-page="settings">
+            <div class="ic-box"><svg width="16" height="16"><use href="#i-gear"/></svg></div>
+            <h3>数据与设置</h3>
+            <p>备份恢复、导入导出、学期切换等本机数据管理。</p>
+            <div class="enter">进入 →</div>
+          </div>
+        </div>
+      </main>
+
+      <!-- 配置世界：子页（骨架示意） -->
+      <main class="main hidden" id="main-page">
+        <a class="crumb" data-back-hub><svg width="14" height="14"><use href="#i-back"/></svg>设置中心</a>
+        <div class="page-head" style="margin-top: 10px;">
+          <h2 id="page-title">提示词管理</h2>
+          <p class="sub" id="page-desc">按分组调整各 AI 功能的系统提示词。</p>
+        </div>
+        <div class="sk-card"><div class="sk-row"><div class="sk-line" style="width: 120px;"></div><div class="sk-line" style="width: 30%;"></div></div><div class="sk-line" style="width: 55%; margin-top: 12px;"></div></div>
+        <div class="sk-card"><div class="sk-row"><div class="sk-line" style="width: 96px;"></div><div class="sk-line" style="width: 24%;"></div></div><div class="sk-line" style="width: 42%; margin-top: 12px;"></div></div>
+        <div class="sk-card"><div class="sk-row"><div class="sk-line" style="width: 140px;"></div><div class="sk-line" style="width: 36%;"></div></div></div>
+      </main>
+    </div>
+  </div>
+
+  <div class="cols">
+    <div class="panel">
+      <h4>设计要点</h4>
+      <ul>
+        <li>业务世界侧栏干净到只剩 3 项，视觉重心全部让给内容；「设置中心」按钮带描边和 ⌘, 快捷键提示，位置符合桌面软件习惯</li>
+        <li>配置世界有独立标题区与「返回教学」，切换时侧栏与内容一起换，像换了个房间，心智边界清晰</li>
+        <li>设置中心 Hub 页先给总览（带一句话说明），再进具体配置页——配置项以后增加也不乱</li>
+      </ul>
+    </div>
+    <div class="panel">
+      <h4>取舍</h4>
+      <ul>
+        <li>优点：业务 100% 无配置干扰；分离最彻底且不牺牲配置页的完整空间；实现上只是侧栏双态 + 一个 Hub 页</li>
+        <li>缺点：进配置多一次点击；两个世界的切换动画需要做好，否则会有「跳」的感觉</li>
+        <li>路由可以保持现有 /prompts、/settings 不变，只是入口换了位置，迁移成本低</li>
+      </ul>
+    </div>
+  </div>
+
+  <p class="foot">可交互样稿 · 点击「设置中心」↔「返回教学」、Hub 卡片与侧栏项均可点</p>
+</div>
+
+<script>
+// 配置子页文案（真实实现里就是现有 PromptsView / RecycleBinView / SettingsView）
+const PAGES = {
+  prompts: { title: "提示词管理", desc: "按分组调整各 AI 功能的系统提示词，支持本机覆盖与恢复默认。" },
+  recycle: { title: "回收站", desc: "已删除的班级与学生先落在这里，可随时恢复。" },
+  settings: { title: "数据与设置", desc: "备份恢复、导入导出、学期切换等本机数据管理。" },
+};
+const sideBiz = document.getElementById("side-biz");
+const sideCfg = document.getElementById("side-cfg");
+const mainBiz = document.getElementById("main-biz");
+const mainHub = document.getElementById("main-hub");
+const mainPage = document.getElementById("main-page");
+
+function clearActive() {
+  document.querySelectorAll(".nav-item.active[data-page], .hub-card.active").forEach((el) => el.classList.remove("active"));
+}
+function enterCfg() {
+  sideBiz.classList.add("hidden");
+  sideCfg.classList.remove("hidden");
+  mainBiz.classList.add("hidden");
+  mainHub.classList.remove("hidden");
+  mainPage.classList.add("hidden");
+  clearActive();
+}
+function exitCfg() {
+  sideCfg.classList.add("hidden");
+  sideBiz.classList.remove("hidden");
+  mainBiz.classList.remove("hidden");
+  mainHub.classList.add("hidden");
+  mainPage.classList.add("hidden");
+}
+function openPage(key) {
+  clearActive();
+  document.querySelectorAll(`[data-page="${key}"]`).forEach((el) => el.classList.add("active"));
+  document.getElementById("page-title").textContent = PAGES[key].title;
+  document.getElementById("page-desc").textContent = PAGES[key].desc;
+  mainHub.classList.add("hidden");
+  mainPage.classList.remove("hidden");
+}
+function backHub() {
+  clearActive();
+  mainPage.classList.add("hidden");
+  mainHub.classList.remove("hidden");
+}
+document.querySelectorAll("[data-enter]").forEach((el) => el.addEventListener("click", enterCfg));
+document.querySelectorAll("[data-exit]").forEach((el) => el.addEventListener("click", exitCfg));
+document.querySelectorAll("[data-page]").forEach((el) => el.addEventListener("click", () => openPage(el.dataset.page)));
+document.querySelectorAll("[data-back-hub]").forEach((el) => el.addEventListener("click", backHub));
+</script>
+</body>
+</html>

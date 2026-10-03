@@ -14,6 +14,7 @@
 | 主题 | 文档 | 概要 |
 | --- | --- | --- |
 | AI 研发 SOP | [docs/AI_DEVELOPMENT_SOP.md](docs/AI_DEVELOPMENT_SOP.md) | 需求澄清→Spec→TDD→架构约束→验证门禁的作业流程与意图防退化评测 |
+| 系统提示词 | [docs/PROMPT_MANAGEMENT.md](docs/PROMPT_MANAGEMENT.md) | 全部 AI 系统提示词按「分组→模块」统一管理：`*.prompt.ts` 放文件即接入、占位符变量、本机覆盖值与恢复默认、零覆盖时行为与硬编码逐字一致 |
 | 成绩导入 | [docs/SCORE_IMPORT.md](docs/SCORE_IMPORT.md) | 考试批次（考试名+时间）与成绩落库、成绩单智能识别、花名册入口分流 |
 | 花名册导入 | [docs/ROSTER_IMPORT.md](docs/ROSTER_IMPORT.md) | 智能姓名列与字段映射、双行分组表头与多监护人、未命名批次自动分班与 AI 按文件名识别班级 |
 | 发版记录 | [docs/RELEASES.md](docs/RELEASES.md) | v1.0.0 起往前兼容的兼容性总则、各版本发版台账与破坏性变更登记 |
@@ -25,8 +26,10 @@
 | 背景图库 | [docs/BACKGROUNDS.md](docs/BACKGROUNDS.md) | 首页大图/头像/课表背景：本地上传 + URL 缓存到本地、本地索引与切换、清理时机 |
 | 设计系统 | [docs/DESIGN_SYSTEM.md](docs/DESIGN_SYSTEM.md) | 颜色/字号/圆角/阴影 token、组件规范、交互基建唯一模式（弹层/确认/反馈/图标）与 design-token-guard 防退化门禁；token 唯一事实源为 `src/style.css` 的 `@theme`（图表色例外：`lib/chart-palette.ts`） |
 | 评价报告 | [docs/EVAL_REPORT.md](docs/EVAL_REPORT.md) | 作业台账（P2先行）+评价报告（P1随后）：区间聚合、AI双输出、存档打印 |
+| 家校沟通总结 | [docs/PARENT_SUMMARY.md](docs/PARENT_SUMMARY.md) | 按时段评价生成给家长的表现总结：单生在学生档案「家校沟通」页签（聊天式个性化重写），批量在班级层对话框，应用即写入学期评语，Agent 可自然语言发起 |
 | 桌面宠物 | [docs/DESKTOP_PET.md](docs/DESKTOP_PET.md) | 自定义宠物接入：宠物包规范、PetRuntime 适配器、Agent 事件桥、素材准备（矢量分层/分层贴图/序列帧/Live2D）、形象调试工作流 |
 | 课堂模式 | [docs/CLASSROOM.md](docs/CLASSROOM.md) | 节课 = 会话容器 × 可组合活动 × 统一事件流：v9 四表（槽位幂等）、活动放文件即接入与 kind 契约、档案双写透传、崩溃重放恢复、Agent lessons 实体与开/下课动作 |
+| 评价卡片 | [docs/EVAL_CARD.md](docs/EVAL_CARD.md) | 学生档案一键生成图文评价卡片并导出 PNG：周期聚合（成绩/表扬/作业）、学生姓名水印、foreignObject 零依赖转图、演示态退化为浏览器下载 |
 
 ## 新增规则的拆分原则
 

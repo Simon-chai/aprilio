@@ -1,6 +1,7 @@
 import { flushPromises, mount } from "@vue/test-utils";
 import { describe, expect, it } from "vitest";
 import QuickBehaviorPopover from "../src/components/QuickBehaviorPopover.vue";
+import { addBehaviorRecord, listBehaviorDimensions, listBehaviorRecords } from "../src/lib/db";
 import { localDateStr } from "../src/lib/format";
 import type { StudentRow } from "../src/types";
 
@@ -181,6 +182,78 @@ describe("QuickBehaviorPopover.vue", () => {
 
     expect(w.find("[data-test='save-error']").text()).toContain("未来");
     expect(w.emitted("saved")).toBeUndefined();
+    w.unmount();
+  });
+});
+
+describe("QuickBehaviorPopover.vue edit mode (editing 传入即编辑)", () => {
+  async function makeRecord(over: { code: string; type: "praise" | "improve" | "neutral"; comment: string; recorded_date: string }) {
+    const dim = (await listBehaviorDimensions()).find((d) => d.code === over.code)!;
+    const recordId = await addBehaviorRecord({
+      student_id: 3,
+      dimension_id: dim.id,
+      dimension_name_snap: dim.name,
+      category_snap: dim.category,
+      type: over.type,
+      comment: over.comment,
+      recorded_date: over.recorded_date,
+    });
+    return (await listBehaviorRecords(3)).find((r) => r.id === recordId)!;
+  }
+
+  const mountEdit = (editing: unknown) =>
+    mount(QuickBehaviorPopover, {
+      props: { open: true, student: makeStudent(), editing, anchor: { x: 200, y: 200 } },
+      global: { stubs: { teleport: true } },
+    });
+
+  it("prefills from the record, hides save-and-next, and saves via updateBehaviorRecord", async () => {
+    const record = await makeRecord({
+      code: "classroom",
+      type: "improve",
+      comment: "编辑前原始评语",
+      recorded_date: localDateStr(),
+    });
+    const w = mountEdit(record);
+    await flushPromises();
+
+    // 编辑态标题 + 原值预填（维度 / 倾向 / 评语 / 日期）
+    expect(w.find("[data-test='edit-mode-title']").exists()).toBe(true);
+    expect((w.get("[data-test='comment-input']").element as HTMLTextAreaElement).value).toBe("编辑前原始评语");
+    expect(w.get("[data-test='polarity-improve']").classes()).toContain("bg-danger-soft");
+    expect(w.find("[data-test='save-next-btn']").exists()).toBe(false);
+
+    // 只改评语保存 → 落库为更新
+    await w.get("[data-test='comment-input']").setValue("编辑后修改评语");
+    await w.get("[data-test='save-btn']").trigger("click");
+    await flushPromises();
+
+    expect(w.emitted("saved")?.[0]?.[0]).toMatchObject({ mode: "edit", dimensionName: "课堂表现" });
+    const after = (await listBehaviorRecords(3)).find((r) => r.id === record.id);
+    expect(after?.comment).toBe("编辑后修改评语");
+    w.unmount();
+  });
+
+  it("allows saving with a date older than the two-week capture window", async () => {
+    const old = new Date();
+    old.setDate(old.getDate() - 20);
+    const record = await makeRecord({
+      code: "labor",
+      type: "praise",
+      comment: "二十天前的表现记录",
+      recorded_date: localDateStr(old),
+    });
+    const w = mountEdit(record);
+    await flushPromises();
+
+    // 编辑模式放开「最近两周」下限：min 属性不渲染，老日期可直接保存
+    expect((w.get("[data-test='record-date']").element as HTMLInputElement).min).toBe("");
+
+    await w.get("[data-test='save-btn']").trigger("click");
+    await flushPromises();
+
+    expect(w.find("[data-test='save-error']").exists()).toBe(false);
+    expect(w.emitted("saved")?.length).toBe(1);
     w.unmount();
   });
 });

@@ -11,6 +11,7 @@
 import { computed, ref, watch } from "vue";
 import AppButton from "../ui/AppButton.vue";
 import AppDialog from "../ui/AppDialog.vue";
+import AiPolishButton from "../ui/AiPolishButton.vue";
 import { useLessonContext } from "../../classroom/context";
 import { assignSeat } from "../../classroom/seating";
 import { listCommentPresets } from "../../lib/db";
@@ -109,6 +110,13 @@ const sheetMeta = computed(() => {
   const group = ctx.groups.find((g) => g.group_no === stu.group_no);
   const seat = stu.row_no >= 1 ? `第${stu.row_no}排${stu.col_no}列` : "未入座";
   return [group?.name, seat, isAbsent(stu.id) ? "缺勤中" : ""].filter(Boolean).join(" · ");
+});
+
+/** 「AI 润色」的业务上下文：学生 + 观察维度 + 评价倾向，让模型知道这段评语的来龙去脉 */
+const polishContext = computed(() => {
+  const stu = sheetStudent.value;
+  const dim = activeDimension.value?.name ?? "";
+  return `学生：${stu?.name ?? ""}；观察维度：${dim}；评价倾向：${BEHAVIOR_POLARITY_LABEL[polarity.value]}`;
 });
 
 watch(
@@ -462,12 +470,21 @@ async function onRevoke(entry: SeatingTimelineEntry) {
         </button>
       </div>
 
+      <div class="mt-3 flex justify-end">
+        <AiPolishButton
+          :text="comment"
+          scene="座位点评评语"
+          hint="课堂座位点评时记录的学生表现评语，会记入学生档案"
+          :context="polishContext"
+          @apply="comment = $event"
+        />
+      </div>
       <textarea
         v-model="comment"
         rows="2"
         data-test="seat-comment"
         placeholder="评语（记入学生档案）"
-        class="mt-3 w-full resize-none rounded-md border border-hairline bg-canvas px-3 py-2 text-caption text-ink outline-none"
+        class="mt-1.5 w-full resize-none rounded-md border border-hairline bg-canvas px-3 py-2 text-caption text-ink outline-none"
       />
 
       <template #footer>

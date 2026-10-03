@@ -5,6 +5,7 @@
  */
 import { computed, ref, watch } from "vue";
 import AppButton from "./ui/AppButton.vue";
+import AiPolishButton from "./ui/AiPolishButton.vue";
 import {
   deleteTermComment,
   getTermComment,
@@ -165,6 +166,14 @@ async function onDelete() {
           <span v-else class="text-fine text-weak" data-test="ai-unavailable">
             未配置 AI，可手动填写
           </span>
+          <AiPolishButton
+            :text="comment"
+            scene="学生期末评语"
+            hint="写给家长的学期末评语，保存后存入学生档案"
+            :context="`学生：${studentName}；班级：${gradeClass || '未分班'}`"
+            :max-len="200"
+            @apply="comment = $event"
+          />
         </div>
       </div>
 

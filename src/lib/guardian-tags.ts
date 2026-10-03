@@ -10,6 +10,7 @@
 import { loadAiConfig, isAiConfigured } from "./ai";
 import { isTauri } from "./db";
 import { createLlm } from "../agent/providers";
+import { PROMPT_IDS, resolvePrompt } from "../prompts";
 import type { AgentLlm, AgentMessage } from "../agent/types";
 import { GUARDIAN_TAG_POLARITIES, GUARDIAN_TAG_PRESETS } from "../types";
 import type { GuardianTagPolarity } from "../types";
@@ -119,12 +120,6 @@ export function tagChipClass(polarity?: GuardianTagPolarity): string {
   }
 }
 
-const POLARITY_SYSTEM_PROMPT =
-  "你是小学班主任助手。为每个「监护人风格标签」判定教师与该监护人相处沟通时的情感倾向，三选一：" +
-  "positive（正面：温和、配合、沟通良好）、negative（负面：配合度低、难沟通、较少参与）、" +
-  "neutral（中性：客观描述无明显褒贬）。" +
-  "只输出 JSON 对象，键为标签原文、值为 positive/neutral/negative，不要任何解释。";
-
 function buildMessages(tags: string[]): AgentMessage[] {
   return [{ role: "user", content: `标签列表：${tags.join("、")}` }];
 }
@@ -194,7 +189,7 @@ export async function ensureGuardianTagPolarities(
   try {
     const llm = options.llm ?? createLlm();
     const res = await llm.chat({
-      system: POLARITY_SYSTEM_PROMPT,
+      system: resolvePrompt(PROMPT_IDS.guardianTag),
       messages: buildMessages(missing),
       tools: [],
       config,

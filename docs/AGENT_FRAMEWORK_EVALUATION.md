@@ -67,6 +67,26 @@
 - `Cargo.toml` 锁精确版本（不用 `^`）；升级走 CHANGELOG。
 - `ai.rs` 内留一层 ~100 行的私有适配模块（消息/工具定义 ↔ rig 类型的转换），rig 破坏性变更只改这一层。
 
+#### 已落地的适配层补丁：网关响应宽容层
+
+`ai.rs` 的 `normalize_gateway_body` + `GatewayCompatClient`（OpenAI 兼容通道专用），
+用来吸收网关的不规范成功体。**升级 rig 或换兼容网关时优先复核这里。**
+
+- **问题**（2026-10-01 实测）：部分网关在 200 成功体里把 `choices[*].message.role` 写成空串 `""`。
+  rig 0.42 的 `openai::completion::Message` 是 `#[serde(tag = "role")]` 严格枚举，空串不在变体表内
+  → 整个响应体解码失败；而响应信封 `ApiResponse<T>` 是 untagged 的「成功或错误」，解码失败会静默
+  回落到错误分支 → 内容完好的成功响应被报成
+  `ProviderResponseError: status 200 OK: {...}`，极具误导性（HTTP 层完全成功，回复就在 body 里）。
+- **处理**：`message.role` 缺失 / `null` / 纯空白时补成 `"assistant"`（响应体里的回复角色语义上
+  只能是 assistant，工具调用会被网关显式写成 `"tool"`），其余一律不碰：`role` 为非空异常值、
+  顶层带 `error`/`errors` 的错误信封、非 JSON、无 `choices` 都原样交给 rig 报错，避免掩盖真问题。
+- **接入点**：`HttpClientExt`（rig 官方留出的后端替换点），在 `build_client` 里通过
+  `.http_client(GatewayCompatClient::default())` 挂上；只作用于非流式路径，
+  `send_streaming` / `send_multipart` 原样转发（流式 delta 结构无 `role` 字段，本就不受影响）。
+- **回归覆盖**：`ai.rs` 测试模块内含真实故障响应体样本、纯函数边界用例，以及一对
+  反向对照的端到端用例（挂宽容层成功 / 不挂必然复现 `ProviderResponseError`），
+  确保该故障被真正钉住而不是碰巧通过。
+
 ## 3. rmcp 侧：怎么玩
 
 ### 3.1 形态：应用内 MCP server

@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { listPhotos, listStudents } from "../lib/db";
 import { getPhotosDir, photoUrl } from "../lib/photos";
 import EmptyState from "../components/ui/EmptyState.vue";
+import ImageLightbox from "../components/ui/ImageLightbox.vue";
 import type { Photo, StudentRow } from "../types";
 
 const photos = ref<Photo[]>([]);
@@ -12,6 +13,24 @@ const loading = ref(true);
 
 const studentName = (id: number | null) =>
   id != null ? students.value.find((s) => s.id === id)?.name ?? `学生 #${id}` : "班级照片";
+
+/** 可查看原图的照片（演示模式没有文件地址的除外） */
+const viewable = computed(() =>
+  photos.value
+    .map((photo) => ({
+      id: photo.id,
+      src: photoUrl(photosDir.value, photo.file_name),
+      caption: [studentName(photo.student_id), photo.caption || "未命名"].join(" · "),
+    }))
+    .filter((item) => item.src)
+);
+
+const previewIndex = ref<number | null>(null);
+
+function openPreview(photo: Photo) {
+  const index = viewable.value.findIndex((item) => item.id === photo.id);
+  if (index >= 0) previewIndex.value = index;
+}
 
 onMounted(async () => {
   photosDir.value = await getPhotosDir();
@@ -43,9 +62,12 @@ onMounted(async () => {
         <div class="h-[160px] overflow-hidden bg-parchment">
           <img
             v-if="photoUrl(photosDir, photo.file_name)"
-            class="h-full w-full object-cover"
+            class="h-full w-full cursor-zoom-in object-contain"
             :src="photoUrl(photosDir, photo.file_name)"
             :alt="photo.caption ?? ''"
+            title="点击查看原图"
+            data-test="photo-thumb"
+            @click="openPreview(photo)"
           />
           <div v-else class="flex h-full items-center justify-center text-fine text-weak">
             示例图片
@@ -62,6 +84,13 @@ onMounted(async () => {
       v-else-if="!loading"
       title="还没有任何图片"
       description="打开某个学生的档案，点「关联图片」就能从本地导入。"
+    />
+
+    <ImageLightbox
+      :open="previewIndex !== null"
+      :items="viewable"
+      :index="previewIndex ?? 0"
+      @close="previewIndex = null"
     />
   </div>
 </template>

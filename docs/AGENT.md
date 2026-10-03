@@ -32,6 +32,7 @@ src/agent/loop.ts —— tool-calling 循环（TS 侧）
             ├── student-ops.ts → manage_students 学生档案写操作（确认门）
             ├── roster-import.ts → import_student_roster 花名册导入（智能识别姓名列，确认门；成绩单自动分流）
             ├── score-import.ts → import_score_sheet 成绩单导入（生成考试批次，确认门）
+            ├── parent-summary.ts → generate_parent_summary 家校沟通总结（单生跳学生档案页签、全班开批量对话框，只读；应用回档案由用户确认）
             ├── ui_action     → 页面按钮动作（容器按当前页面动态生成参数枚举）
             └── Rust 桥接     → photos / rag_reindex / semantic_search / roster_read_text / roster_read_table（IPC）
                                     │
@@ -62,13 +63,24 @@ src/agent/loop.ts —— tool-calling 循环（TS 侧）
 工具调用结构 `{ id, name, arguments }`；工具返回统一为
 `{ ok, summary, data?, error? }`，`summary` 回喂模型，`data` 供 UI 摘要。
 
+### 系统提示词（可配置）
+
+Agent 的 system prompt 由 `src/agent/prompt.ts` 构造，但**正文本身不再写死**：
+它来自提示词模块 `assistant.agent`（`src/prompts/modules/agent.prompt.ts`），
+可在「提示词管理」页（`/prompts`）按模块调整，`buildSystemPrompt` 只负责注入运行期变量
+（`{当前页面}` / `{页面概况}` / `{补充设定}`）。改提示词不必改代码，改代码也不会覆盖用户自定义。
+其余 AI 功能（评语、评价报告、表格识别等）同机制，详见 [docs/PROMPT_MANAGEMENT.md](PROMPT_MANAGEMENT.md)。
+
+> 新增提示词模块 = 在 `src/prompts/modules/` 放一个 `*.prompt.ts` 文件，
+> 与工具/页面动作一样「放文件即接入」，不改注册表、不改管理页。
+
 ## 首期工具
 
 ### navigate —— 页面跳转
 
 `NAV_TARGETS`（src/agent/tools/navigation.ts）是**应用界面注册表**，
-Agent 可达页面的唯一清单：home / classes / photos / timetable / recycle-bin /
-profile / settings，另有两类**实体页面**（带 `resolve` 解析器，先查库校验再跳转）：
+Agent 可达页面的唯一清单：home / classes / photos / timetable / classroom /
+settings-center / recycle-bin / profile / prompts / settings，另有两类**实体页面**（带 `resolve` 解析器，先查库校验再跳转）：
 
 - `class-detail` + `class_name`：班级详情页。班级名宽容口语差异
   （「三年二班」≈「三年级二班」），精确 → 归一 → 包含逐级匹配，
@@ -119,6 +131,16 @@ profile / settings，另有两类**实体页面**（带 `resolve` 解析器，�
 写操作（确认门）。把成绩单导入为一次考试批次（考试名 + 考试时间，可自动提取也可指定），
 成绩自动关联学生档案；成绩单里没有的学生自动建档，学号或姓名匹配已有档案。
 识别规则与幂等策略详见 [docs/SCORE_IMPORT.md](SCORE_IMPORT.md)。
+
+### generate_parent_summary —— 家校沟通总结
+
+只读工具（非写操作）。按指定时段内的学生评价生成给家长的表现总结：
+`student_id` / `student_name` / `class_name` 三选一（单个学生或一键全班，重名报候选），
+`semester` 或 `start`+`end` 指定时段（缺省当前学期），`requirement` 为个性化写作要求。
+单个学生：自动跳转到该生档案的「家校沟通」页签并开始生成，用户可在页签里补充要求重新生成、
+一键应用到学生档案；全班：打开班级层的批量对话框逐个生成，用户在对话框里逐个复制 / 应用。
+写入学生档案永远由用户确认，工具本身不落库，因此不需要确认门。
+详见 [docs/PARENT_SUMMARY.md](PARENT_SUMMARY.md)。
 
 ## 如何新增能力（TS 执行面）
 

@@ -5,6 +5,7 @@ import AppButton from "../components/ui/AppButton.vue";
 import AppCard from "../components/ui/AppCard.vue";
 import AppIconButton from "../components/ui/AppIconButton.vue";
 import AppLink from "../components/ui/AppLink.vue";
+import AiPolishButton from "../components/ui/AiPolishButton.vue";
 import BackgroundPickerDialog from "../components/BackgroundPickerDialog.vue";
 import { ensureBackgroundLibrary, markBackgroundUsed } from "../lib/backgrounds";
 import { useClock } from "../composables/useClock";
@@ -501,9 +502,17 @@ onBeforeUnmount(() => {
               </select>
             </div>
             <div>
-              <label for="profile-motto" class="mb-1.5 block text-caption text-weak">
-                &#x7B7E;&#x540D;
-              </label>
+              <div class="mb-1.5 flex items-center justify-between">
+                <label for="profile-motto" class="block text-caption text-weak">
+                  &#x7B7E;&#x540D;
+                </label>
+                <AiPolishButton
+                  :text="draft.motto"
+                  scene="首页签名"
+                  hint="老师个人主页上展示的一句话签名或格言"
+                  @apply="draft.motto = $event"
+                />
+              </div>
               <textarea
                 id="profile-motto"
                 v-model="draft.motto"

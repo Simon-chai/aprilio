@@ -52,3 +52,6 @@ encoding_rs = "0.8"
 calamine = "=0.36.1"
 # 背景图字节流（download_background / read_image_bytes / save_background_data_url 的 base64 编解码）
 base64 = "0.22"
+# 自定义 rig HTTP 后端（ai.rs 的网关宽容层）要拿 Bytes 做响应体类型转换；
+# rig 自身依赖同一版本，增量≈0
+bytes = "1"

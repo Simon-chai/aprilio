@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>D · 成长小奖状</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    width: 750px;
+    font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    color: #1d1d1f;
+  }
+  .card {
+    position: relative;
+    width: 750px; height: 1180px;
+    background:
+      radial-gradient(#ffe3a0 3px, transparent 3.5px),
+      linear-gradient(165deg, #e9f4ff 0%, #fffbe8 55%, #ffedc9 100%);
+    background-size: 52px 52px, 100% 100%;
+    padding: 58px;
+  }
+  .frame {
+    position: absolute; inset: 24px;
+    border: 3px dashed #ffb84d; border-radius: 28px;
+    pointer-events: none;
+  }
+  .inner {
+    position: relative;
+    height: 100%;
+    display: flex; flex-direction: column; align-items: center;
+    text-align: center;
+  }
+  /* 绶带标题 */
+  .ribbon {
+    background: linear-gradient(90deg, #0066cc, #3d94e8);
+    color: #fff; font-size: 24px; font-weight: 800; letter-spacing: 6px;
+    border-radius: 999px; padding: 14px 52px;
+    box-shadow: 0 6px 16px rgba(0,102,204,.28);
+  }
+  .big-emoji { font-size: 78px; margin-top: 34px; }
+  .stu { font-size: 40px; font-weight: 900; margin-top: 16px; letter-spacing: 2px; }
+  .desc { font-size: 21px; color: #555; line-height: 1.7; margin-top: 14px; }
+  .desc b { color: #1d1d1f; }
+
+  /* 奖章 */
+  .medals { display: flex; gap: 34px; margin-top: 36px; }
+  .medal { width: 150px; }
+  .medal .coin {
+    width: 88px; height: 88px; margin: 0 auto; border-radius: 50%;
+    background: #fff; border: 4px solid #ffd24d;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 40px;
+    box-shadow: 0 4px 12px rgba(255,180,60,.25);
+  }
+  .medal .k { font-size: 17px; font-weight: 700; margin-top: 10px; color: #444; }
+
+  .stars { font-size: 30px; color: #ffc93c; letter-spacing: 8px; margin-top: 30px; }
+
+  /* 成绩 chips */
+  .scores { display: flex; gap: 14px; margin-top: 26px; }
+  .score-chip {
+    background: #fff; border-radius: 999px; padding: 10px 24px;
+    font-size: 20px; color: #333;
+    box-shadow: 0 2px 8px rgba(30,90,150,.10);
+  }
+  .score-chip b { font-size: 23px; margin-left: 6px; color: #0066cc; }
+
+  /* 评语气泡 */
+  .bubble-wrap { width: 100%; margin-top: 34px; position: relative; }
+  .bubble {
+    background: #fff; border-radius: 22px;
+    padding: 24px 28px; text-align: left;
+    box-shadow: 0 4px 14px rgba(30,90,150,.10);
+  }
+  .bubble p { font-size: 21px; line-height: 1.75; color: #333; }
+  .bubble .sign { text-align: right; font-size: 19px; color: #0066cc; font-weight: 700; margin-top: 10px; }
+  .bubble-wrap .tail {
+    position: absolute; top: -12px; left: 90px;
+    width: 26px; height: 26px; background: #fff;
+    transform: rotate(45deg); border-radius: 4px;
+  }
+
+  /* 印章 */
+  .stamp {
+    position: absolute; right: 26px; bottom: 96px;
+    width: 96px; height: 96px; border-radius: 50%;
+    border: 3px solid rgba(215,0,21,.75); color: rgba(215,0,21,.8);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    font-size: 16px; font-weight: 800; letter-spacing: 3px;
+    transform: rotate(-14deg);
+  }
+  .stamp .big { font-size: 30px; }
+
+  .date { margin-top: auto; font-size: 19px; color: #8a8a8a; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="frame"></div>
+  <div class="inner">
+    <div class="ribbon">✨ 成长小奖状 ✨</div>
+    <div class="big-emoji">🌟</div>
+    <div class="stu">李梓涵 同学</div>
+    <div class="desc">在 <b>2026 年 9 月</b>（开学第 1—4 周）表现出色<br>学习认真、乐于助人，特发此状，以资鼓励！</div>
+
+    <div class="medals">
+      <div class="medal"><div class="coin">📖</div><div class="k">学习之星</div></div>
+      <div class="medal"><div class="coin">🙋</div><div class="k">发言达人</div></div>
+      <div class="medal"><div class="coin">🤝</div><div class="k">助人小标兵</div></div>
+    </div>
+
+    <div class="stars">★ ★ ★ ★ ★</div>
+
+    <div class="scores">
+      <div class="score-chip">语文<b>92</b></div>
+      <div class="score-chip">数学<b>98</b></div>
+      <div class="score-chip">英语<b>95</b></div>
+    </div>
+
+    <div class="bubble-wrap">
+      <div class="tail"></div>
+      <div class="bubble">
+        <p>课堂上你的小手举得越来越高，回答问题有自己的想法。继续保持这份专注和热情，下个月老师期待你更精彩的表现！</p>
+        <div class="sign">—— 王老师</div>
+      </div>
+    </div>
+
+    <div class="stamp"><span>优秀</span><span class="big">优+</span></div>
+    <div class="date">2026 年 10 月 3 日 · 三年二班</div>
+  </div>
+</div>
+</body>
+</html>

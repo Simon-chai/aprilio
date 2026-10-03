@@ -583,14 +583,23 @@ async function onClear() {
             </div>
 
             <div>
-              <label class="mb-1.5 block text-fine text-weak" for="ai-system">系统提示词（可选）</label>
+              <label class="mb-1.5 block text-fine text-weak" for="ai-system">
+                系统提示词补充设定（可选）
+              </label>
               <textarea
                 id="ai-system"
                 v-model="form.systemPrompt"
                 rows="3"
                 class="w-full resize-none rounded-sm border border-hairline bg-canvas px-3 py-2 text-caption leading-relaxed text-ink outline-none transition-colors placeholder:text-weak focus:border-primary-focus"
-                placeholder="告诉 AI 它是谁，比如：你是一位小学班主任的教学助手，回答简洁实用。"
+                placeholder="追加在助手主提示词末尾的全局设定，比如：回答简洁实用，先给结论。"
               />
+              <p class="mt-1 text-fine text-faint">
+                这是追加在 AI 助手主提示词末尾的补充设定，对当前方案生效。
+                要调整各 AI 功能（评语、评价报告、导入识别等）的系统提示词本身，请到
+                <!-- 应用用 hash 路由，直接给 hash 链接即可跳转，无需依赖 RouterLink 注入 -->
+                <a href="#/prompts" class="text-primary hover:text-primary-focus">提示词管理</a>
+                。
+              </p>
             </div>
 
             <div class="flex items-center gap-3">

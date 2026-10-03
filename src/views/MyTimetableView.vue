@@ -25,6 +25,7 @@ import EventTypeSelect from "../components/EventTypeSelect.vue";
 import MemoHistoryDrawer from "../components/MemoHistoryDrawer.vue";
 import MemoTitle from "../components/MemoTitle.vue";
 import MyTimetableCalendar from "../components/MyTimetableCalendar.vue";
+import AiPolishButton from "../components/ui/AiPolishButton.vue";
 import {
   addCalendarEvent,
   deleteCalendarEvent,
@@ -681,15 +682,25 @@ onBeforeUnmount(() => {
                 </div>
                 <div class="flex items-center justify-between gap-2">
                   <p class="text-fine text-faint">回车或点保存</p>
-                  <button
-                    type="button"
-                    data-test="week-memo-save"
-                    class="h-6 shrink-0 rounded-sm bg-primary px-2 text-fine text-white transition-colors hover:bg-primary-focus disabled:pointer-events-none disabled:opacity-40"
-                    :disabled="!draftText(date, null) || eventSaving"
-                    @click="addEvent(true)"
-                  >
-                    保存
-                  </button>
+                  <div class="flex shrink-0 items-center gap-1.5">
+                    <AiPolishButton
+                      size="sm"
+                      :text="draftByCell[cellKey(date, null)]"
+                      scene="日程备忘"
+                      hint="我的课表周视图格子里记的日程或备忘"
+                      :context="`日期：${date}；节次：全天`"
+                      @apply="draftByCell[cellKey(date, null)] = $event"
+                    />
+                    <button
+                      type="button"
+                      data-test="week-memo-save"
+                      class="h-6 shrink-0 rounded-sm bg-primary px-2 text-fine text-white transition-colors hover:bg-primary-focus disabled:pointer-events-none disabled:opacity-40"
+                      :disabled="!draftText(date, null) || eventSaving"
+                      @click="addEvent(true)"
+                    >
+                      保存
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -848,15 +859,25 @@ onBeforeUnmount(() => {
                   </div>
                   <div class="flex items-center justify-between gap-2">
                     <p class="text-fine text-faint">回车或点保存</p>
-                    <button
-                      type="button"
-                      data-test="week-memo-save"
-                      class="h-6 shrink-0 rounded-sm bg-primary px-2 text-fine text-white transition-colors hover:bg-primary-focus disabled:pointer-events-none disabled:opacity-40"
-                      :disabled="!draftText(date, p.period) || eventSaving"
-                      @click="addEvent(true)"
-                    >
-                      保存
-                    </button>
+                    <div class="flex shrink-0 items-center gap-1.5">
+                      <AiPolishButton
+                        size="sm"
+                        :text="draftByCell[cellKey(date, p.period)]"
+                        scene="日程备忘"
+                        hint="我的课表周视图格子里记的日程或备忘"
+                        :context="`日期：${date}；节次：第${p.period}节`"
+                        @apply="draftByCell[cellKey(date, p.period)] = $event"
+                      />
+                      <button
+                        type="button"
+                        data-test="week-memo-save"
+                        class="h-6 shrink-0 rounded-sm bg-primary px-2 text-fine text-white transition-colors hover:bg-primary-focus disabled:pointer-events-none disabled:opacity-40"
+                        :disabled="!draftText(date, p.period) || eventSaving"
+                        @click="addEvent(true)"
+                      >
+                        保存
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>

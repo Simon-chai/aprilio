@@ -187,4 +187,94 @@ describe("StudentBehaviorTimeline.vue", () => {
     await wrapper.get("[data-test='empty-add-btn']").trigger("click");
     expect(wrapper.emitted("add")).toBeTruthy();
   });
+
+  it("opens the context menu with edit / delete on item right-click", async () => {
+    const wrapper = mount(StudentBehaviorTimeline, {
+      props: { records: mockRecords },
+      global: { stubs: { teleport: true } },
+    });
+
+    expect(wrapper.find("[data-test='item-context-menu']").exists()).toBe(false);
+
+    const items = wrapper.findAll("[data-test='timeline-item']");
+    await items[1].trigger("contextmenu");
+
+    const menu = wrapper.get("[data-test='item-context-menu']");
+    expect(menu.find("[data-test='menu-edit']").text()).toBe("编辑");
+    expect(menu.find("[data-test='menu-delete']").text()).toBe("删除");
+
+    // 再右键另一条：菜单仍只保留一份（切换归属，不叠加）
+    await items[0].trigger("contextmenu");
+    expect(wrapper.findAll("[data-test='item-context-menu']").length).toBe(1);
+  });
+
+  it("emits edit with the record and menu anchor when clicking 编辑", async () => {
+    const wrapper = mount(StudentBehaviorTimeline, {
+      props: { records: mockRecords },
+      global: { stubs: { teleport: true } },
+    });
+
+    const items = wrapper.findAll("[data-test='timeline-item']");
+    await items[0].trigger("contextmenu");
+    await wrapper.get("[data-test='menu-edit']").trigger("click");
+    await flushPromises();
+
+    // 组内按 id 倒序，items[0] 为 id 2；anchor 为菜单弹出坐标
+    const [record, anchor] = wrapper.emitted("edit")?.[0] ?? [];
+    expect(record).toMatchObject({ id: 2, comment: "缺少一次课后错题订正" });
+    expect(anchor).toEqual({ x: 8, y: 8 });
+    // 菜单随动作收起
+    expect(wrapper.find("[data-test='item-context-menu']").exists()).toBe(false);
+  });
+
+  it("emits remove via context-menu delete after confirm, keeps record when cancelled", async () => {
+    vi.mocked(confirmAction).mockResolvedValue(true);
+    const wrapper = mount(StudentBehaviorTimeline, {
+      props: { records: mockRecords },
+      global: { stubs: { teleport: true } },
+    });
+
+    await wrapper.findAll("[data-test='timeline-item']")[0].trigger("contextmenu");
+    await wrapper.get("[data-test='menu-delete']").trigger("click");
+    await flushPromises();
+
+    expect(vi.mocked(confirmAction)).toHaveBeenCalledWith(
+      expect.objectContaining({ tone: "danger", confirmText: "删除" }),
+    );
+    expect(wrapper.emitted("remove")?.[0]).toEqual([2]);
+
+    // 取消确认：不上抛 remove
+    vi.mocked(confirmAction).mockResolvedValue(false);
+    await wrapper.findAll("[data-test='timeline-item']")[0].trigger("contextmenu");
+    await wrapper.get("[data-test='menu-delete']").trigger("click");
+    await flushPromises();
+    expect(wrapper.emitted("remove")?.length).toBe(1);
+  });
+
+  it("closes the context menu on Escape, outside mousedown and scroll", async () => {
+    const wrapper = mount(StudentBehaviorTimeline, {
+      props: { records: mockRecords },
+      global: { stubs: { teleport: true } },
+    });
+
+    await wrapper.findAll("[data-test='timeline-item']")[0].trigger("contextmenu");
+    expect(wrapper.find("[data-test='item-context-menu']").exists()).toBe(true);
+
+    // Esc 收起
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    await flushPromises();
+    expect(wrapper.find("[data-test='item-context-menu']").exists()).toBe(false);
+
+    // 点空白（菜单外 mousedown）收起
+    await wrapper.findAll("[data-test='timeline-item']")[0].trigger("contextmenu");
+    document.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    await flushPromises();
+    expect(wrapper.find("[data-test='item-context-menu']").exists()).toBe(false);
+
+    // 滚动收起（capture 监听，容器内滚动同样生效）
+    await wrapper.findAll("[data-test='timeline-item']")[0].trigger("contextmenu");
+    document.dispatchEvent(new Event("scroll"));
+    await flushPromises();
+    expect(wrapper.find("[data-test='item-context-menu']").exists()).toBe(false);
+  });
 });

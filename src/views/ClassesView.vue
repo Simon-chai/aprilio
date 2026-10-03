@@ -6,6 +6,7 @@ import AppIconButton from "../components/ui/AppIconButton.vue";
 import AppIcon from "../components/ui/AppIcon.vue";
 import ConfirmDialog from "../components/ui/ConfirmDialog.vue";
 import EmptyState from "../components/ui/EmptyState.vue";
+import ImageLightbox from "../components/ui/ImageLightbox.vue";
 import ClassFormDialog, { type ClassFormValue } from "../components/ClassFormDialog.vue";
 import StudentFormDialog from "../components/StudentFormDialog.vue";
 import ImportRosterDialog from "../components/ImportRosterDialog.vue";
@@ -169,6 +170,19 @@ const recent = computed<RecordCard[]>(() =>
     url: photoUrl(photosDir.value, p.file_name),
   }))
 );
+
+/** 最近记录查看原图：缩略图点击后定位到最近记录里的这一张 */
+const recentPreviewIndex = ref<number | null>(null);
+const recentViewable = computed(() =>
+  recent.value
+    .filter((r) => r.url)
+    .map((r) => ({ src: r.url, caption: r.title }))
+);
+
+function openRecentPreview(card: RecordCard) {
+  if (!card.url) return;
+  recentPreviewIndex.value = recentViewable.value.findIndex((item) => item.src === card.url);
+}
 
 async function refresh() {
   const [classList, studentRows, photoRows, stats] = await Promise.all([
@@ -488,13 +502,21 @@ async function handleDeleteClass(recreate: boolean) {
         <!-- 最近记录：窄窗口时横向滚动查看，不折行不隐藏 -->
         <div class="scrollbar-none mt-4 flex gap-6 overflow-x-auto pb-1">
           <div v-for="r in recent" :key="r.id" class="w-[302px] shrink-0">
-            <img
+            <button
               v-if="r.url"
-              :src="r.url"
-              :alt="r.title"
-              class="h-[180px] w-full rounded-sm object-cover"
-              draggable="false"
-            />
+              type="button"
+              title="点击查看原图"
+              class="block w-full cursor-zoom-in"
+              data-test="recent-photo"
+              @click="openRecentPreview(r)"
+            >
+              <img
+                :src="r.url"
+                :alt="r.title"
+                class="h-[180px] w-full rounded-sm bg-parchment object-contain"
+                draggable="false"
+              />
+            </button>
             <div
               v-else
               class="flex h-[180px] w-full items-center justify-center rounded-sm bg-parchment"
@@ -573,5 +595,13 @@ async function handleDeleteClass(recreate: boolean) {
         </div>
       </template>
     </ConfirmDialog>
+
+    <!-- 最近记录查看原图 -->
+    <ImageLightbox
+      :open="recentPreviewIndex !== null"
+      :items="recentViewable"
+      :index="recentPreviewIndex ?? 0"
+      @close="recentPreviewIndex = null"
+    />
   </div>
 </template>

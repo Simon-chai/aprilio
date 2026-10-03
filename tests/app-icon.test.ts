@@ -33,6 +33,9 @@ const FIRST_BATCH = [
   "check",
 ];
 
+/* 首批之后新增的图标：与首批分开维护，新增图标在此登记一行 */
+const LATER_BATCH = ["prompt", "card"];
+
 describe("AppIcon", () => {
   // console.warn 的监听逐用例还原，避免污染其它用例的输出
   let warnSpy: ReturnType<typeof vi.spyOn> | undefined;
@@ -79,7 +82,7 @@ describe("AppIcon", () => {
     }
   });
 
-  it("注册表恰好收录规格首批 20 个图标", () => {
-    expect(Object.keys(ICONS).sort()).toEqual([...FIRST_BATCH].sort());
+  it("注册表恰好收录规格首批 20 个图标 + 后续新增", () => {
+    expect(Object.keys(ICONS).sort()).toEqual([...FIRST_BATCH, ...LATER_BATCH].sort());
   });
 });

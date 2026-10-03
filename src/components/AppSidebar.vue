@@ -3,6 +3,7 @@ import { computed } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 import appIcon from "../assets/app-icon.png";
 import { useFullscreen } from "../composables/useFullscreen";
+import { isConfigRoute, useNavReturn } from "../composables/useNavReturn";
 
 const route = useRoute();
 const { isFullscreen, toggleFullscreen } = useFullscreen();
@@ -10,16 +11,28 @@ const { isFullscreen, toggleFullscreen } = useFullscreen();
 interface NavItem {
   name: string;
   label: string;
-  icon: "home" | "classes" | "users" | "image" | "trash" | "gear";
+  icon: "home" | "classes" | "image" | "trash" | "prompt" | "gear";
 }
 
-const items: NavItem[] = [
+/** 教学区条目：日常业务主战场，配置类页面一律不混入 */
+const bizItems: NavItem[] = [
   { name: "home", label: "首页", icon: "home" },
   { name: "classes", label: "班级管理", icon: "classes" },
   { name: "photos", label: "图片记录", icon: "image" },
+];
+
+/** 配置世界条目：回收站属数据安全管理，与提示词、数据与设置一起归入设置中心 */
+const configItems: NavItem[] = [
+  { name: "prompts", label: "提示词管理", icon: "prompt" },
   { name: "recycle-bin", label: "回收站", icon: "trash" },
   { name: "settings", label: "数据与设置", icon: "gear" },
 ];
+
+const { returnTo } = useNavReturn();
+
+/** 双世界由当前路由推导：Agent 跳转、浏览器前进后退、深链接都天然成立 */
+const inConfigWorld = computed(() => isConfigRoute(route.name));
+const items = computed(() => (inConfigWorld.value ? configItems : bizItems));
 
 const activeName = computed(() => {
   // 班级详情与学生详情都是从「班级管理」下钻的层级，侧栏沿用同一高亮
@@ -41,8 +54,31 @@ const activeName = computed(() => {
       <span class="text-[19px] font-semibold -tracking-[0.4px] text-ink">aprilio</span>
     </div>
 
+    <!-- 配置世界头部：返回教学（回到进入前的业务页）+ 标题，标明与教学区的边界 -->
+    <div v-if="inConfigWorld" class="flex flex-col">
+      <RouterLink
+        :to="returnTo()"
+        class="-ml-2 flex h-8 items-center gap-1.5 self-start rounded-sm px-2 text-caption text-primary transition-colors duration-200 hover:bg-primary-soft"
+      >
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path
+            d="M9.5 3.5L5 8l4.5 4.5"
+            stroke="currentColor"
+            stroke-width="1.4"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+        返回教学
+      </RouterLink>
+      <div class="mt-2">
+        <p class="text-body font-semibold text-ink">设置中心</p>
+        <p class="mt-0.5 text-fine text-weak">影响全局的基础配置，与日常教学分开</p>
+      </div>
+    </div>
+
     <!-- Nav -->
-    <nav class="flex flex-col gap-0.5">
+    <nav class="flex flex-col gap-0.5" :class="inConfigWorld ? 'mt-1' : ''">
       <RouterLink
         v-for="item in items"
         :key="item.name"
@@ -103,27 +139,6 @@ const activeName = computed(() => {
           />
         </svg>
         <svg
-          v-else-if="item.icon === 'users'"
-          width="16"
-          height="16"
-          viewBox="0 0 16 16"
-          fill="none"
-          aria-hidden="true"
-        >
-          <path
-            d="M6 7.6a2.75 2.75 0 100-5.5 2.75 2.75 0 000 5.5zM1.6 13.6c0-2.2 2-3.7 4.4-3.7s4.4 1.5 4.4 3.7"
-            stroke="currentColor"
-            stroke-width="1.4"
-            stroke-linecap="round"
-          />
-          <path
-            d="M11 3.3a2.5 2.5 0 010 4.8M12.4 10.2c1.7.5 2.9 1.7 2.9 3.4"
-            stroke="currentColor"
-            stroke-width="1.4"
-            stroke-linecap="round"
-          />
-        </svg>
-        <svg
           v-else-if="item.icon === 'image'"
           width="16"
           height="16"
@@ -172,6 +187,28 @@ const activeName = computed(() => {
           />
         </svg>
         <svg
+          v-else-if="item.icon === 'prompt'"
+          width="16"
+          height="16"
+          viewBox="0 0 16 16"
+          fill="none"
+          aria-hidden="true"
+        >
+          <path
+            d="M2.8 3.6h10.4a1.1 1.1 0 0 1 1.1 1.1v6.1a1.1 1.1 0 0 1-1.1 1.1H6l-2.9 2.3V4.7a1.1 1.1 0 0 1 1.1-1.1Z"
+            stroke="currentColor"
+            stroke-width="1.4"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+          <path
+            d="M5 6.6h6M5 9h3.8"
+            stroke="currentColor"
+            stroke-width="1.4"
+            stroke-linecap="round"
+          />
+        </svg>
+        <svg
           v-else
           width="16"
           height="16"
@@ -198,6 +235,26 @@ const activeName = computed(() => {
     </nav>
 
     <div class="flex-1" />
+
+    <!-- 设置中心唯一入口：教学世界的底部按钮，配置类页面全部从这里进（仅教学世界显示） -->
+    <RouterLink
+      v-if="!inConfigWorld"
+      :to="{ name: 'settings-center' }"
+      data-test="settings-center-entry"
+      class="flex h-10 items-center gap-2.5 rounded-sm border border-hairline bg-pearl px-3 text-caption text-muted transition-[color,background-color,box-shadow] duration-200 hover:bg-canvas hover:text-primary hover:shadow-[0_4px_12px_rgba(29,29,31,0.08)]"
+    >
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <circle cx="8" cy="8" r="2.2" stroke="currentColor" stroke-width="1.4" />
+        <path
+          d="M8 1.7v1.5M8 12.8v1.5M2.9 2.9l1.1 1.1M12 12l1.1 1.1M1.7 8h1.5M12.8 8h1.5M2.9 13.1l1.1-1.1M12 4l1.1-1.1"
+          stroke="currentColor"
+          stroke-width="1.4"
+          stroke-linecap="round"
+        />
+      </svg>
+      设置中心
+      <span class="ml-auto text-fine text-weak">Ctrl+,</span>
+    </RouterLink>
 
     <!-- 全屏切换：与系统标题栏互补，F11 同效 -->
     <button

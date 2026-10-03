@@ -3,24 +3,30 @@
  * 快捷表现卡片（spec §5.2）：
  * 460px 轻量浮层，老师 2~3 秒完成一次日常表现记录。
  * 维度胶囊 → 倾向切换 → 气泡点选/手输评语 → Enter 保存，全程原地闭环。
+ * 编辑模式：传入 editing（表现流水）即进入——预填原值，保存走 updateBehaviorRecord；
+ * 与新建的差异：标题、无「保存并记下一条」、日期不受「最近两周」补录下限约束（仍禁未来日期）。
  */
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
-import { createBehaviorDimension, listBehaviorDimensions, listCommentPresets, addBehaviorRecord } from "../lib/db";
+import { createBehaviorDimension, listBehaviorDimensions, listCommentPresets, addBehaviorRecord, updateBehaviorRecord } from "../lib/db";
 import { recommendComments } from "../lib/behavior-ai";
 import { localDateStr } from "../lib/format";
-import type { BehaviorDimension, BehaviorPolarity, CommentPreset, Student, StudentRow } from "../types";
+import AiPolishButton from "./ui/AiPolishButton.vue";
+import { BEHAVIOR_POLARITY_LABEL } from "../types";
+import type { BehaviorDimension, BehaviorPolarity, CommentPreset, Student, StudentBehaviorRecord, StudentRow } from "../types";
 
 const props = defineProps<{
   open: boolean;
   student: Student | StudentRow | null;
   students?: (Student | StudentRow)[];
+  /** 编辑模式：待修改的表现流水；为空时是新建模式 */
+  editing?: StudentBehaviorRecord | null;
   /** 触发按钮的视口坐标（getBoundingClientRect），卡片据此就近锚定 */
   anchor: { x: number; y: number } | null;
 }>();
 
 const emit = defineEmits<{
   close: [];
-  saved: [payload: { studentName: string; dimensionName: string; polarity: BehaviorPolarity }];
+  saved: [payload: { studentName: string; dimensionName: string; polarity: BehaviorPolarity; mode: "create" | "edit" }];
 }>();
 
 const activeStudentId = ref<number | null>(null);
@@ -49,7 +55,8 @@ const effectiveStudent = computed<Student | StudentRow | null>(() => {
 });
 
 const CARD_WIDTH = 460;
-const CARD_EST_HEIGHT = 560;
+/* 卡片估算高度含「AI 润色」按钮行：用于浮层越界时向上收拢的判断 */
+const CARD_EST_HEIGHT = 590;
 
 const dimensions = ref<BehaviorDimension[]>([]);
 const dimensionId = ref<number | null>(null);
@@ -77,6 +84,13 @@ const dateMin = computed(() => {
 const dateMax = computed(() => localDateStr());
 
 const currentDimension = computed(() => dimensions.value.find((d) => d.id === dimensionId.value) ?? null);
+
+/** 「AI 润色」的业务上下文：学生 + 观察维度 + 评价倾向 */
+const polishContext = computed(
+  () =>
+    `学生：${effectiveStudent.value?.name ?? ""}；观察维度：${currentDimension.value?.name ?? ""}；` +
+    `评价倾向：${BEHAVIOR_POLARITY_LABEL[polarity.value]}`,
+);
 
 const CATEGORY_LABEL: Record<string, string> = {
   study: "学习类",
@@ -139,17 +153,23 @@ async function refreshSuggestions() {
 
 async function init() {
   if (!props.open || !effectiveStudent.value) return;
-  comment.value = "";
-  polarity.value = "praise";
+  const ed = props.editing ?? null;
+  // 编辑模式预填原值；新建保持「今天 / 表扬 / 空评语」的默认
+  comment.value = ed?.comment ?? "";
+  polarity.value = ed?.type ?? "praise";
+  recordDate.value = ed?.recorded_date ?? localDateStr();
   saving.value = false;
   hint.value = false;
   saveError.value = "";
   customAdding.value = false;
   customName.value = "";
   customError.value = "";
-  recordDate.value = localDateStr();
   dimensions.value = await listBehaviorDimensions();
-  dimensionId.value = dimensions.value[0]?.id ?? null;
+  // 编辑时锁定回记录原维度；该维度已不在启用列表（异常兜底）则回退第一个
+  dimensionId.value =
+    ed && dimensions.value.some((d) => d.id === ed.dimension_id)
+      ? ed.dimension_id
+      : (dimensions.value[0]?.id ?? null);
   await refreshSuggestions();
 }
 
@@ -211,7 +231,8 @@ async function save(keepOpen: boolean) {
     saveError.value = "不能录入未来日期";
     return;
   }
-  if (recordDate.value < dateMin.value) {
+  // 编辑已有记录不受「最近两周」补录下限约束（老记录日期可能更早）；新建仍限两周内
+  if (!props.editing && recordDate.value < dateMin.value) {
     saveError.value = "仅支持补录最近两周以内的表现";
     return;
   }
@@ -219,19 +240,33 @@ async function save(keepOpen: boolean) {
   saving.value = true;
   saveError.value = "";
   try {
-    await addBehaviorRecord({
-      student_id: effectiveStudent.value.id,
-      dimension_id: dim.id,
-      dimension_name_snap: dim.name,
-      category_snap: dim.category,
-      type: polarity.value,
-      comment: text,
-      recorded_date: recordDate.value,
-    });
+    if (props.editing) {
+      // 编辑锁定到记录所属学生，避免顺手改到别人头上
+      await updateBehaviorRecord(props.editing.id, {
+        student_id: props.editing.student_id,
+        dimension_id: dim.id,
+        dimension_name_snap: dim.name,
+        category_snap: dim.category,
+        type: polarity.value,
+        comment: text,
+        recorded_date: recordDate.value,
+      });
+    } else {
+      await addBehaviorRecord({
+        student_id: effectiveStudent.value.id,
+        dimension_id: dim.id,
+        dimension_name_snap: dim.name,
+        category_snap: dim.category,
+        type: polarity.value,
+        comment: text,
+        recorded_date: recordDate.value,
+      });
+    }
     emit("saved", {
       studentName: effectiveStudent.value.name,
       dimensionName: dim.name,
       polarity: polarity.value,
+      mode: props.editing ? "edit" : "create",
     });
     if (keepOpen) {
       // 连贯记录：清空输入、维度保持，卡片不关
@@ -286,26 +321,32 @@ function cancelCustom() {
         class="fixed z-50 w-[460px] max-w-full rounded-lg border border-hairline bg-canvas p-5 shadow-[var(--shadow-window)]"
         :style="pos"
       >
-        <!-- 头部：学生名 + 日期 + 关闭 -->
+        <!-- 头部：学生名 + 日期 + 关闭（编辑模式标题不同，且不提供学生切换） -->
         <div class="flex items-center justify-between gap-3">
           <div class="flex items-center gap-1.5 min-w-0">
-            <span class="text-body font-semibold tracking-tight text-ink shrink-0">为</span>
-            <select
-              v-if="students && students.length > 1"
-              v-model="activeStudentId"
-              class="h-7 rounded-md border border-hairline bg-pearl px-2 text-fine font-semibold text-primary outline-none focus:border-primary max-w-[130px] truncate"
-            >
-              <option v-for="s in students" :key="s.id" :value="s.id">{{ s.name }}</option>
-            </select>
-            <span v-else class="text-body font-semibold tracking-tight text-ink truncate">「{{ effectiveStudent.name }}」</span>
-            <span class="text-body font-semibold tracking-tight text-ink shrink-0">记录日常表现</span>
+            <template v-if="editing">
+              <span data-test="edit-mode-title" class="text-body font-semibold tracking-tight text-ink shrink-0">编辑表现记录</span>
+              <span class="text-body font-semibold tracking-tight text-ink truncate">「{{ effectiveStudent.name }}」</span>
+            </template>
+            <template v-else>
+              <span class="text-body font-semibold tracking-tight text-ink shrink-0">为</span>
+              <select
+                v-if="students && students.length > 1"
+                v-model="activeStudentId"
+                class="h-7 rounded-md border border-hairline bg-pearl px-2 text-fine font-semibold text-primary outline-none focus:border-primary max-w-[130px] truncate"
+              >
+                <option v-for="s in students" :key="s.id" :value="s.id">{{ s.name }}</option>
+              </select>
+              <span v-else class="text-body font-semibold tracking-tight text-ink truncate">「{{ effectiveStudent.name }}」</span>
+              <span class="text-body font-semibold tracking-tight text-ink shrink-0">记录日常表现</span>
+            </template>
           </div>
           <div class="flex items-center gap-2">
             <input
               v-model="recordDate"
               data-test="record-date"
               type="date"
-              :min="dateMin"
+              :min="editing ? undefined : dateMin"
               :max="dateMax"
               class="rounded-md border border-hairline bg-pearl px-2 py-1 text-fine text-muted outline-none focus:border-primary"
             />
@@ -439,7 +480,16 @@ function cancelCustom() {
 
         <!-- 评语正文 -->
         <div class="mt-4">
-          <p class="text-fine text-weak">评语正文</p>
+          <div class="flex items-center justify-between">
+            <p class="text-fine text-weak">评语正文</p>
+            <AiPolishButton
+              :text="comment"
+              scene="学生日常表现评语"
+              hint="老师给学生记的日常表现评语，保存后进入学生档案"
+              :context="polishContext"
+              @apply="comment = $event"
+            />
+          </div>
           <div class="mt-1.5" :class="{ 'qb-shake': shaking }">
             <textarea
               ref="textareaRef"
@@ -461,6 +511,7 @@ function cancelCustom() {
           <span class="text-fine text-faint">按 Enter 快速保存</span>
           <div class="flex items-center gap-2">
             <button
+              v-if="!editing"
               data-test="save-next-btn"
               class="rounded-full bg-parchment px-3.5 py-1.5 text-caption text-muted transition-colors hover:bg-hairline hover:text-ink"
               @click="save(true)"

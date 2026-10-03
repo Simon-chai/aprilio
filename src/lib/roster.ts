@@ -9,6 +9,7 @@
  * 设计约定见 docs/ROSTER_IMPORT.md。
  */
 import { createLlm } from "../agent/providers";
+import { PROMPT_IDS, resolvePrompt } from "../prompts";
 import type { AgentLlm } from "../agent/types";
 import { isAiConfigured, loadAiConfig, type AiConfig } from "./ai";
 import { createClass, createStudent, isTauri, listClasses, listStudents, updateStudent } from "./db";
@@ -593,15 +594,9 @@ export async function aiDetectNameColumn(
     })
     .join("\n");
 
-  const system =
-    "你是表格结构分析助手。用户会给出一张表格各列的表头与示例值，" +
-    "请判断哪一列最有可能是「学生姓名」。只输出一个 JSON 对象：" +
-    '{"column": 列号(从1开始的数字), "confidence": 0到1的小数, "reason": "不超过20字的理由"}，' +
-    "不要输出任何其他内容。";
-
   try {
     const res = await llm.chat({
-      system,
+      system: resolvePrompt(PROMPT_IDS.rosterNameColumn),
       messages: [{ role: "user", content: `表格共 ${table.headers.length} 列：\n${columnLines}` }],
       tools: [],
       config,
@@ -675,15 +670,9 @@ export async function aiInferClassName(
   const contexts = classNameContextLines(lines);
   if (!contexts.length) return null;
 
-  const system =
-    "你是学生信息表格结构分析助手。用户会给出一份表格的文件名与标题行，" +
-    "请判断这份表格属于哪个班级（如「四8班」「四年级八班」「三年级二班」）。" +
-    '只输出一个 JSON 对象：{"class_name": "班级名或null", "confidence": 0到1的小数, "reason": "不超过20字的理由"}，' +
-    "没有班级线索时 class_name 必须为 null，不要输出任何其他内容。";
-
   try {
     const res = await llm.chat({
-      system,
+      system: resolvePrompt(PROMPT_IDS.rosterClassName),
       messages: [{ role: "user", content: `文件名与标题行：\n${contexts.join("\n")}` }],
       tools: [],
       config,

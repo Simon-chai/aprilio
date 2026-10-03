@@ -20,18 +20,27 @@
 //! - openai / deepseek / moonshot / zhipu / openrouter / custom → rig 的
 //!   OpenAI 兼容 Chat Completions 客户端（CompletionsClient），各官方端点见
 //!   `default_endpoint_for`；带自定义 base_url 时一律走兼容通道。
+//!   该通道统一带「网关响应宽容层」后端（GatewayCompatClient）：部分网关在 200
+//!   成功体里把 `message.role` 写成空串，会让 rig 的严格解码把成功误判成失败。
 
+use bytes::Bytes;
 use futures::StreamExt;
 use rig_core::client::{CompletionClient, ModelListingClient};
 use rig_core::completion::message::{ToolCall, ToolFunction, Text};
 use rig_core::completion::{
   AssistantContent, CompletionModel, CompletionRequest, CompletionResponse, Message, ToolDefinition,
 };
+use rig_core::http_client::{
+  Error as HttpError, HttpClientExt, LazyBody, MultipartForm, Request as HttpRequest,
+  Response as HttpResponse, StreamingResponse,
+};
 use rig_core::providers::{anthropic, gemini, ollama, openai};
 use rig_core::streaming::StreamedAssistantContent;
-use log::{error, info};
+use rig_core::wasm_compat::WasmCompatSend;
+use log::{error, info, warn};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::future::Future;
 use tauri::ipc::Channel;
 
 /* ------------------------------------------------------------------ */
@@ -318,6 +327,160 @@ fn require_key(api_key: &Option<String>, provider: &str) -> Result<String, Strin
 }
 
 /* ------------------------------------------------------------------ */
+/* 网关响应宽容层（OpenAI 兼容通道的兼容垫片）                            */
+/* ------------------------------------------------------------------ */
+
+/// 把网关返回的成功体归一化成 rig 能解析的形状；无需改动时返回 None。
+///
+/// 背景（实测故障，2026-10-01）：部分 OpenAI 兼容网关在 **200 成功体**里把
+/// `choices[*].message.role` 写成空串 `""`。rig 0.42 的
+/// `openai::completion::Message` 是 `#[serde(tag = "role")]` 的严格枚举，空串不在
+/// 变体表内 → 整个响应体反序列化失败；而 rig 的响应信封 `ApiResponse<T>` 是
+/// untagged 的「成功或错误」，解码失败会静默回落到「错误」分支 → 一个内容完好的
+/// 成功响应被报成 `ProviderResponseError: status 200 OK: {...}`，排查时极具误导性
+/// （HTTP 层其实完全成功，模型回复就在 body 里）。
+///
+/// 归一化只做一件最小的事：`message.role` 缺失或为空串时补成 `"assistant"`。
+/// 响应体里的回复角色语义上只能是 assistant（工具调用会被网关显式写成 `"tool"`），
+/// 所以不会篡改任何有效信息。其余情况一律不碰，避免掩盖真正的协议问题：
+/// - `role` 是其它非空值（真不匹配，应照原样报错）；
+/// - 顶层带 `error` / `errors` 键（网关的错误信封，绝不能改写）；
+/// - 不是 JSON 对象、或没有 `choices` 数组（交给 rig 原有的报错链路）。
+fn normalize_gateway_body(raw: &[u8]) -> Option<Vec<u8>> {
+  let mut body: Value = serde_json::from_slice(raw).ok()?;
+  let obj = body.as_object_mut()?;
+  if obj.contains_key("error") || obj.contains_key("errors") {
+    return None;
+  }
+  let choices = obj.get_mut("choices")?.as_array_mut()?;
+
+  let mut patched = false;
+  for choice in choices.iter_mut() {
+    let Some(message) = choice.get_mut("message").and_then(Value::as_object_mut) else {
+      continue;
+    };
+    let needs_role = match message.get("role") {
+      None | Some(Value::Null) => true,
+      Some(Value::String(role)) => role.trim().is_empty(),
+      Some(_) => false,
+    };
+    if needs_role {
+      message.insert("role".to_string(), Value::String("assistant".to_string()));
+      patched = true;
+    }
+  }
+  if !patched {
+    return None;
+  }
+  serde_json::to_vec(&body).ok()
+}
+
+/// reqwest 错误 → rig 传输错误（与 rig 自带实现的映射一致；rig 的
+/// `instance_error` 是 crate 私有，这里按同样语义自己包一层）。
+fn transport_error<E: std::error::Error + Send + Sync + 'static>(error: E) -> HttpError {
+  HttpError::Instance(Box::new(error))
+}
+
+/// 带响应归一化的 HTTP 后端：包一层 `reqwest::Client`，只在非流式路径上把
+/// 网关的成功体过一遍 `normalize_gateway_body`。
+///
+/// 为什么改传输层而不是改别处：rig 0.42 的严格解码在 provider 内部完成，外部无从
+/// 干预；`HttpClientExt` 是 rig 官方留出的后端替换点，且
+/// docs/AGENT_FRAMEWORK_EVALUATION.md §2.4 明确把这类 pre-1.0 摩擦收在 ai.rs 的
+/// 适配层里（升级 rig 时只需重看这里，不动业务代码）。
+///
+/// 流式路径（`send_streaming`）与 multipart 原样转发：流式 delta 结构里没有 role
+/// 字段，本来就不受该问题影响，保持字节级透传以免引入新的行为差异。
+#[derive(Clone, Debug, Default)]
+struct GatewayCompatClient {
+  inner: reqwest::Client,
+}
+
+impl HttpClientExt for GatewayCompatClient {
+  fn send<T, U>(
+    &self,
+    req: HttpRequest<T>,
+  ) -> impl Future<Output = std::result::Result<HttpResponse<LazyBody<U>>, HttpError>>
+       + WasmCompatSend
+       + 'static
+  where
+    T: Into<Bytes> + WasmCompatSend,
+    U: From<Bytes> + WasmCompatSend + 'static,
+  {
+    let (parts, body) = req.into_parts();
+    let request = self
+      .inner
+      .request(parts.method, parts.uri.to_string())
+      .headers(parts.headers)
+      .body(body.into());
+
+    async move {
+      let response = request.send().await.map_err(transport_error)?;
+      let status = response.status();
+      let headers = response.headers().clone();
+
+      if !status.is_success() {
+        // 与 rig 自带实现一致：非成功状态在传输层就报错，并带上响应头
+        // （供应商 request-id 契约、429 的 Retry-After 都靠它）
+        let body = response
+          .text()
+          .await
+          .unwrap_or_else(|error| format!("failed to read error response body: {error}"));
+        return Err(HttpError::InvalidStatusCodeWithDetails {
+          status,
+          body,
+          headers: Box::new(headers),
+        });
+      }
+
+      let mut builder = HttpResponse::builder().status(status);
+      if let Some(target) = builder.headers_mut() {
+        *target = headers;
+      }
+
+      let lazy: LazyBody<U> = Box::pin(async move {
+        let raw = response.bytes().await.map_err(transport_error)?;
+        match normalize_gateway_body(&raw) {
+          Some(fixed) => {
+            warn!(
+              target: "ai",
+              "网关成功响应缺少有效 role，已按 assistant 归一化后交给 rig 解析"
+            );
+            Ok(U::from(Bytes::from(fixed)))
+          }
+          // 无需改动时原样透传，保持字节级一致
+          None => Ok(U::from(raw)),
+        }
+      });
+
+      builder.body(lazy).map_err(HttpError::Protocol)
+    }
+  }
+
+  fn send_multipart<U>(
+    &self,
+    req: HttpRequest<MultipartForm>,
+  ) -> impl Future<Output = std::result::Result<HttpResponse<LazyBody<U>>, HttpError>>
+       + WasmCompatSend
+       + 'static
+  where
+    U: From<Bytes> + WasmCompatSend + 'static,
+  {
+    self.inner.send_multipart(req)
+  }
+
+  fn send_streaming<T>(
+    &self,
+    req: HttpRequest<T>,
+  ) -> impl Future<Output = std::result::Result<StreamingResponse, HttpError>> + WasmCompatSend
+  where
+    T: Into<Bytes> + WasmCompatSend,
+  {
+    self.inner.send_streaming(req)
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /* 供应商客户端构造（聊天 / 流式 / 模型列表三条命令的唯一事实源）           */
 /* ------------------------------------------------------------------ */
 
@@ -329,7 +492,8 @@ enum ProviderClient {
   Gemini(gemini::Client),
   Ollama(ollama::Client),
   /// OpenAI 兼容 Chat Completions（openai / deepseek / moonshot / zhipu / openrouter / custom）
-  OpenAiCompat(openai::CompletionsClient),
+  /// 传输层走 GatewayCompatClient：网关成功体里 role 为空串时先归一化（见该类型文档）
+  OpenAiCompat(openai::CompletionsClient<GatewayCompatClient>),
 }
 
 /// 供应商 → rig client。新增供应商时在这里加分支即可同时覆盖三条命令。
@@ -382,7 +546,11 @@ fn build_client(
       if let Some(url) = url {
         b = b.base_url(url);
       }
-      let client = b.build().map_err(|e| e.to_string())?;
+      // 显式挂上宽容层后端（不挂则用 rig 默认 reqwest，空 role 会触发误报）
+      let client = b
+        .http_client(GatewayCompatClient::default())
+        .build()
+        .map_err(|e| e.to_string())?;
       Ok(ProviderClient::OpenAiCompat(client))
     }
   }
@@ -565,14 +733,16 @@ fn prepare_request(
 #[cfg(test)]
 mod tests {
   use super::{
-    build_client, convert_message, convert_tool, default_endpoint_for, fetch_model_options,
-    normalize_base_url, tool_call_to_ai, AiMessage, AiStreamEvent, AiToolCall, AiToolDef,
+    build_client, convert_message, convert_tool, default_endpoint_for, exec_model,
+    fetch_model_options, normalize_base_url, normalize_gateway_body, tool_call_to_ai, AiChatParams,
+    AiMessage, AiStreamEvent, AiToolCall, AiToolDef, ExecMode,
   };
-  use rig_core::client::ModelListingClient;
+  use rig_core::client::{CompletionClient, ModelListingClient};
   use rig_core::completion::message::{AssistantContent, ToolCall, ToolFunction, UserContent};
-  use rig_core::completion::Message;
+  use rig_core::completion::{CompletionRequest, Message};
   use rig_core::model::{Model, ModelList};
-  use serde_json::json;
+  use rig_core::providers::openai;
+  use serde_json::{json, Value};
 
   #[test]
   fn appends_missing_trailing_slash() {
@@ -800,5 +970,179 @@ mod tests {
     assert_eq!(ai.id, "call-7");
     assert_eq!(ai.name, "find_docs");
     assert_eq!(ai.arguments["keywords"], "日志");
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* 网关响应宽容层（2026-10-01「设置 AI 保存未通过」故障的回归覆盖）        */
+  /* ---------------------------------------------------------------- */
+
+  /// 故障当时的真实响应体（网关日志原样摘录）：200 成功、内容完好，
+  /// 但 `choices[0].message.role` 是空串。
+  const GATEWAY_BODY_EMPTY_ROLE: &str = r#"{"id":"cmb-97af7f5fbdaf11f1bfc05e1ce659e06f","model":"deepseek-v4.1-flash","object":"chat.completion","created":1790869728,"choices":[{"index":0,"message":{"role":"","content":"Pong! 🏓\n\nWhat can I help you with today?"},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":15,"total_tokens":20,"prompt_tokens_details":{"cached_tokens":0,"text_tokens":0,"audio_tokens":0,"image_tokens":0},"completion_tokens_details":{"text_tokens":0,"audio_tokens":0,"image_tokens":0,"reasoning_tokens":0},"input_tokens":0,"output_tokens":0,"input_tokens_details":null,"claude_cache_creation_5_m_tokens":0,"claude_cache_creation_1_h_tokens":0,"credit":0}}"#;
+
+  /// 空 role 归一化后必须能被 rig 的响应类型解析（这正是故障卡住的那一步）
+  #[test]
+  fn normalizes_empty_role_into_rig_parseable_body() {
+    use rig_core::providers::openai::completion::CompletionResponse as Wire;
+
+    // 归一化前：rig 严格解码必然失败（否则这个故障就不存在了）
+    assert!(
+      serde_json::from_str::<Wire>(GATEWAY_BODY_EMPTY_ROLE).is_err(),
+      "前提校验：原样应当解析失败"
+    );
+
+    let fixed = normalize_gateway_body(GATEWAY_BODY_EMPTY_ROLE.as_bytes()).expect("应发生归一化");
+    let wire: Wire = serde_json::from_slice(&fixed).expect("归一化后应能被 rig 解析");
+    // 内容一字未动
+    assert_eq!(wire.id, "cmb-97af7f5fbdaf11f1bfc05e1ce659e06f");
+    assert_eq!(wire.model, "deepseek-v4.1-flash");
+  }
+
+  /// role 缺失 / null / 纯空白都要补齐；已是合法值则绝不改写
+  #[test]
+  fn normalizes_only_missing_or_blank_role() {
+    let cases = [
+      (json!({ "choices": [{ "message": { "content": "hi" } }] }), true),
+      (json!({ "choices": [{ "message": { "role": null, "content": "hi" } }] }), true),
+      (json!({ "choices": [{ "message": { "role": "  ", "content": "hi" } }] }), true),
+      (json!({ "choices": [{ "message": { "role": "", "content": "hi" } }] }), true),
+      // 合法值：一个字都不能动
+      (json!({ "choices": [{ "message": { "role": "assistant", "content": "hi" } }] }), false),
+      // 非空但异常：属于真正的协议问题，应交回 rig 原样报错，不掩盖
+      (json!({ "choices": [{ "message": { "role": "user", "content": "hi" } }] }), false),
+    ];
+    for (body, should_patch) in cases {
+      let raw = serde_json::to_vec(&body).unwrap();
+      let out = normalize_gateway_body(&raw);
+      assert_eq!(out.is_some(), should_patch, "输入 {body} 的归一化判定不符");
+      if let Some(bytes) = out {
+        let parsed: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(parsed["choices"][0]["message"]["role"], "assistant");
+        // 只补 role，其余字段保持原样
+        assert_eq!(parsed["choices"][0]["message"]["content"], "hi");
+      }
+    }
+  }
+
+  /// 不该碰的输入一律原样放行：错误信封、非 JSON、无 choices、空 role 之外的结构
+  #[test]
+  fn leaves_unrelated_bodies_untouched() {
+    let untouched = [
+      r#"{"error":{"message":"rate limited"}}"#,
+      r#"{"errors":["boom"]}"#,
+      r#"{"choices":[{"message":{"role":""}}],"error":{"message":"x"}}"#,
+      r#"not json at all"#,
+      r#"{"id":"x","choices":[]}"#,
+      r#"{"object":"list","data":[]}"#,
+      // 顶层是数组，不是对象
+      r#"[{"choices":[{"message":{"role":""}}]}]"#,
+    ];
+    for raw in untouched {
+      assert!(
+        normalize_gateway_body(raw.as_bytes()).is_none(),
+        "不应改写：{raw}"
+      );
+    }
+  }
+
+  /// 起一个只回一个响应的本机回环 HTTP 服务，返回（base_url, 线程句柄）
+  fn spawn_stub_server(body: &str) -> (String, std::thread::JoinHandle<()>) {
+    use std::io::{Read, Write};
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("绑定回环端口");
+    let port = listener.local_addr().unwrap().port();
+    let body = body.to_string();
+    let handle = std::thread::spawn(move || {
+      let Ok((mut stream, _)) = listener.accept() else {
+        return;
+      };
+      // 读到请求头结束即可（测试用的请求体很小，一次写入就能带全）
+      let mut seen = Vec::new();
+      let mut chunk = [0u8; 4096];
+      while let Ok(n) = stream.read(&mut chunk) {
+        if n == 0 {
+          break;
+        }
+        seen.extend_from_slice(&chunk[..n]);
+        if seen.windows(4).any(|w| w == b"\r\n\r\n") {
+          break;
+        }
+      }
+      let response = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        body.as_bytes().len(),
+        body
+      );
+      let _ = stream.write_all(response.as_bytes());
+      let _ = stream.flush();
+    });
+    (format!("http://127.0.0.1:{port}/v1"), handle)
+  }
+
+  /// 以「ping」请求走一遍真实的 ai_chat 链路（协议转换 + 传输 + 解码）
+  fn ping_request() -> (String, String, Option<String>, Option<String>, CompletionRequest) {
+    super::prepare_request(AiChatParams {
+      provider: "deepseek".to_string(),
+      model: "deepseek-v4.1-flash".to_string(),
+      api_key: Some("test-key".to_string()),
+      base_url: Some("http://127.0.0.1:1/v1".to_string()),
+      temperature: None,
+      system_prompt: None,
+      messages: vec![AiMessage::User { content: "ping".to_string() }],
+      tools: vec![],
+    })
+    .expect("构造请求")
+  }
+
+  /// 端到端：挂了宽容层后，空 role 的成功响应要能正常拿到回复文本
+  #[tokio::test]
+  async fn empty_role_succeeds_with_compat_layer() {
+    let (base_url, server) = spawn_stub_server(GATEWAY_BODY_EMPTY_ROLE);
+    let (provider, model_name, _key, _endpoint, req) = ping_request();
+    let client = openai::CompletionsClient::builder()
+      .api_key("test-key")
+      .base_url(base_url)
+      .http_client(super::GatewayCompatClient::default())
+      .build()
+      .expect("构造客户端");
+
+    let result = exec_model(
+      &client.completion_model(&model_name),
+      req,
+      &provider,
+      &model_name,
+      ExecMode::Once,
+    )
+    .await
+    .expect("挂宽容层后应当成功");
+    assert!(result.content.contains("Pong!"), "回复内容应被正确解出：{}", result.content);
+    assert!(result.tool_calls.is_empty());
+    server.join().ok();
+  }
+
+  /// 反向对照：不挂宽容层时同一个响应必然报 ProviderResponseError: status 200 OK
+  /// ——证明这个回归测试确实能抓住该故障，而不是碰巧通过。
+  #[tokio::test]
+  async fn empty_role_misreports_as_provider_error_without_compat_layer() {
+    let (base_url, server) = spawn_stub_server(GATEWAY_BODY_EMPTY_ROLE);
+    let (provider, model_name, _key, _endpoint, req) = ping_request();
+    let client = openai::CompletionsClient::builder()
+      .api_key("test-key")
+      .base_url(base_url)
+      .build()
+      .expect("构造客户端");
+
+    let err = exec_model(
+      &client.completion_model(&model_name),
+      req,
+      &provider,
+      &model_name,
+      ExecMode::Once,
+    )
+    .await
+    .expect_err("未挂宽容层时应当复现故障");
+    assert!(err.contains("ProviderResponseError"), "应复现原始报错：{err}");
+    assert!(err.contains("200"), "报错里应带上被误判的 200 状态：{err}");
+    server.join().ok();
   }
 }

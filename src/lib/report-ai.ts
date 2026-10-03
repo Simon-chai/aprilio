@@ -6,6 +6,7 @@
 import { isAiConfigured, loadAiConfig } from "./ai";
 import { isTauri } from "./db";
 import { createLlm } from "../agent/providers";
+import { PROMPT_IDS, resolvePrompt } from "../prompts";
 import type { AgentLlm, AgentMessage } from "../agent/types";
 import type { ReportRange } from "../types";
 import { buildDataReportMarkdown, type ReportSummaries } from "./report";
@@ -23,13 +24,6 @@ export interface EvalReportResult {
   /** ai AI 生成 | manual 数据版兜底 */
   source: "ai" | "manual";
 }
-
-const SYSTEM_PROMPT =
-  "你是一位经验丰富的小学班主任，正在为学生写阶段性评价报告。" +
-  "写作要求：1）基于给出的成绩、表现、作业摘要，不编造具体分数与事例；" +
-  "2）语气温暖具体，先肯定再给建议；" +
-  "3）按固定 5 节输出 markdown：# 标题 / ## 总评 / ## 学业表现 / ## 行为习惯 / ## 作业情况 / ## 给家长的建议，每节 2~4 句；" +
-  "4）全文 300~800 字；5）末尾另起一行输出「短评语：」+ 一句 60~120 字的期末评语口吻短评，只输出报告与短评语行，不要解释。";
 
 function buildMessages(ctx: EvalReportContext): AgentMessage[] {
   const rangeText =
@@ -80,7 +74,12 @@ export async function generateEvalReport(
 
   try {
     const llm = options.llm ?? createLlm();
-    const res = await llm.chat({ system: SYSTEM_PROMPT, messages: buildMessages(ctx), tools: [], config });
+    const res = await llm.chat({
+      system: resolvePrompt(PROMPT_IDS.evalReport),
+      messages: buildMessages(ctx),
+      tools: [],
+      config,
+    });
     const parsed = parseEvalReport(res.content);
     if (!parsed.markdown) return fallback();
     return { ...parsed, source: "ai" };

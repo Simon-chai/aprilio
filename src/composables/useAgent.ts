@@ -161,7 +161,7 @@ export function useAgent() {
 
     const config: AiConfig = loadAiConfig();
     if (!isAiConfigured(config)) {
-      error.value = "还没有配置 AI 模型——到「数据与设置」选择供应商，填好模型名和密钥。";
+      error.value = "还没有配置 AI 模型——到「设置中心 · 数据与设置」选择供应商，填好模型名和密钥。";
       return;
     }
 

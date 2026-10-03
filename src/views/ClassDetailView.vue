@@ -6,6 +6,7 @@ import AppIcon from "../components/ui/AppIcon.vue";
 import AppInput from "../components/ui/AppInput.vue";
 import AppLink from "../components/ui/AppLink.vue";
 import EmptyState from "../components/ui/EmptyState.vue";
+import ImageLightbox from "../components/ui/ImageLightbox.vue";
 import StudentTable from "../components/StudentTable.vue";
 import StudentFormDialog from "../components/StudentFormDialog.vue";
 import ImportRosterDialog from "../components/ImportRosterDialog.vue";
@@ -37,6 +38,7 @@ import {
 import { getPhotosDir, importPhoto, photoUrl } from "../lib/photos";
 import { onPageAction } from "../agent/page-action-bus";
 import { clearPageContext, reportPageContext } from "../agent/page-context-bus";
+import { openParentSummaryBatch } from "../composables/useParentSummary";
 import type { ImportRosterMode } from "../agent/page-actions/classes-import-roster";
 import { confirmAction } from "../composables/useConfirm";
 import { useToast } from "../composables/useToast";
@@ -121,6 +123,24 @@ const keyword = ref("");
 type ClassTab = "students" | "photos" | "behaviors" | "scores";
 const activeTab = ref<ClassTab>("students");
 const photoFilter = ref<"all" | "public" | "student">("all");
+
+/** 相册查看原图：缩略图点击后定位到当前筛选列表里的这一张 */
+const viewablePhotos = computed(() =>
+  photos.value
+    .map((photo) => ({
+      id: photo.id,
+      src: photoUrl(photosDir.value, photo.file_name),
+      caption: photo.caption || "未命名",
+    }))
+    .filter((item) => item.src)
+);
+const previewIndex = ref<number | null>(null);
+
+function openPhotoPreview(photo: Photo) {
+  const index = viewablePhotos.value.findIndex((item) => item.id === photo.id);
+  if (index >= 0) previewIndex.value = index;
+}
+
 const examCount = ref(0);
 /** 各次考试的班级统计快照（成绩概览卡的趋势折线用，按考试时间正序） */
 const scoreTrend = ref<ClassExamTrendPoint[]>([]);
@@ -487,6 +507,11 @@ async function onFileSelected(e: Event) {
 function goStudentDetail(row: StudentRow) {
   router.push({ name: "student-detail", params: { id: row.id } });
 }
+
+/** 家校沟通总结（班级层批量）：按时段评价为本班学生逐个生成给家长的总结 */
+function openParentSummary() {
+  openParentSummaryBatch({ className: props.name });
+}
 </script>
 
 <template>
@@ -834,6 +859,18 @@ function goStudentDetail(row: StudentRow) {
               <path d="M18.6 8.4v6.2M15.5 11.5h6.2" />
             </svg>
           </AppIconButton>
+          <AppIconButton
+            v-if="!readOnly"
+            label="家校沟通总结"
+            data-test="parent-summary-btn"
+            @click="openParentSummary"
+          >
+            <!-- 语义图标：对话气泡 + 省略号，表示生成给家长看的沟通文本 -->
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M21 11.5a8.4 8.4 0 0 1-8.5 8.3 9 9 0 0 1-3.2-.6L3 21l1.9-5a7.7 7.7 0 0 1-1.4-4.5A8.4 8.4 0 0 1 12 3.2a8.4 8.4 0 0 1 9 8.3Z" />
+              <path d="M8.5 11.5h.01M12 11.5h.01M15.5 11.5h.01" />
+            </svg>
+          </AppIconButton>
         </div>
 
         <StudentTable
@@ -896,9 +933,12 @@ function goStudentDetail(row: StudentRow) {
             <div class="relative h-[160px] overflow-hidden bg-parchment">
               <img
                 v-if="photoUrl(photosDir, photo.file_name)"
-                class="h-full w-full object-cover"
+                class="h-full w-full cursor-zoom-in object-contain"
                 :src="photoUrl(photosDir, photo.file_name)"
                 :alt="photo.caption ?? ''"
+                title="点击查看原图"
+                data-test="photo-thumb"
+                @click="openPhotoPreview(photo)"
               />
               <div v-else class="flex h-full items-center justify-center text-fine text-weak">
                 示例图片
@@ -991,6 +1031,14 @@ function goStudentDetail(row: StudentRow) {
       :anchor="quickAnchor"
       @close="quickOpen = false"
       @saved="onQuickSaved"
+    />
+
+    <!-- 相册查看原图 -->
+    <ImageLightbox
+      :open="previewIndex !== null"
+      :items="viewablePhotos"
+      :index="previewIndex ?? 0"
+      @close="previewIndex = null"
     />
   </div>
 </template>

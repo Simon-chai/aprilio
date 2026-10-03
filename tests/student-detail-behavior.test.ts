@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import StudentDetailView from "../src/views/StudentDetailView.vue";
 import ToastHost from "../src/components/ui/ToastHost.vue";
 import { useToastState } from "../src/composables/useToast";
-import { addBehaviorRecord } from "../src/lib/db";
+import { addBehaviorRecord, listBehaviorRecords } from "../src/lib/db";
 
 describe("StudentDetailView behavior tab integration", () => {
   beforeEach(() => {
@@ -155,6 +155,54 @@ describe("StudentDetailView behavior tab integration", () => {
     expect(wrapper.text()).not.toContain("待删除的学生档案评语");
     const toast = host.get("[data-test='quick-toast']");
     expect(toast.text()).toContain("已删除该条表现记录");
+
+    wrapper.unmount();
+    host.unmount();
+  });
+
+  it("edits a behavior record via timeline edit event and shows update toast", async () => {
+    const recId = await addBehaviorRecord({
+      student_id: 1,
+      dimension_id: 3,
+      dimension_name_snap: "课堂表现",
+      category_snap: "behavior",
+      type: "praise",
+      comment: "待编辑的表现记录",
+      recorded_date: "2026-09-05",
+    });
+    const record = (await listBehaviorRecords(1)).find((r) => r.id === recId)!;
+
+    const router = createTestRouter();
+    await router.push("/students/1");
+    await router.isReady();
+
+    const wrapper = mount(StudentDetailView, {
+      global: { plugins: [router] },
+    });
+    const host = mount(ToastHost);
+    await flushPromises();
+
+    // 右键菜单「编辑」上抛记录与锚点 → 快捷卡片进入编辑模式并预填
+    const timeline = wrapper.findComponent({ name: "StudentBehaviorTimeline" });
+    timeline.vm.$emit("edit", record, { x: 20, y: 20 });
+    await flushPromises();
+
+    const card = document.body.querySelector("[data-test='quick-card']");
+    expect(card).not.toBeNull();
+    expect(document.body.querySelector("[data-test='edit-mode-title']")).not.toBeNull();
+    const ta = document.body.querySelector<HTMLTextAreaElement>("[data-test='comment-input']");
+    expect(ta?.value).toBe("待编辑的表现记录");
+
+    // 修改评语保存 → toast 区分「已更新」，时间轴刷新出新评语
+    ta!.value = "编辑后的表现记录";
+    ta!.dispatchEvent(new Event("input", { bubbles: true }));
+    await flushPromises();
+    document.body.querySelector<HTMLElement>("[data-test='save-btn']")!.click();
+    await flushPromises();
+
+    const toast = host.get("[data-test='quick-toast']");
+    expect(toast.text()).toContain("已更新该条表现记录");
+    expect(wrapper.text()).toContain("编辑后的表现记录");
 
     wrapper.unmount();
     host.unmount();

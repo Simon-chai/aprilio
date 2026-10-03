@@ -2952,6 +2952,133 @@ export async function deleteBehaviorRecord(recordId: number): Promise<void> {
   );
 }
 
+/**
+ * 更新一条表现流水，并同步评语沉淀（对称迁移）：
+ * (维度, 倾向, 内容) 有变化时，旧词条 use_count-1（history 来源归零移除）、新词条 use_count+1（没有则新增 history）；
+ * 未变化时（如只改日期 / 学生）不动沉淀，避免计数抖动。校验口径与新增一致。
+ */
+export async function updateBehaviorRecord(recordId: number, input: BehaviorInput): Promise<void> {
+  if (!input.student_id) throw new Error("缺少学生");
+  const comment = input.comment.trim();
+  if (!comment) throw new Error("评语内容不能为空");
+  if (comment.length > 200) throw new Error("评语请控制在 200 字以内");
+  if (input.type !== "praise" && input.type !== "improve" && input.type !== "neutral")
+    throw new Error("评价倾向不合法");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.recorded_date)) throw new Error("日期格式不合法");
+  if (input.recorded_date > localDateStr()) throw new Error("不能录入未来日期");
+
+  if (!isTauri()) {
+    const store = mem();
+    const rec = store.behaviorRecords.find((r) => r.id === recordId);
+    if (!rec) return;
+    const dim = store.behaviorDimensions.find((d) => d.id === input.dimension_id);
+    if (!dim) throw new Error("评价维度不存在");
+
+    const presetChanged =
+      rec.dimension_id !== dim.id || rec.type !== input.type || rec.comment !== comment;
+    if (presetChanged) {
+      const oldPreset = store.commentPresets.find(
+        (p) => p.dimension_id === rec.dimension_id && p.type === rec.type && p.content === rec.comment
+      );
+      if (oldPreset && oldPreset.use_count > 0) {
+        oldPreset.use_count -= 1;
+        if (oldPreset.source === "history" && oldPreset.use_count <= 0) {
+          store.commentPresets = store.commentPresets.filter((p) => p.id !== oldPreset.id);
+        }
+      }
+    }
+
+    rec.student_id = input.student_id;
+    rec.dimension_id = dim.id;
+    rec.dimension_name_snap = dim.name;
+    rec.category_snap = dim.category;
+    rec.type = input.type;
+    rec.comment = comment;
+    rec.recorded_date = input.recorded_date;
+
+    if (presetChanged) {
+      const preset = store.commentPresets.find(
+        (p) => p.dimension_id === dim.id && p.type === input.type && p.content === comment
+      );
+      if (preset) {
+        preset.use_count += 1;
+        preset.last_used_at = now();
+      } else {
+        store.commentPresets.push({
+          id: store.nextCommentPresetId++,
+          dimension_id: dim.id,
+          type: input.type,
+          content: comment,
+          use_count: 1,
+          source: "history",
+          last_used_at: now(),
+        });
+      }
+    }
+    return;
+  }
+
+  const db = await getDb();
+  const rows = await db.select<
+    { dimension_id: number; type: string; comment: string }[]
+  >(
+    `SELECT dimension_id, type, comment FROM student_behavior_records WHERE id = ?`,
+    [recordId]
+  );
+  if (!rows.length) return;
+  const old = rows[0];
+  const presetChanged =
+    old.dimension_id !== input.dimension_id || old.type !== input.type || old.comment !== comment;
+
+  await db.execute(
+    `UPDATE student_behavior_records
+        SET student_id = ?, dimension_id = ?, dimension_name_snap = ?, category_snap = ?,
+            type = ?, comment = ?, recorded_date = ?
+      WHERE id = ?`,
+    [
+      input.student_id,
+      input.dimension_id,
+      input.dimension_name_snap,
+      input.category_snap,
+      input.type,
+      comment,
+      input.recorded_date,
+      recordId,
+    ]
+  );
+
+  if (!presetChanged) return;
+
+  await db.execute(
+    `UPDATE behavior_comment_presets SET use_count = use_count - 1
+      WHERE dimension_id = ? AND type = ? AND content = ? AND use_count > 0`,
+    [old.dimension_id, old.type, old.comment]
+  );
+  await db.execute(
+    `DELETE FROM behavior_comment_presets WHERE source = 'history' AND use_count <= 0`
+  );
+
+  const existing = await db.select<{ id: number }[]>(
+    `SELECT id FROM behavior_comment_presets
+      WHERE dimension_id = ? AND type = ? AND content = ? LIMIT 1`,
+    [input.dimension_id, input.type, comment]
+  );
+  if (existing[0]) {
+    await db.execute(
+      `UPDATE behavior_comment_presets
+          SET use_count = use_count + 1, last_used_at = datetime('now','localtime')
+        WHERE id = ?`,
+      [existing[0].id]
+    );
+  } else {
+    await db.execute(
+      `INSERT INTO behavior_comment_presets (dimension_id, type, content, use_count, source)
+       VALUES (?, ?, ?, 1, 'history')`,
+      [input.dimension_id, input.type, comment]
+    );
+  }
+}
+
 /** 常用评语：按使用频次取前 N 条（默认 4） */
 export async function listCommentPresets(
   dimensionId: number,

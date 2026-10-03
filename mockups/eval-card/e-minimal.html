@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>E · 极简素雅卡</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    width: 750px;
+    font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    color: #1d1d1f;
+  }
+  .card {
+    width: 750px; height: 1060px;
+    background: #ffffff;
+    padding: 60px 64px 48px;
+    display: flex; flex-direction: column;
+  }
+  .top { display: flex; justify-content: space-between; font-size: 13px; letter-spacing: 4px; color: #7a7a7a; }
+  .name-row { margin-top: 34px; display: flex; align-items: baseline; gap: 16px; }
+  .name-row .name { font-size: 46px; font-weight: 300; letter-spacing: 2px; }
+  .name-row .cls { font-size: 18px; color: #7a7a7a; }
+  .accent { width: 44px; height: 3px; background: #0066cc; margin-top: 20px; }
+
+  /* 数据行 */
+  .data { margin-top: 34px; }
+  .d-row {
+    display: flex; justify-content: space-between; align-items: baseline;
+    padding: 13px 0; border-bottom: 1px solid #f0f0f0;
+  }
+  .d-row .k { font-size: 18px; color: #7a7a7a; }
+  .d-row .v { font-size: 21px; font-weight: 600; letter-spacing: 0.5px; }
+  .d-row .v .up { color: #0066cc; font-weight: 700; margin-left: 8px; font-size: 18px; }
+  .d-row .v .sep { color: #cccccc; margin: 0 10px; font-weight: 400; }
+
+  /* 亮点 */
+  .label { font-size: 13px; letter-spacing: 4px; color: #7a7a7a; margin: 34px 0 16px; }
+  .hl { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 13px; }
+  .hl .dot { width: 7px; height: 7px; border-radius: 50%; background: #248a3d; margin-top: 11px; flex-shrink: 0; }
+  .hl .txt { font-size: 20px; color: #333; line-height: 1.55; }
+  .hl .txt .d { color: #b0b0b0; font-size: 16px; margin-right: 10px; }
+
+  /* 评语 */
+  .comment-text { font-size: 21px; line-height: 1.9; color: #3a3a3c; }
+
+  /* 页脚 */
+  .footer { margin-top: auto; display: flex; justify-content: space-between; align-items: baseline; }
+  .footer .t { font-size: 19px; font-weight: 600; }
+  .footer .t small { display: block; font-size: 13px; color: #b0b0b0; font-weight: 400; letter-spacing: 3px; margin-top: 6px; }
+  .footer .d { font-size: 18px; color: #7a7a7a; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="top"><span>阶段评价</span><span>2026.09.01 — 09.30</span></div>
+
+  <div class="name-row">
+    <span class="name">李梓涵</span>
+    <span class="cls">三年二班</span>
+  </div>
+  <div class="accent"></div>
+
+  <div class="data">
+    <div class="d-row"><span class="k">月考总分</span><span class="v">285 分</span></div>
+    <div class="d-row"><span class="k">班级排名</span><span class="v">3 / 42<span class="up">↑ 2</span></span></div>
+    <div class="d-row"><span class="k">各科成绩</span><span class="v">语文 92<span class="sep">·</span>数学 98<span class="sep">·</span>英语 95</span></div>
+    <div class="d-row"><span class="k">课堂发言</span><span class="v">14 次</span></div>
+    <div class="d-row"><span class="k">作业按时提交</span><span class="v">95 %</span></div>
+  </div>
+
+  <div class="label">本月亮点</div>
+  <div class="hl"><div class="dot"></div><div class="txt"><span class="d">09-08</span>主动帮同桌讲解数学题，思路清晰</div></div>
+  <div class="hl"><div class="dot"></div><div class="txt"><span class="d">09-19</span>国旗下讲话落落大方，获全校表扬</div></div>
+  <div class="hl"><div class="dot"></div><div class="txt"><span class="d">09-26</span>连续一周数学作业全对，当选作业示范</div></div>
+
+  <div class="label">教师评语</div>
+  <div class="comment-text">梓涵这一个月状态很好，课堂上小手举得越来越高，回答问题有自己的想法。数学一直是你的强项，语文阅读理解也在稳步进步。希望下个月继续保持专注，把「爱思考」变成每一天的习惯。</div>
+
+  <div class="footer">
+    <div class="t">王老师<small>CLASS TEACHER</small></div>
+    <div class="d">2026.10.03</div>
+  </div>
+</div>
+</body>
+</html>

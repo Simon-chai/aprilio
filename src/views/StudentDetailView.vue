@@ -12,8 +12,10 @@ import QuickBehaviorPopover from "../components/QuickBehaviorPopover.vue";
 import StudentBehaviorTimeline from "../components/StudentBehaviorTimeline.vue";
 import StudentScorePanel from "../components/StudentScorePanel.vue";
 import TermCommentPanel from "../components/TermCommentPanel.vue";
+import ParentSummaryPanel from "../components/ParentSummaryPanel.vue";
 import HomeworkPanel from "../components/HomeworkPanel.vue";
 import EvalReportPanel from "../components/EvalReportPanel.vue";
+import EvalCardDialog from "../components/EvalCardDialog.vue";
 import {
   addPhoto,
   deleteBehaviorRecord,
@@ -32,6 +34,7 @@ import { currentSemester, semesterLabel } from "../lib/timetable";
 import { recentSemesters, semesterOfDate } from "../lib/semester";
 import { confirmAction } from "../composables/useConfirm";
 import { useToast } from "../composables/useToast";
+import { useParentSummaryPanel } from "../composables/useParentSummary";
 import { STATUS_LABEL } from "../types";
 import type { BehaviorPolarity, Photo, Student, StudentBehaviorRecord, StudentExamScore, StudentInput } from "../types";
 
@@ -43,11 +46,12 @@ const student = ref<Student | null>(null);
 const photos = ref<Photo[]>([]);
 const behaviors = ref<StudentBehaviorRecord[]>([]);
 const examScores = ref<StudentExamScore[]>([]);
-const activeTab = ref<"behaviors" | "photos" | "scores" | "comment" | "homework" | "report">("behaviors");
+const activeTab = ref<"behaviors" | "photos" | "scores" | "comment" | "parent" | "homework" | "report">("behaviors");
 const photosDir = ref("");
 const loading = ref(true);
 const error = ref("");
 const dialogOpen = ref(false);
+const evalCardOpen = ref(false);
 const busy = ref(false);
 
 /** 学期视角：默认当前学期，可回看历史学期 */
@@ -69,10 +73,13 @@ const semesterBehaviors = computed(() =>
 
 const quickOpen = ref(false);
 const quickAnchor = ref<{ x: number; y: number } | null>(null);
+/** 编辑中的表现记录：非空时快捷卡片走编辑模式（保存改用 updateBehaviorRecord） */
+const editingBehavior = ref<StudentBehaviorRecord | null>(null);
 /** 全局轻反馈（ToastHost 挂在 App.vue）：快捷记表现 / 删除表现的落地提示 */
 const toast = useToast();
 
 function openQuickBehavior(e?: MouseEvent) {
+  editingBehavior.value = null;
   if (e && (e.currentTarget || e.target)) {
     const el = (e.currentTarget || e.target) as HTMLElement;
     if (typeof el.getBoundingClientRect === "function") {
@@ -87,8 +94,15 @@ function openQuickBehavior(e?: MouseEvent) {
   quickOpen.value = true;
 }
 
-async function onQuickSaved(payload: { studentName: string; dimensionName: string; polarity: BehaviorPolarity }) {
-  toast(`已记录 ${payload.studentName} ${payload.dimensionName}`);
+/** 时间轴右键「编辑」：带上菜单坐标作锚点，快捷卡片进入编辑模式 */
+function handleEditBehavior(record: StudentBehaviorRecord, anchor: { x: number; y: number } | null) {
+  editingBehavior.value = record;
+  quickAnchor.value = anchor;
+  quickOpen.value = true;
+}
+
+async function onQuickSaved(payload: { studentName: string; dimensionName: string; polarity: BehaviorPolarity; mode: "create" | "edit" }) {
+  toast(payload.mode === "edit" ? "已更新该条表现记录" : `已记录 ${payload.studentName} ${payload.dimensionName}`);
   behaviors.value = await listBehaviorRecords(id.value);
 }
 
@@ -125,6 +139,16 @@ onMounted(async () => {
   await refresh();
 });
 watch(id, refresh);
+
+// Agent 发起单生家校沟通总结：预设到达即切到「家校沟通」页签（生成由面板消费预设后自动开始）
+const parentSummaryPreset = useParentSummaryPanel();
+watch(
+  () => parentSummaryPreset.seq,
+  () => {
+    if (parentSummaryPreset.studentId === id.value) activeTab.value = "parent";
+  },
+  { immediate: true }
+);
 
 const fields = computed(() => {
   const s = student.value;
@@ -279,6 +303,14 @@ function goBack() {
           >
             <AppIcon name="plus" :size="12" />
           </AppIconButton>
+          <AppIconButton
+            label="评价卡片"
+            show-label
+            data-test="eval-card-btn"
+            @click="evalCardOpen = true"
+          >
+            <AppIcon name="card" :size="12" />
+          </AppIconButton>
           <AppIconButton label="编辑档案" show-label @click="dialogOpen = true">
             <AppIcon name="edit" :size="12" />
           </AppIconButton>
@@ -405,6 +437,15 @@ function goBack() {
               </button>
               <button
                 type="button"
+                data-test="tab-parent"
+                class="relative whitespace-nowrap px-3.5 py-2 text-caption font-medium transition-colors"
+                :class="activeTab === 'parent' ? 'text-primary font-semibold tab-energy' : 'text-weak hover:text-ink'"
+                @click="activeTab = 'parent'"
+              >
+                家校沟通
+              </button>
+              <button
+                type="button"
                 data-test="tab-homework"
                 class="relative whitespace-nowrap px-3.5 py-2 text-caption font-medium transition-colors"
                 :class="activeTab === 'homework' ? 'text-primary font-semibold tab-energy' : 'text-weak hover:text-ink'"
@@ -455,6 +496,7 @@ function goBack() {
               :loading="loading"
               @add="openQuickBehavior"
               @remove="handleRemoveBehavior"
+              @edit="handleEditBehavior"
             />
           </div>
 
@@ -492,6 +534,16 @@ function goBack() {
             />
           </div>
 
+          <!-- Tab 内容：家校沟通（按时段评价生成给家长的总结，Agent 可自然语言发起直达这里） -->
+          <div v-else-if="activeTab === 'parent'">
+            <ParentSummaryPanel
+              :student-id="student.id"
+              :student-name="student.name"
+              :grade-class="student.grade_class"
+              :semester="activeSemester"
+            />
+          </div>
+
           <!-- Tab 内容：作业台账 -->
           <div v-else-if="activeTab === 'homework'">
             <HomeworkPanel :student-id="student.id" :semester="activeSemester" />
@@ -526,8 +578,15 @@ function goBack() {
   <QuickBehaviorPopover
     :open="quickOpen"
     :student="student"
+    :editing="editingBehavior"
     :anchor="quickAnchor"
     @close="quickOpen = false"
     @saved="onQuickSaved"
+  />
+
+  <EvalCardDialog
+    :open="evalCardOpen"
+    :student-id="id"
+    @close="evalCardOpen = false"
   />
 </template>

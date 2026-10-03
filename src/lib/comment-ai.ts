@@ -7,9 +7,15 @@
 import { isAiConfigured, loadAiConfig } from "./ai";
 import { isTauri } from "./db";
 import { createLlm } from "../agent/providers";
+import { PROMPT_IDS, resolvePrompt } from "../prompts";
+import { TERM_COMMENT_MAX_LEN } from "../prompts/contracts";
 import type { AgentLlm, AgentMessage } from "../agent/types";
 
-export const TERM_COMMENT_MAX_LEN = 200;
+/**
+ * 评语正文硬截断上限（200）。注意它与提示词里的「不超过 120 字」**不是同一个值**：
+ * 前者是程序的硬上限，后者是给模型的写作建议（可在提示词管理页调整）。
+ */
+export { TERM_COMMENT_MAX_LEN };
 
 export interface TermCommentContext {
   studentName: string;
@@ -20,12 +26,6 @@ export interface TermCommentContext {
   /** 本学期表现摘要（表扬/待改进/中立各若干条），可空 */
   behaviorSummary: string;
 }
-
-const SYSTEM_PROMPT =
-  "你是一位经验丰富的小学班主任，正在为学生写期末评语。" +
-  "写作要求：1）结合给出的成绩与日常表现，客观具体、有温度；" +
-  "2）先肯定优点，再委婉指出需要努力的方向；" +
-  "3）不超过 120 字，只输出评语正文，不要标题、引号、编号或任何解释。";
 
 function buildMessages(ctx: TermCommentContext): AgentMessage[] {
   const lines = [
@@ -69,7 +69,7 @@ export async function generateTermComment(
   try {
     const llm = options.llm ?? createLlm();
     const res = await llm.chat({
-      system: SYSTEM_PROMPT,
+      system: resolvePrompt(PROMPT_IDS.termComment),
       messages: buildMessages(ctx),
       tools: [],
       config,

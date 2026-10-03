@@ -12,6 +12,7 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import AppLink from "./ui/AppLink.vue";
+import AiPolishButton from "./ui/AiPolishButton.vue";
 import EventTypeSelect from "./EventTypeSelect.vue";
 import MemoTitle from "./MemoTitle.vue";
 import {
@@ -153,8 +154,13 @@ function backToToday() {
 }
 
 watch([viewYear, viewMonth], () => {
-  // 翻页后选中日不在当前网格里 → 落到该月 1 号，右侧详情不悬空
-  if (!flatGrid.value.some((c) => c.date === selectedDate.value)) {
+  // 翻页后选中日不在当前可见月份 → 落到该月 1 号，右侧详情不悬空。
+  // 必须用 inMonth 判断而不能只看 42 格网格：网格首尾带相邻月日期，
+  // 月初（如 10 月 2 日翻到 9 月）相邻月日期会让选中日被误判为「还在」。
+  const inViewMonth = flatGrid.value.some(
+    (c) => c.date === selectedDate.value && c.inMonth
+  );
+  if (!inViewMonth) {
     selectedDate.value = toDateStr(new Date(viewYear.value, viewMonth.value - 1, 1));
   }
   void reloadMonth();
@@ -637,6 +643,13 @@ function cellTitle(cell: CalendarCell): string {
             :placeholder="`记${CALENDAR_EVENT_META[newEventType].label}，回车`"
             class="h-7 min-w-0 flex-1 rounded-sm border border-hairline bg-canvas px-2 text-caption text-ink outline-none focus:border-primary-focus"
             @keydown.enter.prevent="addEvent"
+          />
+          <AiPolishButton
+            :text="draft"
+            scene="日程备忘"
+            hint="老师个人课表上的日程或备忘速记"
+            :context="`类型：${CALENDAR_EVENT_META[newEventType].label}`"
+            @apply="draft = $event"
           />
           <button
             type="button"

@@ -28,7 +28,10 @@
 - 后端命令（target 标签区分模块）：
   - `ai`：AI 请求开始 / 成功 / 失败（记录 provider、model、轮次、回复字符数，**不记录 API 密钥**）。
     流式路径（ai_chat_stream）同样覆盖：发起失败 / 中途失败 `error!`、成功 `info!`、
-    Channel 增量推送失败 `warn!`（只放弃展示、不影响聚合结果）
+    Channel 增量推送失败 `warn!`（只放弃展示、不影响聚合结果）。
+    另有一条 `warn!`：网关成功体缺少有效 `role` 被归一化时触发（见
+    [AGENT_FRAMEWORK_EVALUATION.md](AGENT_FRAMEWORK_EVALUATION.md) §2.4「网关响应宽容层」）——
+    出现它说明该网关返回体不规范，但请求本身是成功的
   - `photos`：照片目录创建、导入 / 删除成功与失败（含源文件路径）
   - `roster`：花名册文件读取成功 / 失败（含源路径、编码、大小守卫拒绝；xlsx/xls 由
     calamine 在 Rust 端解码为矩阵，CSV/TSV 为 UTF-8/GBK 文本）；表头/姓名列识别与
@@ -80,3 +83,15 @@ logError("上传失败", err); // 参数可为任意值，Error 会带 stack
 2. `[renderer]` 前缀 = 前端错误；`target: ai` / `target: photos` / `target: rag` = 对应后端模块；
    `[aprilio-mcp]` = MCP serve 模式的 stderr 输出（不落文件，在客户端的 server 日志里看）
 3. 涉及崩溃 / 白屏时搜索 `panic`
+
+### 已知易误判的报错
+
+- **`ProviderResponseError: status 200 OK: {...}`**：**HTTP 层其实是成功的**，别当成接口挂掉或
+  "格式不支持"。它表示 rig 拿到了 2xx 响应体但没能按预期解码（响应信封
+  `ApiResponse<T>` 是 untagged 的「成功或错误」，解码失败会静默回落成错误分支，
+  于是把成功体当错误体报出来）。附带的那段 JSON 就是**真实的成功响应**，模型回复通常
+  就在 `choices[0].message.content` 里，可直接据此判断问题在客户端解码而非服务端。
+  已处理过的一例：网关把 `message.role` 写成空串，见
+  [AGENT_FRAMEWORK_EVALUATION.md](AGENT_FRAMEWORK_EVALUATION.md) §2.4「网关响应宽容层」
+  （该场景会额外留下一条 `warn!` 归一化日志）。新增此类报错时，优先用日志里的原始
+  响应体做最小复现，再决定是补宽容层还是改供应商配置。

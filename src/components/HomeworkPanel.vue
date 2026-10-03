@@ -6,6 +6,7 @@
 import { computed, ref, watch } from "vue";
 import AppButton from "./ui/AppButton.vue";
 import AppDialog from "./ui/AppDialog.vue";
+import AiPolishButton from "./ui/AiPolishButton.vue";
 import { confirmAction } from "../composables/useConfirm";
 import {
   addHomeworkRecord,
@@ -220,16 +221,27 @@ async function onDelete(record: StudentHomeworkRecord) {
             class="mt-1 h-9 w-full rounded-md border border-hairline bg-canvas px-2 text-caption text-ink outline-none focus:border-primary-focus"
           />
         </label>
-        <label class="block text-caption text-weak">
-          备注（可空，≤200字）
+        <div>
+          <div class="flex items-center justify-between">
+            <span class="text-caption text-weak">备注（可空，≤200字）</span>
+            <AiPolishButton
+              :text="form.comment"
+              scene="作业备注"
+              hint="老师记在学生作业记录里的简短备注，自己和家长都会看"
+              :context="`科目：${form.subject || '未填'}；完成状态：${HOMEWORK_STATUS_LABEL[form.status]}`"
+              :max-len="200"
+              @apply="form.comment = $event"
+            />
+          </div>
           <input
+            id="homework-comment"
             v-model="form.comment"
             type="text"
             placeholder="如 书写工整、有两道错题"
             data-test="homework-comment"
             class="mt-1 h-9 w-full rounded-md border border-hairline bg-canvas px-2 text-caption text-ink outline-none focus:border-primary-focus"
           />
-        </label>
+        </div>
       </div>
       <div class="mt-5 flex justify-end gap-2">
         <AppButton variant="secondary" @click="dialogOpen = false">取消</AppButton>

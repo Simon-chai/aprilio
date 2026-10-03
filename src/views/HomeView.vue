@@ -444,10 +444,10 @@ const features = computed(() => [
     desc: `${stats.value.photos} 张照片 · 全部留在本机`,
   },
   {
-    to: "/settings",
+    to: "/settings-center",
     icon: "settings" as const,
-    title: "数据与设置",
-    desc: "本地 SQLite · 不联网",
+    title: "设置中心",
+    desc: "提示词 · 回收站 · 数据与设置",
   },
 ]);
 
@@ -540,9 +540,9 @@ const dotClass = (i: number) => {
 
         <div class="flex items-center gap-3">
           <RouterLink
-            to="/settings"
+            to="/settings-center"
             class="flex h-9 w-9 items-center justify-center rounded-pill bg-white/15 text-white backdrop-blur transition-[transform,background-color] hover:bg-white/25 active:scale-[0.95]"
-            title="数据与设置"
+            title="设置中心"
           >
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <path

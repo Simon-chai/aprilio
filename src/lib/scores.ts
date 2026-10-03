@@ -9,6 +9,7 @@
  * 成绩单分流共用这条管道。设计约定见 docs/SCORE_IMPORT.md。
  */
 import { isAiConfigured, loadAiConfig, type AiConfig } from "./ai";
+import { PROMPT_IDS, resolvePrompt } from "../prompts";
 import {
   createStudent,
   findOrCreateExam,
@@ -339,16 +340,9 @@ export async function aiDetectScoreSheet(
     })
     .join("\n");
 
-  const system =
-    "你是成绩单结构分析助手。请判断表格中哪一列是学生姓名，哪些列是考试科目成绩（总分/排名/平均分等汇总列不算科目），" +
-    "并从标题行提取考试名称与考试时间。" +
-    '只输出一个 JSON 对象：{"name_column": 列号(从1起), "subjects": [{"column": 列号, "name": "科目名"}], ' +
-    '"exam_name": "考试名或null", "exam_date": "YYYY-MM-DD或null", "confidence": 0到1的小数, "reason": "不超过20字的理由"}，' +
-    "不要输出任何其他内容。";
-
   try {
     const res = await llm.chat({
-      system,
+      system: resolvePrompt(PROMPT_IDS.scoreSheet),
       messages: [
         {
           role: "user",
