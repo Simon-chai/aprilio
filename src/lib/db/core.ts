@@ -91,6 +91,13 @@ const SCHEMA_DDL: string[] = [
     is_active   INTEGER NOT NULL DEFAULT 1,
     created_at  TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
   )`,
+  // 默认维度播种与 Rust 迁移（lib.rs）逐字同源：ensureSchema 自足性要求——
+  // 迁移历史不一致的旧调试库跳过了迁移时，表现流水的外键也要有维度可指
+  `INSERT OR IGNORE INTO behavior_dimensions (id, category, code, name, icon, sort_order, is_system) VALUES
+    (1, 'study',    'homework',  '作业情况',         'BookOpen',     1, 1),
+    (2, 'study',    'exam',      '单元/期中期末成绩', 'GraduationCap', 2, 1),
+    (3, 'behavior', 'classroom', '课堂表现',         'MessageSquare', 3, 1),
+    (4, 'behavior', 'labor',     '劳动情况',         'Sparkles',      4, 1)`,
   `CREATE TABLE IF NOT EXISTS student_behavior_records (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
     student_id          INTEGER NOT NULL,
