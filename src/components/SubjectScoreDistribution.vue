@@ -16,7 +16,7 @@ import SubjectScoreLine from "./SubjectScoreLine.vue";
 import SubjectScorePie from "./SubjectScorePie.vue";
 import SubjectScoreRadar from "./SubjectScoreRadar.vue";
 import { SCORE_CHART_TYPES, scoreChartType } from "../lib/score-chart-type";
-import { plotScaleOf, plottedScoreOf, skippedSubjectTexts } from "../lib/score-chart";
+import { plotScaleOf, plottedValuesOf, skippedSubjectTexts } from "../lib/score-chart";
 import type { SubjectScoreBarItem } from "../types";
 
 const props = defineProps<{ items: SubjectScoreBarItem[] }>();
@@ -26,13 +26,7 @@ const activeType = computed(
 );
 
 /** 本次各科绘图值 → 放大基准（柱状图 / 条形图 / 折线图 / 辐射图共用同一刻度） */
-const scale = computed(() =>
-  plotScaleOf(
-    props.items
-      .map((item) => plottedScoreOf(item.score))
-      .filter((value): value is number => value !== null)
-  )
-);
+const scale = computed(() => plotScaleOf(plottedValuesOf(props.items)));
 
 const skipped = computed(() => skippedSubjectTexts(props.items));
 

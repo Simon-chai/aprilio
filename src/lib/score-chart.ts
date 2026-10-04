@@ -97,6 +97,70 @@ export function plotRatioOf(value: number, scale: PlotScale): number {
   return Math.min(1, Math.max(0, (value - scale.floor) / span));
 }
 
+/** 各科目绘图值集合（等级模式取代表值、无数字分的剔除）：plotScaleOf 的标准输入 */
+export function plottedValuesOf(items: { score: number | null | undefined }[]): number[] {
+  return items
+    .map((item) => plottedScoreOf(item.score))
+    .filter((value): value is number => value !== null);
+}
+
+/* ------------------------------------------------------------------ */
+/* 走势图纵轴（折线 / 迷你图）：与柱状类 plotScaleOf 分开各按视觉调优      */
+/* ------------------------------------------------------------------ */
+
+export interface TrendDomainOptions {
+  /** 数据下界覆盖（缺省取数据最小值） */
+  min?: number | null;
+  /** 数据上界覆盖（缺省取数据最大值） */
+  max?: number | null;
+  /** 数据跨度 padding 比例 */
+  paddingRatio: number;
+  /** padding 下限（分） */
+  minPadding: number;
+  /** 上下界取整刻度；0 = 不取整 */
+  roundTo: number;
+  /** 最小视野（分），不足时扩展 */
+  minWindow: number;
+  /** 扩展最小视野时：true 以数据中点居中（折线），false 保持下界往上压（迷你图） */
+  centerWindow: boolean;
+}
+
+/**
+ * 连续走势图的纵轴域 [floor, ceiling]：按数据收紧让折线铺满绘图区，
+ * 常规百分制不越过 0~100。折线 / 迷你图共用同一算法，各自的视觉调优
+ * （padding、取整、最小视野）由调用方以参数显式声明，避免三处手写漂移。
+ */
+export function trendDomainOf(values: number[], opts: TrendDomainOptions): [number, number] {
+  const nums = values.filter((v) => Number.isFinite(v));
+  if (!nums.length) return [0, 100];
+
+  const lo = opts.min ?? Math.min(...nums);
+  const hi = opts.max ?? Math.max(...nums);
+  if (lo === hi) return [Math.max(0, lo - 5), hi + 5];
+
+  const padding = Math.max((hi - lo) * opts.paddingRatio, opts.minPadding);
+  let lower = lo - padding;
+  let upper = hi + padding;
+  if (opts.roundTo > 0) {
+    lower = Math.floor(lower / opts.roundTo) * opts.roundTo;
+    upper = Math.ceil(upper / opts.roundTo) * opts.roundTo;
+  }
+
+  if (upper - lower < opts.minWindow) {
+    if (opts.centerWindow) {
+      const mid = (lo + hi) / 2;
+      lower = Math.floor((mid - opts.minWindow / 2) / opts.roundTo) * opts.roundTo;
+      upper = lower + opts.minWindow;
+    } else {
+      lower = upper - opts.minWindow;
+    }
+  }
+
+  // 常规百分制不越过 100，且不跌破 0
+  if (nums.every((v) => v <= 100)) upper = Math.min(upper, 100);
+  return [Math.max(0, lower), upper];
+}
+
 /** 未计入图表的科目（缺考等无数字分）→ 图下说明文案，如「物理（缺考）」 */
 export function skippedSubjectTexts(items: SubjectScoreBarItem[]): string[] {
   return items

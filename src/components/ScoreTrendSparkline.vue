@@ -8,6 +8,7 @@
  */
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { CHART_PRIMARY } from "../lib/chart-palette";
+import { trendDomainOf } from "../lib/score-chart";
 
 const props = withDefaults(
   defineProps<{
@@ -47,29 +48,24 @@ onBeforeUnmount(() => observer?.disconnect());
 const plotW = computed(() => Math.max(24, width.value - PAD.l - PAD.r));
 const plotH = computed(() => Math.max(16, props.height - PAD.t - PAD.b));
 
-/** 纵轴范围：按数据自动收紧（与 ScoreLineChart 同口径，常规百分制不越过 0~100） */
+/**
+ * 纵轴范围：按数据自动收紧，常规百分制不越过 0~100。
+ * （算法统一在 lib/score-chart 的 trendDomainOf；padding 25% / ≥2 分 / 不取整 /
+ *   最小 1 分视野是迷你图的视觉调优——图太小，15 分视野会把走势压平）
+ */
 const domain = computed<[number, number]>(() => {
   const values = props.points
     .map((p) => p.value)
     .filter((v): v is number => v !== null && !Number.isNaN(v));
-  if (!values.length) return [0, 100];
-
-  let lo = props.min ?? Math.min(...values);
-  let hi = props.max ?? Math.max(...values);
-  if (lo === hi) {
-    lo -= 5;
-    hi += 5;
-  } else {
-    const padding = Math.max((hi - lo) * 0.25, 2);
-    lo -= padding;
-    hi += padding;
-  }
-  if (values.every((v) => v <= 100)) {
-    lo = Math.max(lo, 0);
-    hi = Math.min(hi, 100);
-  }
-  if (hi - lo < 1) hi = lo + 1;
-  return [lo, hi];
+  return trendDomainOf(values, {
+    min: props.min,
+    max: props.max,
+    paddingRatio: 0.25,
+    minPadding: 2,
+    roundTo: 0,
+    minWindow: 1,
+    centerWindow: false,
+  });
 });
 
 function xOf(index: number): number {

@@ -11,6 +11,7 @@ import {
   plotRatioOf,
   plotScaleOf,
   plottedScoreOf,
+  plottedValuesOf,
   scoreTextClassOf,
   scoreTextOf,
   subjectColorOf,
@@ -20,13 +21,7 @@ import type { SubjectScoreBarItem } from "../types";
 const props = defineProps<{ items: SubjectScoreBarItem[] }>();
 
 /** 本次全部科目的绘图值 → 放大基准 */
-const plotScale = computed(() =>
-  plotScaleOf(
-    props.items
-      .map((item) => plottedScoreOf(item.score))
-      .filter((value): value is number => value !== null)
-  )
-);
+const plotScale = computed(() => plotScaleOf(plottedValuesOf(props.items)));
 
 /** 横条长度占比：按放大基准折算（无数字分 → 0，不画条） */
 function widthOf(item: SubjectScoreBarItem): string {

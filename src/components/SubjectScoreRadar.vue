@@ -9,7 +9,7 @@
  */
 import { computed } from "vue";
 import { CHART_AXIS_LINE, CHART_PRIMARY, CHART_TEXT_WEAK, chartColorOf } from "../lib/chart-palette";
-import { hasNumericScore, plotRatioOf, plotScaleOf, plottedScoreOf, scoreTextOf } from "../lib/score-chart";
+import { hasNumericScore, plotRatioOf, plotScaleOf, plottedScoreOf, plottedValuesOf, scoreTextOf } from "../lib/score-chart";
 import type { SubjectScoreBarItem } from "../types";
 
 const props = defineProps<{ items: SubjectScoreBarItem[] }>();
@@ -53,13 +53,7 @@ function ringPoints(ratio: number): string {
 }
 
 /** 本次分数区间 → 放大基准（圆心 = 区间下限、外环 = 上限） */
-const scale = computed(() =>
-  plotScaleOf(
-    axes.value
-      .map((row) => plottedScoreOf(row.item.score))
-      .filter((value): value is number => value !== null)
-  )
-);
+const scale = computed(() => plotScaleOf(plottedValuesOf(axes.value.map((row) => row.item))));
 
 /** 某科的半径比（0 = 圆心，1 = 外环） */
 function ratioOf(item: SubjectScoreBarItem): number {

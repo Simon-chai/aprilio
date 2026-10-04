@@ -20,6 +20,7 @@ import {
   plotRatioOf,
   plotScaleOf,
   plottedScoreOf,
+  plottedValuesOf,
   scoreTextClassOf,
   scoreTextOf,
 } from "../lib/score-chart";
@@ -84,16 +85,9 @@ function subjectColor(subject: string): string {
 }
 
 /** 全部柱子的绘图值 → 放大基准：基准线按本次分数区间上抬，柱高差异才看得出 */
-const plotScale = computed(() => {
-  const values: number[] = [];
-  for (const group of props.groups) {
-    for (const item of group.items) {
-      const value = plottedScoreOf(item.score);
-      if (value !== null) values.push(value);
-    }
-  }
-  return plotScaleOf(values);
-});
+const plotScale = computed(() =>
+  plotScaleOf(plottedValuesOf(props.groups.flatMap((group) => group.items)))
+);
 
 /** 柱高：按放大基准折算，最低留 4px 让 0 分也可见 */
 function barHeight(score: number): string {

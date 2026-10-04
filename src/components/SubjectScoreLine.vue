@@ -9,7 +9,7 @@
  */
 import { computed } from "vue";
 import { CHART_AXIS_LINE, CHART_TEXT_WEAK, chartColorOf } from "../lib/chart-palette";
-import { plotRatioOf, plotScaleOf, plottedScoreOf, scoreTextOf } from "../lib/score-chart";
+import { plotRatioOf, plotScaleOf, plottedScoreOf, plottedValuesOf, scoreTextOf } from "../lib/score-chart";
 import { round1 } from "../lib/score-analysis";
 import type { SubjectScoreBarItem } from "../types";
 
@@ -27,7 +27,7 @@ const W = computed(() => PAD.l + plotW.value + PAD.r);
 
 /** 各科绘图值（等级模式 = 档位代表值；缺考 = null） */
 const values = computed<(number | null)[]>(() => props.items.map((item) => plottedScoreOf(item.score)));
-const drawnValues = computed(() => values.value.filter((v): v is number => v !== null));
+const drawnValues = computed(() => plottedValuesOf(props.items));
 
 /** 纵轴范围：按本次分数区间放大差距（与柱状图 / 条形图同一套基准） */
 const scale = computed(() => plotScaleOf(drawnValues.value));

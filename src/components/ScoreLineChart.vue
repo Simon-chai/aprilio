@@ -16,6 +16,7 @@ import {
   CHART_TEXT_WEAK,
   chartColorOf,
 } from "../lib/chart-palette";
+import { trendDomainOf } from "../lib/score-chart";
 
 const props = withDefaults(
   defineProps<{
@@ -63,6 +64,8 @@ const W = computed(() => PAD.l + plotW.value + PAD.r);
 /**
  * 纵轴范围：按数据自动收紧，让折线尽量铺满绘图区。
  * 例：分数都在 92~97 → 纵轴取 90~100，而不是 0~100。
+ * （算法统一在 lib/score-chart 的 trendDomainOf；padding 20% / ≥3 分 / 5 分取整 /
+ *   最小 15 分视野且以数据中点居中是折线的视觉调优）
  */
 const domain = computed<[number, number]>(() => {
   const values: number[] = [];
@@ -71,28 +74,15 @@ const domain = computed<[number, number]>(() => {
       if (v !== null && v !== undefined && !Number.isNaN(v)) values.push(v);
     }
   }
-  if (!values.length) return [0, 100];
-
-  const lo = props.min ?? Math.min(...values);
-  const hi = props.max ?? Math.max(...values);
-  if (lo === hi) return [Math.max(0, lo - 5), hi + 5];
-
-  const span = hi - lo;
-  const padding = Math.max(span * 0.2, 3);
-  let lower = Math.floor((lo - padding) / 5) * 5;
-  let upper = Math.ceil((hi + padding) / 5) * 5;
-
-  // 窗口太窄会让折线上下剧烈跳动，至少留 15 分视野
-  const MIN_WINDOW = 15;
-  if (upper - lower < MIN_WINDOW) {
-    const mid = (lo + hi) / 2;
-    lower = Math.floor((mid - MIN_WINDOW / 2) / 5) * 5;
-    upper = lower + MIN_WINDOW;
-  }
-
-  // 常规百分制不越过 100，且不跌破 0
-  if (values.every((v) => v <= 100)) upper = Math.min(upper, 100);
-  return [Math.max(0, lower), upper];
+  return trendDomainOf(values, {
+    min: props.min,
+    max: props.max,
+    paddingRatio: 0.2,
+    minPadding: 3,
+    roundTo: 5,
+    minWindow: 15,
+    centerWindow: true,
+  });
 });
 
 function yOf(value: number): number {
