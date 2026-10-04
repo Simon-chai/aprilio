@@ -19,7 +19,7 @@ const LEGACY_TABLES = new Set(["calendar_memos"]);
  */
 describe("schema DDL parity (lib.rs migrations ↔ db.ts ensureSchema)", () => {
   const rust = readFileSync("src-tauri/src/lib.rs", "utf8");
-  const ts = readFileSync("src/lib/db.ts", "utf8");
+  const ts = readFileSync("src/lib/db/core.ts", "utf8");
 
   it("covers exactly the same tables on both sides", () => {
     const rustTables = [...new Set(tableNames(rust))].filter((t) => !LEGACY_TABLES.has(t)).sort();

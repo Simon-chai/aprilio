@@ -30,6 +30,7 @@
 | 桌面宠物 | [docs/DESKTOP_PET.md](docs/DESKTOP_PET.md) | 自定义宠物接入：宠物包规范、PetRuntime 适配器、Agent 事件桥、素材准备（矢量分层/分层贴图/序列帧/Live2D）、形象调试工作流 |
 | 课堂模式 | [docs/CLASSROOM.md](docs/CLASSROOM.md) | 节课 = 会话容器 × 可组合活动 × 统一事件流：v9 四表（槽位幂等）、活动放文件即接入与 kind 契约、档案双写透传、崩溃重放恢复、Agent lessons 实体与开/下课动作 |
 | 评价卡片 | [docs/EVAL_CARD.md](docs/EVAL_CARD.md) | 学生档案一键生成图文评价卡片并导出 PNG：周期聚合（成绩/表扬/作业）、学生姓名水印、foreignObject 零依赖转图、演示态退化为浏览器下载 |
+| 数据层 | [docs/DATA_LAYER.md](docs/DATA_LAYER.md) | db.ts 门面 + src/lib/db/ 按域拆分：模块清单、多表写必须走 executeBatch（sqlx 连接池下跨 execute 事务无效）、双通道等价性口径 |
 
 ## 新增规则的拆分原则
 
