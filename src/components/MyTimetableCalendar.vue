@@ -9,7 +9,7 @@
  * 跨班聚合，纯投影不落库）；日程 = listTeacherEventsInRange（班级事件 + 个人事件自动合并）。
  * 日历只做「看」与「记日程」，不写课表与调课例外。
  */
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import AppLink from "./ui/AppLink.vue";
 import AiPolishButton from "./ui/AiPolishButton.vue";
@@ -25,15 +25,11 @@ import {
 } from "../lib/db";
 import {
   CALENDAR_WEEKDAY_LABELS,
-  buildMonthGrid,
-  fromDateStr,
-  gridRange,
-  monthTitle,
-  shiftMonth,
   type CalendarCell,
 } from "../lib/calendar";
 import { localDateStr } from "../lib/format";
 import { summarizeMemoTitle } from "../lib/memo-ai";
+import { useCalendarMonth } from "../composables/useCalendarMonth";
 import {
   CALENDAR_EVENT_META,
   CALENDAR_EVENT_TYPES,
@@ -77,20 +73,40 @@ const isDark = computed(() => props.variant === "dark");
 const editable = computed(() => props.editable && !isDark.value);
 
 const SEMESTER = currentSemester();
-const now = new Date();
-const today = localDateStr(now);
-const viewYear = ref(now.getFullYear());
-const viewMonth = ref(now.getMonth() + 1);
-const selectedDate = ref(today);
 
-const grid = computed(() => buildMonthGrid(viewYear.value, viewMonth.value));
-const flatGrid = computed(() => grid.value.flat());
-const title = computed(() => monthTitle(viewYear.value, viewMonth.value));
+/** 月历状态与日程分组：统一在 useCalendarMonth（与班级课表日历共用） */
+const {
+  today,
+  shift,
+  backToToday,
+  viewYear,
+  viewMonth,
+  selectedDate,
+
+  flatGrid,
+  title,
+  events,
+  eventsOn,
+  reloadMonth,
+  selectedTitle,
+} = useCalendarMonth({
+  reload: async ({ start, end }) => {
+    try {
+      exceptions.value = await listTimetableExceptionsWithClass(SEMESTER, start, end);
+    } catch {
+      exceptions.value = [];
+    }
+    try {
+      events.value = await listTeacherEventsInRange(start, end);
+    } catch {
+      events.value = [];
+    }
+  },
+});
 
 /* ---------------- 课程：周课表 + 调课例外 → 每天的实际行程（我的课） ---------------- */
 
 const exceptions = ref<TimetableExceptionWithClass[]>([]);
-const events = ref<CalendarEvent[]>([]);
 
 const myDays = computed(() =>
   buildMyDays(
@@ -106,53 +122,6 @@ function sessionsOn(date: string): MyDaySession[] {
   return myDays.value.get(date) ?? [];
 }
 
-/* ---------------- 日程：班级事件 + 个人事件（教师维度自动合并） ---------------- */
-
-const eventsByDate = computed<Map<string, CalendarEvent[]>>(() => {
-  const map = new Map<string, CalendarEvent[]>();
-  for (const e of events.value) {
-    const list = map.get(e.event_date) ?? [];
-    list.push(e);
-    map.set(e.event_date, list);
-  }
-  return map;
-});
-
-/** 某天日程：节次升序、全天沉底（与班级日历同口径） */
-function eventsOn(date: string): CalendarEvent[] {
-  return [...(eventsByDate.value.get(date) ?? [])].sort(
-    (a, b) => (a.period ?? 99) - (b.period ?? 99) || a.id - b.id
-  );
-}
-
-async function reloadMonth() {
-  const { start, end } = gridRange(grid.value);
-  try {
-    exceptions.value = await listTimetableExceptionsWithClass(SEMESTER, start, end);
-  } catch {
-    exceptions.value = [];
-  }
-  try {
-    events.value = await listTeacherEventsInRange(start, end);
-  } catch {
-    events.value = [];
-  }
-}
-
-/* ---------------- 月份导航 ---------------- */
-
-function shift(delta: number) {
-  const next = shiftMonth(viewYear.value, viewMonth.value, delta);
-  viewYear.value = next.year;
-  viewMonth.value = next.month;
-}
-
-function backToToday() {
-  viewYear.value = now.getFullYear();
-  viewMonth.value = now.getMonth() + 1;
-  selectedDate.value = today;
-}
-
 watch([viewYear, viewMonth], () => {
   // 翻页后选中日不在当前可见月份 → 落到该月 1 号，右侧详情不悬空。
   // 必须用 inMonth 判断而不能只看 42 格网格：网格首尾带相邻月日期，
@@ -163,18 +132,9 @@ watch([viewYear, viewMonth], () => {
   if (!inViewMonth) {
     selectedDate.value = localDateStr(new Date(viewYear.value, viewMonth.value - 1, 1));
   }
-  void reloadMonth();
 });
-
-onMounted(reloadMonth);
 
 /* ---------------- 选中日详情 ---------------- */
-
-const selectedTitle = computed(() => {
-  const d = fromDateStr(selectedDate.value);
-  const weekday = ((d.getDay() + 6) % 7) + 1;
-  return `${d.getMonth() + 1}月${d.getDate()}日 ${CALENDAR_WEEKDAY_LABELS[weekday - 1]}`;
-});
 
 const selectedSessions = computed(() => sessionsOn(selectedDate.value));
 const selectedEvents = computed(() => eventsOn(selectedDate.value));

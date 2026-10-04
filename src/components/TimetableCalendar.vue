@@ -9,7 +9,7 @@
  * - 日程事件分类型（备忘 / 待办 / 考试 / 作业），色点区分，可勾选完成
  * 设计说明见 docs/TIMETABLE.md「万年历」与「调课」一节。
  */
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import AppButton from "./ui/AppButton.vue";
 import AppLink from "./ui/AppLink.vue";
 import {
@@ -21,15 +21,8 @@ import {
   saveTimetableException,
   setCalendarEventDone,
 } from "../lib/db";
-import {
-  CALENDAR_WEEKDAY_LABELS,
-  buildMonthGrid,
-  fromDateStr,
-  gridRange,
-  monthTitle,
-  shiftMonth,
-} from "../lib/calendar";
-import { localDateStr } from "../lib/format";
+import { CALENDAR_WEEKDAY_LABELS, fromDateStr } from "../lib/calendar";
+import { useCalendarMonth } from "../composables/useCalendarMonth";
 import {
   CALENDAR_EVENT_META,
   CALENDAR_EVENT_TYPES,
@@ -60,14 +53,35 @@ const props = withDefaults(
 
 const emit = defineEmits<{ edit: [] }>();
 
-const now = new Date();
-const viewYear = ref(now.getFullYear());
-const viewMonth = ref(now.getMonth() + 1);
-const selectedDate = ref(localDateStr(now));
-const today = localDateStr(now);
-
-const grid = computed(() => buildMonthGrid(viewYear.value, viewMonth.value));
-const title = computed(() => monthTitle(viewYear.value, viewMonth.value));
+/** 月历状态与日程分组：统一在 useCalendarMonth（与我的课表日历共用）；eventsAt 为本组件模板沿用名 */
+const {
+  today,
+  title,
+  selectedDate,
+  grid,
+  events,
+  eventsOn: eventsAt,
+  shift,
+  backToToday,
+  reloadMonth,
+} = useCalendarMonth({
+  reload: async ({ start, end }) => {
+    try {
+      events.value = await listClassEventsInRange(props.className, start, end);
+    } catch {
+      events.value = [];
+    }
+    if (props.timetable) {
+      try {
+        exceptions.value = await listTimetableExceptionsInRange(props.timetable.id, start, end);
+      } catch {
+        exceptions.value = [];
+      }
+    } else {
+      exceptions.value = [];
+    }
+  },
+});
 
 /* ---------------- 课程：周几 → 科目（周课表在日历上按月重复） ---------------- */
 
@@ -89,10 +103,9 @@ function weekdayOf(date: string): number {
   return ((fromDateStr(date).getDay() + 6) % 7) + 1;
 }
 
-/* ---------------- 调课例外 + 日程事件：按网格日期区间加载 ---------------- */
+/* ---------------- 调课例外：按网格日期区间加载 ---------------- */
 
 const exceptions = ref<TimetableException[]>([]);
-const events = ref<CalendarEvent[]>([]);
 
 const exceptionsByDate = computed<Map<string, TimetableException[]>>(() => {
   const map = new Map<string, TimetableException[]>();
@@ -104,54 +117,6 @@ const exceptionsByDate = computed<Map<string, TimetableException[]>>(() => {
   return map;
 });
 
-const eventsByDate = computed<Map<string, CalendarEvent[]>>(() => {
-  const map = new Map<string, CalendarEvent[]>();
-  for (const e of events.value) {
-    const list = map.get(e.event_date) ?? [];
-    list.push(e);
-    map.set(e.event_date, list);
-  }
-  return map;
-});
-
-/** 某天的日程：按节次升序，全天（period 为空，含记在列头的备忘）沉到末尾 */
-function eventsAt(date: string): CalendarEvent[] {
-  return [...(eventsByDate.value.get(date) ?? [])].sort(
-    (a, b) => (a.period ?? 99) - (b.period ?? 99) || a.id - b.id
-  );
-}
-
-async function reloadMonth() {
-  const { start, end } = gridRange(grid.value);
-  try {
-    events.value = await listClassEventsInRange(props.className, start, end);
-  } catch {
-    events.value = [];
-  }
-  if (props.timetable) {
-    try {
-      exceptions.value = await listTimetableExceptionsInRange(props.timetable.id, start, end);
-    } catch {
-      exceptions.value = [];
-    }
-  } else {
-    exceptions.value = [];
-  }
-}
-
-function shift(delta: number) {
-  const next = shiftMonth(viewYear.value, viewMonth.value, delta);
-  viewYear.value = next.year;
-  viewMonth.value = next.month;
-}
-
-function backToToday() {
-  viewYear.value = now.getFullYear();
-  viewMonth.value = now.getMonth() + 1;
-  selectedDate.value = today;
-}
-
-watch([viewYear, viewMonth], reloadMonth);
 watch(
   () => props.className,
   () => {
@@ -160,8 +125,6 @@ watch(
     void reloadMonth();
   }
 );
-
-onMounted(reloadMonth);
 
 /* ---------------- 某天的实际课程（周课表 + 调课例外） ---------------- */
 
