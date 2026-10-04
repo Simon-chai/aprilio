@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, ref } from "vue";
 import { BEHAVIOR_CATEGORY_LABEL } from "../types";
-import type { BehaviorCategory, BehaviorPolarity, ClassBehaviorRecord, StudentRow } from "../types";
+import type { ClassBehaviorRecord, StudentRow } from "../types";
 import { confirmAction } from "../composables/useConfirm";
+import { useBehaviorFilters } from "../composables/useBehaviorFilters";
 
 const props = defineProps<{
   records: ClassBehaviorRecord[];
@@ -29,10 +30,22 @@ async function onRemoveClick(recordId: number) {
   if (ok) emit("remove", recordId);
 }
 
-const selectedCategory = ref<"all" | BehaviorCategory>("all");
-const selectedPolarity = ref<"all" | BehaviorPolarity>("all");
 const selectedStudentId = ref<"all" | string>("all");
-const selectedDimension = ref<string>("all");
+
+/** 筛选与分组：大类 + 倾向 + 维度（共享逻辑）+ 学生（本组件独有的 extraFilter） */
+const {
+  selectedCategory,
+  selectedPolarity,
+  selectedDimension,
+  availableDimensions,
+  polarityCounts,
+  filteredRecords,
+  groupedRecords,
+} = useBehaviorFilters<ClassBehaviorRecord>(() => props.records, {
+  withCategory: true,
+  extraFilter: (r) =>
+    selectedStudentId.value === "all" || r.student_id === Number(selectedStudentId.value),
+});
 
 // 分类总数统计
 const categoryCounts = computed(() => {
@@ -63,82 +76,6 @@ const availableStudents = computed(() => {
   return Array.from(map.entries())
     .map(([id, name]) => ({ id, name }))
     .sort((a, b) => a.name.localeCompare(b.name, "zh-CN"));
-});
-
-// 提取所有已存在的维度供下拉选择
-const availableDimensions = computed(() => {
-  const set = new Set<string>();
-  for (const r of props.records) {
-    if (selectedCategory.value === "all" || r.category_snap === selectedCategory.value) {
-      if (r.dimension_name_snap) set.add(r.dimension_name_snap);
-    }
-  }
-  return Array.from(set);
-});
-
-watch(availableDimensions, (dims) => {
-  if (selectedDimension.value !== "all" && !dims.includes(selectedDimension.value)) {
-    selectedDimension.value = "all";
-  }
-});
-
-// 统计当前分类下的各倾向数量
-const polarityCounts = computed(() => {
-  let praise = 0;
-  let improve = 0;
-  let neutral = 0;
-  let total = 0;
-  for (const r of props.records) {
-    if (selectedCategory.value !== "all" && r.category_snap !== selectedCategory.value) {
-      continue;
-    }
-    total++;
-    if (r.type === "praise") praise++;
-    else if (r.type === "improve") improve++;
-    else if (r.type === "neutral") neutral++;
-  }
-  return { all: total, praise, improve, neutral };
-});
-
-// 综合多维过滤后的列表
-const filteredRecords = computed(() => {
-  return props.records.filter((r) => {
-    if (selectedCategory.value !== "all" && r.category_snap !== selectedCategory.value) {
-      return false;
-    }
-    if (selectedPolarity.value !== "all" && r.type !== selectedPolarity.value) {
-      return false;
-    }
-    if (selectedStudentId.value !== "all" && r.student_id !== Number(selectedStudentId.value)) {
-      return false;
-    }
-    if (selectedDimension.value !== "all" && r.dimension_name_snap !== selectedDimension.value) {
-      return false;
-    }
-    return true;
-  });
-});
-
-// 按 recorded_date 倒序分组
-interface DateGroup {
-  date: string;
-  items: ClassBehaviorRecord[];
-}
-
-const groupedRecords = computed<DateGroup[]>(() => {
-  const map = new Map<string, ClassBehaviorRecord[]>();
-  for (const r of filteredRecords.value) {
-    const date = r.recorded_date || r.created_at.slice(0, 10);
-    const list = map.get(date) ?? [];
-    list.push(r);
-    map.set(date, list);
-  }
-  return Array.from(map.entries())
-    .sort(([dateA], [dateB]) => (dateA < dateB ? 1 : -1))
-    .map(([date, items]) => ({
-      date,
-      items: items.sort((a, b) => b.id - a.id),
-    }));
 });
 </script>
 

@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from "vue";
+import { onBeforeUnmount, ref } from "vue";
 import AppIcon from "./ui/AppIcon.vue";
-import type { BehaviorPolarity, StudentBehaviorRecord } from "../types";
+import type { StudentBehaviorRecord } from "../types";
 import { confirmAction } from "../composables/useConfirm";
+import { useBehaviorFilters } from "../composables/useBehaviorFilters";
 
 const props = defineProps<{
   records: StudentBehaviorRecord[];
@@ -90,71 +91,16 @@ async function onMenuDelete() {
   if (record) await onRemoveClick(record.id);
 }
 
-const selectedPolarity = ref<"all" | BehaviorPolarity>("all");
-const selectedDimension = ref<string>("all");
-
-// 提取所有已存在的维度供下拉选择
-const availableDimensions = computed(() => {
-  const set = new Set<string>();
-  for (const r of props.records) {
-    if (r.dimension_name_snap) set.add(r.dimension_name_snap);
-  }
-  return Array.from(set);
-});
-
-watch(availableDimensions, (dims) => {
-  if (selectedDimension.value !== "all" && !dims.includes(selectedDimension.value)) {
-    selectedDimension.value = "all";
-  }
-});
-
-// 统计各倾向数量
-const stats = computed(() => {
-  let praise = 0;
-  let improve = 0;
-  let neutral = 0;
-  for (const r of props.records) {
-    if (r.type === "praise") praise++;
-    else if (r.type === "improve") improve++;
-    else if (r.type === "neutral") neutral++;
-  }
-  return { all: props.records.length, praise, improve, neutral };
-});
-
-// 过滤后的列表
-const filteredRecords = computed(() => {
-  return props.records.filter((r) => {
-    if (selectedPolarity.value !== "all" && r.type !== selectedPolarity.value) {
-      return false;
-    }
-    if (selectedDimension.value !== "all" && r.dimension_name_snap !== selectedDimension.value) {
-      return false;
-    }
-    return true;
-  });
-});
-
-// 按 recorded_date 倒序分组
-interface DateGroup {
-  date: string;
-  items: StudentBehaviorRecord[];
-}
-
-const groupedRecords = computed<DateGroup[]>(() => {
-  const map = new Map<string, StudentBehaviorRecord[]>();
-  for (const r of filteredRecords.value) {
-    const date = r.recorded_date || r.created_at.slice(0, 10);
-    const list = map.get(date) ?? [];
-    list.push(r);
-    map.set(date, list);
-  }
-  return Array.from(map.entries())
-    .sort(([dateA], [dateB]) => (dateA < dateB ? 1 : -1))
-    .map(([date, items]) => ({
-      date,
-      items: items.sort((a, b) => b.id - a.id),
-    }));
-});
+/** 筛选与分组：倾向 + 维度（共享逻辑，见 useBehaviorFilters） */
+const {
+  selectedPolarity,
+  selectedDimension,
+  availableDimensions,
+  polarityCounts: stats,
+  filteredRecords,
+  groupedRecords,
+} =
+  useBehaviorFilters<StudentBehaviorRecord>(() => props.records);
 </script>
 
 <template>
