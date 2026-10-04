@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { errorMessage } from "../lib/error-message";
+import { pickFilesViaInput, TEXT_TABLE_ACCEPT } from "../lib/file-pick";
 /**
  * 导入课表对话框：Excel/CSV → 识别星期表头/节次表头 → 预览周网格 → 落库。
  * 与 ImportRosterDialog 同一交互骨架；文件管道复用 roster.ts（桌面 xlsx 走 Rust，浏览器仅 CSV）。
@@ -269,24 +270,10 @@ async function chooseFile() {
   await loadText(text, file.name);
 }
 
-/** 浏览器演示态的文件选择（<input type=file>；取消时靠窗口焦点回落识别） */
-function pickViaInput(): Promise<File | null> {
-  return new Promise((resolve) => {
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = ".csv,.tsv,.txt,text/csv,text/plain";
-    let settled = false;
-    const done = (file: File | null) => {
-      if (settled) return;
-      settled = true;
-      window.removeEventListener("focus", onFocus);
-      resolve(file);
-    };
-    const onFocus = () => setTimeout(() => done(input.files?.[0] ?? null), 300);
-    input.addEventListener("change", () => done(input.files?.[0] ?? null));
-    window.addEventListener("focus", onFocus);
-    input.click();
-  });
+/** 浏览器演示态的文件选择（单文件；共享实现在 lib/file-pick，桌面端走 pickRosterFile） */
+async function pickViaInput(): Promise<File | null> {
+  const picked = await pickFilesViaInput(TEXT_TABLE_ACCEPT, false);
+  return picked[0] ?? null;
 }
 
 async function analyze() {

@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { errorMessage } from "../lib/error-message";
 /**
  * 导入花名册对话框：指定格式导入 / 智能导入两种模式，支持一次选择多个文件。
  *
@@ -10,28 +9,26 @@ import { errorMessage } from "../lib/error-message";
  * 多文件：文件队列逐个独立识别、逐个独立落库（未命名批次各自单立新班逻辑不变），
  * 导入完成后把各文件结果聚合成一次 imported 事件，父视图无需改动。
  */
-import { computed, ref, watch } from "vue";
+import { computed, ref, toRef, watch } from "vue";
 import AppButton from "./ui/AppButton.vue";
 import AppDialog from "./ui/AppDialog.vue";
 import AppIcon from "./ui/AppIcon.vue";
 import AnalyzingOverlay from "./AnalyzingOverlay.vue";
-import { isTauri } from "../lib/env";
 import { isAiConfigured, loadAiConfig } from "../lib/ai";
+import { errorMessage } from "../lib/error-message";
+import { useImportFileQueue } from "../composables/useImportFileQueue";
 import { logError, logInfo } from "../lib/logger";
 import {
   ROSTER_FIELD_LABELS,
   aiDetectNameColumn,
   aiInferClassName,
   combineNameDetection,
-  decodeRosterBytes,
   detectFieldMapping,
   detectNameColumn,
   downloadRosterTemplate,
   findNameColumnByHeader,
   importRosterStudents,
   isUnnamedBatch,
-  parseRosterTable,
-  pickRosterFiles,
   prepareRosterRows,
   validateTemplateTable,
   type NameDetection,
@@ -75,49 +72,34 @@ const emit = defineEmits<{
 }>();
 
 const mode = ref<Mode>(props.initialMode);
-const files = ref<RosterFileEntry[]>([]);
-const activeKey = ref<number | null>(null);
-const nextKey = ref(1);
-const analyzing = ref(false);
-const importing = ref(false);
-const readError = ref("");
 
-const activeFile = computed(
-  () => files.value.find((f) => f.key === activeKey.value) ?? files.value[0] ?? null,
-);
+/** 队列状态机：五件套状态 / 增删与文件选择统一在 useImportFileQueue（与成绩导入共用） */
+const queue = useImportFileQueue<RosterFileEntry>({
+  open: toRef(() => props.open),
+  createEntry: (key, table, label, sheet) => ({
+    key,
+    label,
+    sheet,
+    table,
+    detection: null,
+    selectedColumn: -1,
+    templateError: "",
+    scoreHint: null,
+    scoreHintDismissed: false,
+    inferredClass: null,
+    result: null,
+    error: "",
+  }),
+  analyzeEntry: async (entry) => {
+    entry.detection = null;
+    entry.templateError = "";
+    entry.result = null;
+    entry.error = "";
+    entry.selectedColumn = -1;
+    entry.scoreHint = null;
+    entry.scoreHintDismissed = false;
+    entry.inferredClass = null;
 
-watch(
-  () => props.open,
-  (open) => {
-    if (!open) return;
-    mode.value = props.initialMode;
-    files.value = [];
-    activeKey.value = null;
-    importing.value = false;
-    analyzing.value = false;
-    readError.value = "";
-  },
-);
-
-watch(mode, async () => {
-  for (const entry of files.value) {
-    await analyzeEntry(entry);
-  }
-});
-
-/** 对单个文件做姓名列识别 / 模板校验（表格已就绪，解析在载入时完成） */
-async function analyzeEntry(entry: RosterFileEntry) {
-  analyzing.value = true;
-  entry.detection = null;
-  entry.templateError = "";
-  entry.result = null;
-  entry.error = "";
-  entry.selectedColumn = -1;
-  entry.scoreHint = null;
-  entry.scoreHintDismissed = false;
-  entry.inferredClass = null;
-
-  try {
     const t = entry.table;
     if (mode.value === "template") {
       const check = validateTemplateTable(t);
@@ -165,106 +147,31 @@ async function analyzeEntry(entry: RosterFileEntry) {
         entry.inferredClass = null;
       }
     }
-  } finally {
-    analyzing.value = false;
+  },
+  onReset: () => {
+    mode.value = props.initialMode;
+  },
+});
+const {
+  activeKey,
+  files,
+  analyzing,
+  importing,
+  readError,
+  activeFile,
+  runAnalyze,
+  loadTable,
+  loadText,
+  analyzeFromTable,
+  removeFile,
+  chooseFile,
+} = queue;
+
+watch(mode, async () => {
+  for (const entry of files.value) {
+    await runAnalyze(entry);
   }
-}
-
-/** 新增一个已解析表格到队列并分析（文件入口，桌面端表格通道 / 测试注入共用） */
-async function addTable(table: RosterTable, label: string, sheet = "") {
-  const entry: RosterFileEntry = {
-    key: nextKey.value++,
-    label,
-    sheet,
-    table,
-    detection: null,
-    selectedColumn: -1,
-    templateError: "",
-    scoreHint: null,
-    scoreHintDismissed: false,
-    inferredClass: null,
-    result: null,
-    error: "",
-  };
-  files.value.push(entry);
-  activeKey.value = entry.key;
-  await analyzeEntry(entry);
-}
-
-/** 载入已解析的表格并分析（单文件入口，测试与外部调用兼容：追加到队列） */
-async function loadTable(loaded: { table: RosterTable; sheet?: string }, label: string) {
-  readError.value = "";
-  await addTable(loaded.table, label, loaded.sheet ?? "");
-}
-
-/** 解析文本为表格并分析（CSV 文本入口，浏览器演示态与测试使用：追加到队列） */
-async function loadText(text: string, label = "") {
-  try {
-    await addTable(parseRosterTable(text), label);
-  } catch (e) {
-    readError.value = `解析失败：${errorMessage(e)}`;
-  }
-}
-
-/** 兼容旧暴露接口：重新分析当前选中的文件 */
-async function analyzeFromTable() {
-  if (activeFile.value) await analyzeEntry(activeFile.value);
-}
-
-function removeFile(key: number) {
-  const i = files.value.findIndex((f) => f.key === key);
-  if (i >= 0) files.value.splice(i, 1);
-  if (activeKey.value === key) activeKey.value = files.value[0]?.key ?? null;
-}
-
-async function chooseFile() {
-  readError.value = "";
-  if (isTauri()) {
-    try {
-      const loadedList = await pickRosterFiles();
-      if (!loadedList) return;
-      for (const loaded of loadedList) {
-        await addTable(loaded.table, loaded.fileName, loaded.sheet ?? "");
-      }
-    } catch (e) {
-      readError.value = `读取文件失败：${errorMessage(e)}`;
-    }
-    return;
-  }
-  const picked = await pickViaInput();
-  if (!picked.length) return;
-  const failures: string[] = [];
-  for (const file of picked) {
-    try {
-      const text = decodeRosterBytes(await file.arrayBuffer()).text;
-      await addTable(parseRosterTable(text), file.name);
-    } catch (e) {
-      failures.push(`${file.name}：${errorMessage(e)}`);
-    }
-  }
-  if (failures.length) readError.value = `部分文件解析失败：${failures.join("；")}`;
-}
-
-/** 浏览器演示态的文件选择（<input type=file multiple>；取消时靠窗口焦点回落识别） */
-function pickViaInput(): Promise<File[]> {
-  return new Promise((resolve) => {
-    const input = document.createElement("input");
-    input.type = "file";
-    input.multiple = true;
-    input.accept = ".csv,.tsv,.txt,text/csv,text/plain";
-    let settled = false;
-    const done = (list: File[]) => {
-      if (settled) return;
-      settled = true;
-      window.removeEventListener("focus", onFocus);
-      resolve(list);
-    };
-    const onFocus = () => setTimeout(() => done(input.files ? Array.from(input.files) : []), 300);
-    input.addEventListener("change", () => done(input.files ? Array.from(input.files) : []));
-    window.addEventListener("focus", onFocus);
-    input.click();
-  });
-}
+});
 
 /** 当前选中文件的字段映射（含预设班级回填） */
 function mappingOf(entry: RosterFileEntry) {
