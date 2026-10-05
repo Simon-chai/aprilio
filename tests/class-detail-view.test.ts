@@ -28,7 +28,17 @@ vi.mock("../src/composables/useConfirm", () => ({
   confirmAction: vi.fn(),
 }));
 
+// AppIconButton 的悬浮说明 Teleport 到 body，测试间清理残留
+const bodyTooltips = () =>
+  Array.from(document.body.querySelectorAll("[role='tooltip']")).map((el) =>
+    el.textContent?.trim()
+  );
+
 describe("ClassDetailView.vue", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+  });
+
   function createTestRouter() {
     return createRouter({
       history: createMemoryHistory(),
@@ -85,13 +95,16 @@ describe("ClassDetailView.vue", () => {
     const importIconBtn = wrapper.find("button[aria-label='导入本班花名册']");
     expect(importIconBtn.exists()).toBe(true);
     expect(importIconBtn.element.closest("header")).toBeNull();
-    // 悬浮说明文案（自绘 tooltip，WebView 中原生 title 不可靠）
-    expect(importIconBtn.find("span[role='tooltip']").text()).toContain("导入本班花名册");
+    // 悬浮说明文案（自绘 tooltip，WebView 中原生 title 不可靠）。
+    // Teleport 到 body：放回按钮内会被 overflow-x-auto 工具栏整颗裁掉（AppIconButton 头注释）。
+    // 工具栏顺序前两位即本用例关注的两个按钮；「家校沟通总结」的 tooltip 也在 body，不属于本用例
+    expect(importIconBtn.find("[role='tooltip']").exists()).toBe(false);
+    expect(bodyTooltips().slice(0, 2)).toEqual(["导入本班花名册", "新建学生"]);
 
     const createIconBtn = wrapper.find("button[aria-label='新建学生']");
     expect(createIconBtn.exists()).toBe(true);
     expect(createIconBtn.element.closest("header")).toBeNull();
-    expect(createIconBtn.find("span[role='tooltip']").text()).toContain("新建学生");
+    expect(createIconBtn.find("[role='tooltip']").exists()).toBe(false);
 
     // 同一行：搜索框 + 两个图标按钮，且图标按钮与班级管理页同款渐变描边皮肤
     const toolbar = importIconBtn.element.parentElement as HTMLElement;
@@ -109,7 +122,8 @@ describe("ClassDetailView.vue", () => {
     const addPhotoIconBtn = wrapper.find("button[aria-label='添加班级照片']");
     expect(addPhotoIconBtn.exists()).toBe(true);
     expect(addPhotoIconBtn.element.closest("header")).toBeNull();
-    expect(addPhotoIconBtn.find("span[role='tooltip']").text()).toContain("添加班级照片");
+    // 学生条目 tab 已随页签切换卸载，body 上只剩当前页签的悬浮说明
+    expect(bodyTooltips()).toEqual(["添加班级照片"]);
   });
 
   it("switches to another class from the class-name dropdown", async () => {

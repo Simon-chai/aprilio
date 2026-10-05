@@ -191,7 +191,7 @@ canvas 绘制的图表**读不到 CSS 变量**，图表配色不登记在 `@them
 | `AppLink` | `variant="chip"` = 跳转胶囊（默认；primary/danger 为渐变描边）；`variant="action"` = 原地动作轻文字；`tone` 处理深色底与危险色 |
 | `AppInput` | `variant="search"`（胶囊）/ `variant="field"`（方角） |
 | `AppCard` | 18px 圆角 + 发丝线，不加阴影 |
-| `AppIconButton` | 渐变描边图标按钮；`show-label` 升级为「图标+文字」胶囊；`tone="danger"`；`size="sm"` 卡片行内小号。极低频操作（一个对象生命周期约一次，如班级归档/删除）优先收进「⋯」溢出菜单，不与标题争空间 |
+| `AppIconButton` | 渐变描边图标按钮；`show-label` 升级为「图标+文字」胶囊；`tone="danger"`；`size="sm"` 卡片行内小号。极低频操作（一个对象生命周期约一次，如班级归档/删除）优先收进「⋯」溢出菜单，不与标题争空间。悬浮说明为组件内置：Teleport 到 body 的 fixed 气泡（`z-[60]`，hover / 键盘聚焦可见，滚动随按钮重新对位）——**禁止改回按钮内原位定位**，会被 `overflow-x-auto` 紧凑工具栏整颗裁掉（班级详情页学生条目区曾整排不可见） |
 | `AiPolishButton` | 「AI 润色」通用按钮（ai/ai-soft/ai-line 标识色胶囊 + ✨ 前缀，与 AI 推荐气泡同一语言）：挂任意人工文本输入旁，`text/scene/hint/context/maxLen` 传当前文本与场景，`@apply` 回写润色结果；AI 未配置时置灰 + 悬浮说明。`size="sm"` 用于课表格速记等紧凑行 |
 | `StatusChip` | `info` / `neutral` / `success` 状态胶囊 |
 | `EmptyState` | 空态占位 |

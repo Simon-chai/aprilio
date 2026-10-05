@@ -1,6 +1,6 @@
 import { flushPromises, mount } from "@vue/test-utils";
 import { createMemoryHistory, createRouter } from "vue-router";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import ClassesView from "../src/views/ClassesView.vue";
 import AppIconButton from "../src/components/ui/AppIconButton.vue";
 import ClassFormDialog from "../src/components/ClassFormDialog.vue";
@@ -8,7 +8,18 @@ import StudentFormDialog from "../src/components/StudentFormDialog.vue";
 import ImportRosterDialog from "../src/components/ImportRosterDialog.vue";
 import { listRecycleItems } from "../src/lib/db";
 import { emitPageAction } from "../src/agent/page-action-bus";
+
+// AppIconButton 的悬浮说明 Teleport 到 body，测试间清理残留
+const bodyTooltips = () =>
+  Array.from(document.body.querySelectorAll("[role='tooltip']")).map((el) =>
+    el.textContent?.trim()
+  );
+
 describe("ClassesView.vue", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+  });
+
   function createTestRouter() {
     return createRouter({
       history: createMemoryHistory(),
@@ -58,8 +69,9 @@ describe("ClassesView.vue", () => {
     // 语义图标：上传表格 / 加号 + 尖顶房子，且都带悬浮文案；新建学生入口已迁往班级详情页
     const labels = iconButtons.map((btn) => btn.props("label"));
     expect(labels).toEqual(["导入花名册", "新建班级"]);
-    const tooltips = quickActions.findAll("[role='tooltip']");
-    expect(tooltips.map((t) => t.text())).toEqual(["导入花名册", "新建班级"]);
+    // 悬浮说明 Teleport 到 body（放回按钮内会被 overflow 祖先裁剪，见 AppIconButton 头注释）。
+    // 快捷操作在模板里先于班级卡渲染，取前两项断言；卡片「更多操作」的 tooltip 也在 body，不属于本用例
+    expect(bodyTooltips().slice(0, 2)).toEqual(["导入花名册", "新建班级"]);
     iconButtons.forEach((btn) => {
       expect(btn.find("svg").exists()).toBe(true);
       // 方案 C 渐变描边：可点性常显，主色图标 + hover 光环
