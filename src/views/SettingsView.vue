@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import AppButton from "../components/ui/AppButton.vue";
 import AppCard from "../components/ui/AppCard.vue";
 import AppDialog from "../components/ui/AppDialog.vue";
@@ -12,6 +12,7 @@ import { confirmAction } from "../composables/useConfirm";
 import { useToast } from "../composables/useToast";
 import {
   AI_PROVIDERS,
+  aiConfigVersion,
   aiErrorMessage,
   aiProviderById,
   isAiConfigured,
@@ -40,6 +41,15 @@ import {
   saveWallpaperConfig,
 } from "../lib/wallpaper";
 import type { BackgroundImage, Stats } from "../types";
+import {
+  MEMORY_TEMPLATE,
+  getMemoryFilePath,
+  isMemoryLearningEnabled,
+  refreshMemoryCache,
+  setMemoryLearningEnabled,
+  writeMemoryRaw,
+} from "../agent/memory-store";
+import { flushMemoryQueue, memoryFlushMessage } from "../agent/memory";
 
 const photosDir = ref("");
 const stats = ref<Stats>({ students: 0, photos: 0, month_new: 0 });
@@ -86,6 +96,10 @@ async function onFetchWallpapers() {
 /* ------------------------------------------------------------------ */
 
 const profilesState = ref<AiProfilesState>(loadAiProfiles());
+// 自动切换会在后台改「当前方案」：跟版本号刷新，避免列表徽标和切换胶囊不一致
+watch(aiConfigVersion, () => {
+  profilesState.value = loadAiProfiles();
+});
 const profiles = computed(() => profilesState.value.profiles);
 const activeProfile = computed(
   () =>
@@ -294,11 +308,83 @@ function onSaveModal() {
     });
 }
 
+/* ------------------------------------------------------------------ */
+/* 助手记忆：查看 / 编辑本机记忆文件，开关自动学习，手动触发整理            */
+/* ------------------------------------------------------------------ */
+
+const memoryEnabled = ref(isMemoryLearningEnabled());
+const memoryText = ref("");
+const memoryPath = ref("");
+const memoryBusy = ref(false);
+const memoryMsg = ref("");
+
+/** 记忆条目数：文件里「- 」开头的行（标题与注释不算记忆） */
+const memoryEntryCount = computed(
+  () => memoryText.value.split(/\r?\n/).filter((l) => l.trim().startsWith("- ")).length,
+);
+
+const memoryStatus = computed(() => {
+  const where =
+    isTauri() && memoryPath.value ? `文件：${memoryPath.value}` : "浏览器演示态（存 localStorage）";
+  return `${where} · 已沉淀 ${memoryEntryCount.value} 条`;
+});
+
+function onMemoryToggle() {
+  setMemoryLearningEnabled(memoryEnabled.value);
+  memoryMsg.value = memoryEnabled.value
+    ? "已开启自动学习。"
+    : "已关闭自动学习，已有记忆仍然生效，可随时手工编辑。";
+}
+
+async function onSaveMemory() {
+  if (memoryBusy.value) return;
+  memoryBusy.value = true;
+  memoryMsg.value = "";
+  try {
+    await writeMemoryRaw(memoryText.value);
+    toast("助手记忆已保存", { tone: "success" });
+  } catch {
+    memoryMsg.value = "保存失败，请重试。";
+  } finally {
+    memoryBusy.value = false;
+  }
+}
+
+/** 立即整理：不等防抖，把已积累的对话片段交给模型合并进记忆 */
+async function onOrganizeMemory() {
+  if (memoryBusy.value) return;
+  memoryBusy.value = true;
+  memoryMsg.value = "";
+  try {
+    const result = await flushMemoryQueue();
+    memoryMsg.value = memoryFlushMessage(result);
+    memoryText.value = await refreshMemoryCache();
+  } finally {
+    memoryBusy.value = false;
+  }
+}
+
+async function onClearMemory() {
+  const ok = await confirmAction({
+    title: "清空助手记忆？",
+    message: "将删除已沉淀的全部偏好条目（记忆文件恢复为初始模板），操作不可撤销。",
+    tone: "danger",
+    confirmText: "清空",
+  });
+  if (!ok) return;
+  await writeMemoryRaw(MEMORY_TEMPLATE);
+  memoryText.value = MEMORY_TEMPLATE;
+  toast("助手记忆已清空", { tone: "success" });
+}
+
 async function refresh() {
   // 图库索引 + 缓存目录就绪后缩略图才能解析（直接落到设置页也要能看）
   await ensureBackgroundLibrary().catch(() => undefined);
   photosDir.value = await getPhotosDir();
   stats.value = await getStats();
+  // 助手记忆：路径与最新内容（编辑器展示的就是落盘内容，保存即写回）
+  memoryPath.value = await getMemoryFilePath();
+  memoryText.value = await refreshMemoryCache();
 }
 
 onMounted(refresh);
@@ -333,7 +419,8 @@ async function onClear() {
           <div class="min-w-0">
             <h3 class="text-body font-semibold text-ink">AI 模型</h3>
             <p class="mt-1 text-caption text-weak">
-              保存多套模型方案，随时一键切换。密钥只保存在本机（混淆存放，不以明文躺在存储里），不出现在任何服务器。
+              保存多套模型方案，随时一键切换；当前方案请求失败（限流 / 密钥 / 超时等）会自动按顺序改试其它方案，成功后保持切换。
+              密钥只保存在本机（混淆存放，不以明文躺在存储里），不出现在任何服务器。
             </p>
           </div>
           <div class="flex shrink-0 items-center gap-2">
@@ -623,6 +710,54 @@ async function onClear() {
             </p>
           </div>
       </AppDialog>
+
+      <!-- 助手记忆：后台沉淀的用户偏好，注入助手上下文（详见 docs/AGENT.md） -->
+      <AppCard>
+        <h3 class="mb-1 text-body font-semibold text-ink">助手记忆</h3>
+        <p class="mb-4 text-caption text-weak">
+          助手会在后台从对话中沉淀你的使用偏好——对功能的叫法、操作习惯、回答风格要求——
+          存为本机 Markdown 文件，之后每次对话自动带上，越用越懂你。只记偏好，
+          不记学生姓名等隐私内容；可以直接编辑，删掉一行即忘掉一条。
+        </p>
+
+        <div class="space-y-3">
+          <label class="flex items-center gap-2 text-caption text-ink">
+            <input v-model="memoryEnabled" type="checkbox" data-test="memory-toggle" @change="onMemoryToggle" />
+            自动从对话中学习偏好
+          </label>
+
+          <textarea
+            v-model="memoryText"
+            rows="8"
+            spellcheck="false"
+            data-test="memory-text"
+            class="w-full resize-y rounded-sm border border-hairline bg-canvas px-3 py-2 font-mono text-caption leading-relaxed text-ink outline-none transition-colors placeholder:text-weak focus:border-primary-focus"
+            placeholder="（还没有记忆）"
+          ></textarea>
+
+          <div class="flex items-center gap-3">
+            <AppButton variant="secondary" data-test="memory-save" :disabled="memoryBusy" @click="onSaveMemory">
+              保存修改
+            </AppButton>
+            <AppButton
+              variant="secondary"
+              data-test="memory-organize"
+              :disabled="memoryBusy || !isTauri()"
+              @click="onOrganizeMemory"
+            >
+              {{ memoryBusy ? "整理中…" : "立即整理" }}
+            </AppButton>
+            <AppButton variant="pearl" data-test="memory-clear" :disabled="memoryBusy" @click="onClearMemory">
+              清空记忆
+            </AppButton>
+          </div>
+
+          <p v-if="memoryMsg" data-test="memory-msg" class="text-caption text-weak">{{ memoryMsg }}</p>
+          <p class="border-t border-divider pt-3 text-fine text-faint" data-test="memory-status">
+            {{ memoryStatus }}
+          </p>
+        </div>
+      </AppCard>
 
       <AppCard>
         <h3 class="mb-1 text-body font-semibold text-ink">必应壁纸</h3>

@@ -3,6 +3,7 @@ mod backgrounds;
 mod capabilities;
 mod db;
 pub mod mcp_server;
+mod memory;
 pub mod paths;
 mod photos;
 mod rag;
@@ -612,7 +613,10 @@ pub fn run() {
       rag::rag_reindex,
       rag::semantic_search,
       roster::roster_read_text,
-      roster::roster_read_table
+      roster::roster_read_table,
+      memory::agent_memory_read,
+      memory::agent_memory_write,
+      memory::agent_memory_path
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");

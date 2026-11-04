@@ -26,6 +26,14 @@ export const AI_COMMENT_MAX_LEN = 25;
 /** 备忘快速浏览标题最大字数（parseMemoTitle 截断用） */
 export const MEMO_TITLE_MAX_LEN = 12;
 
+/* ---------------- Agent 记忆文件结构（与记忆模板同源） ---------------- */
+
+/**
+ * 记忆文件的固定小节（顺序即文件顺序）：memory-store.ts 的记忆模板按此建骨架，
+ * 整理提示词 assistant.memory 以契约变量注入同一份清单，两边不会漂移。
+ */
+export const MEMORY_SECTIONS = ["词汇与叫法", "使用习惯", "表达偏好"] as const;
+
 /* ---------------- JSON 输出结构（与各解析函数一一对应） ---------------- */
 
 /** 成绩单结构识别的输出结构：aiDetectScoreSheet 按此解析 */

@@ -9,8 +9,9 @@
  * - parse 只做「模型输出 → 业务值」的清洗与校验，缓存放调用方
  */
 import { isAiConfigured, loadAiConfig, type AiConfig } from "./ai";
+import { createFailoverLlm } from "./ai-failover";
 import { isTauri } from "./env";
-import { tauriLlm, type AgentLlm, type AgentMessage } from "./llm";
+import type { AgentLlm, AgentMessage } from "./llm";
 import { resolvePrompt } from "../prompts";
 
 /** runAiTask 的参数：promptId + 消息 + 解析回调；llm / aiReady 供单测注入替身 */
@@ -34,7 +35,8 @@ export async function runAiTask<T>(params: AiTaskOptions<T>): Promise<T | null> 
   const ready = params.aiReady ?? (isTauri() && isAiConfigured(config));
   if (!ready) return null;
   try {
-    const llm = params.llm ?? tauriLlm();
+    // 缺省走「多模型自动切换」：当前方案失败自动改试其它已配置方案
+    const llm = params.llm ?? createFailoverLlm();
     const res = await llm.chat({
       system: resolvePrompt(params.promptId),
       messages: params.messages,
@@ -59,7 +61,7 @@ export async function chatOnce(params: {
   config: AiConfig;
 }): Promise<string | null> {
   try {
-    const llm = params.llm ?? tauriLlm();
+    const llm = params.llm ?? createFailoverLlm();
     const res = await llm.chat({
       system: params.system,
       messages: params.messages,

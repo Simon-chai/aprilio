@@ -7,6 +7,8 @@
 export const PROMPT_IDS = {
   /** 全站 AI 助手主提示词 */
   agent: "assistant.agent",
+  /** 助手记忆整理（后台从对话片段中沉淀用户偏好） */
+  agentMemory: "assistant.memory",
   /** 学期评语草稿 */
   termComment: "content.term-comment",
   /** 家校沟通总结（指定时段内评价 → 给家长的表现总结） */

@@ -280,6 +280,18 @@ export function setActiveAiProfile(id: string): AiProfilesState {
   return loadAiProfiles();
 }
 
+/** 方案 → 调用配置：两者字段一一对应，多模型切换（failover）也按同一口径取用 */
+export function aiProfileToConfig(profile: AiProfile): AiConfig {
+  return {
+    provider: profile.provider,
+    model: profile.model,
+    apiKey: profile.apiKey,
+    baseUrl: profile.baseUrl,
+    temperature: profile.temperature,
+    systemPrompt: profile.systemPrompt,
+  };
+}
+
 /**
  * 当前生效的模型配置：取「当前使用」方案（失效时回落第一个）。
  * 全应用的 AI 调用方（Agent、成绩导入、评语…）都从这里读，切换方案即全局生效。
@@ -288,14 +300,7 @@ export function loadAiConfig(): AiConfig {
   const state = loadAiProfiles();
   const active = state.profiles.find((p) => p.id === state.activeId) ?? state.profiles[0];
   if (!active) return { ...DEFAULT_AI_CONFIG };
-  return {
-    provider: active.provider,
-    model: active.model,
-    apiKey: active.apiKey,
-    baseUrl: active.baseUrl,
-    temperature: active.temperature,
-    systemPrompt: active.systemPrompt,
-  };
+  return aiProfileToConfig(active);
 }
 
 /* ------------------------------------------------------------------ */

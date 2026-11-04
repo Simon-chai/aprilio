@@ -43,6 +43,12 @@ pub fn photos_dir() -> Result<PathBuf, String> {
   Ok(app_data_dir()?.join("photos"))
 }
 
+/// Agent 记忆文件（memory.rs 的 `agent_memory_*` 命令读写的就
+/// 是这一份）：从对话中沉淀的用户偏好，助手对话时注入上下文
+pub fn agent_memory_path() -> Result<PathBuf, String> {
+  Ok(app_data_dir()?.join("agent-memory.md"))
+}
+
 /// 首次启动接管旧 identifier 的数据目录（identifier 换过之后保证老数据不丢）：
 /// `%APPDATA%/<旧>` → `%APPDATA%/<当前>`（数据库 / photos / backgrounds），
 /// `%LOCALAPPDATA%/<旧>` → `%LOCALAPPDATA%/<当前>`（日志）一并搬迁。
@@ -132,6 +138,7 @@ mod tests {
     // 目录本身允许不存在（未启动过应用），这里只验证路径拼接关系
     assert!(base.join("aprilio.db").ends_with("aprilio.db"));
     assert!(base.join("photos").ends_with("photos"));
+    assert!(base.join("agent-memory.md").ends_with("agent-memory.md"));
     assert!(base.to_string_lossy().contains(APP_IDENTIFIER));
   }
 

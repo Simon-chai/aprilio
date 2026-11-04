@@ -8,8 +8,8 @@
  * 隐私：仅把老师手输的这段文字与场景说明发给用户自己配置的模型服务，不写日志。
  */
 import { aiErrorMessage, isAiConfigured, loadAiConfig } from "./ai";
+import { createFailoverLlm } from "./ai-failover";
 import { isTauri } from "./env";
-import { tauriLlm } from "./llm";
 import { stripQuoteWrap } from "./ai-run";
 import { PROMPT_IDS, resolvePrompt } from "../prompts";
 import type { AgentLlm, AgentMessage } from "./llm";
@@ -70,7 +70,7 @@ export async function polishText(
 
   let raw: string;
   try {
-    const llm = options.llm ?? tauriLlm();
+    const llm = options.llm ?? createFailoverLlm();
     const res = await llm.chat({
       system: resolvePrompt(PROMPT_IDS.textPolish),
       messages: buildMessages(ctx),

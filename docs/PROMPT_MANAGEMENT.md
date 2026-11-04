@@ -33,10 +33,11 @@ src/prompts/
 ├── types.ts     PromptModule / PromptVariable 契约
 ├── define.ts    definePromptModule() 工厂：字段校验 + 归一（对齐 defineAgentTool）
 ├── groups.ts    分组taxonomy（分组是少量稳定的分类，新增分组在此登记一行）
+├── contracts.ts 不 import 任何东西的叶子常量（字数上限、JSON 输出结构、记忆小节）
 ├── registry.ts  import.meta.glob 扫描 modules/*.prompt.ts → 索引 + 重复 id fail-fast
 ├── store.ts     localStorage 覆盖值读写（aprilio.prompts.v1）+ promptVersion 响应式
 ├── resolve.ts   resolvePrompt(id, vars)：取「覆盖值 ?? 默认值」→ 替换占位符
-└── modules/     放文件即接入（本目录 12 个模块见下表）
+└── modules/     放文件即接入（本目录 13 个模块见下表）
 ```
 
 装配图：
@@ -61,7 +62,8 @@ registry.ts ──► modules/*.prompt.ts 的 defaultText（内置默认，唯�
 
 | 分组 | 模块 id | 界面名 | 占位符（契约） |
 | --- | --- | --- | --- |
-| 智能助手 | `assistant.agent` | 智能助手主提示词 | `{当前页面}` `{页面概况}` `{补充设定}`（运行期注入） |
+| 智能助手 | `assistant.agent` | 智能助手主提示词 | `{当前页面}` `{页面概况}` `{用户记忆}` `{补充设定}`（运行期注入） |
+| 智能助手 | `assistant.memory` | 助手记忆整理 | `{记忆小节}`（契约，与记忆文件模板同源） |
 | 内容生成 | `content.term-comment` | 学期评语 | `{评语字数上限}`（可编辑，默认 120） |
 | 内容生成 | `content.parent-summary` | 家校沟通总结 | `{总结字数上限}`（可编辑，默认 150） |
 | 内容生成 | `content.eval-report` | 评价报告 | — |
@@ -74,8 +76,8 @@ registry.ts ──► modules/*.prompt.ts 的 defaultText（内置默认，唯�
 | 信息识别 | `recognize.score-sheet` | 成绩单结构识别 | `{输出结构}`（契约） |
 | 信息识别 | `recognize.guardian-tag` | 监护人标签倾向 | — |
 
-> 智能助手主提示词只开放**静态段**（身份 + 页面上下文注入位 + 工具使用准则 + 回答风格）；
-> 页面上下文的具体内容是运行期状态，仍由 `buildSystemPrompt` 注入到占位符里。
+> 智能助手主提示词只开放**静态段**（身份 + 页面上下文注入位 + 用户记忆注入位 + 工具使用准则 + 回答风格）；
+> 页面上下文与用户记忆的具体内容是运行期状态，仍由 `buildSystemPrompt` 注入到占位符里。
 
 ### 通用润色：一个模块服务所有输入点
 

@@ -8,6 +8,7 @@ import { computed, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { createLlm } from "../agent/providers";
 import { runAgentTurn } from "../agent/loop";
+import { recordAgentInteraction } from "../agent/memory";
 import { buildCapabilityContainer, ensureRustCapabilities } from "../agent/manifest";
 import type { AgentMessage, ToolCallPayload, ToolResult } from "../agent/types";
 import { isAiConfigured, loadAiConfig, aiErrorMessage, aiConfigVersion, type AiConfig } from "../lib/ai";
@@ -196,6 +197,13 @@ export function useAgent() {
 
       pushHistory(turn.messages);
       settleStreamedReply(turn.reply);
+      // 后台记忆：把本轮片段交给记忆管线（同步入队 + 防抖调度，失败静默）
+      recordAgentInteraction({
+        page: String(route.name ?? ""),
+        user: trimmed,
+        reply: turn.reply,
+        tools: turn.toolRuns.map((r) => r.call.name),
+      });
     } catch (e) {
       // 完整错误落日志；界面展示友好化文案。空的流式条目清掉，有部分文本则保留
       logError("Agent 执行失败", e);

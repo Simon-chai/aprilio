@@ -86,8 +86,8 @@ describe("definePromptModule", () => {
 describe("prompt registry", () => {
   it("scans the modules/ directory and registers all shipped modules", () => {
     const modules = scanPromptModules();
-    // 放文件即接入：modules/ 下有 12 个 *.prompt.ts
-    expect(modules).toHaveLength(12);
+    // 放文件即接入：modules/ 下有 13 个 *.prompt.ts
+    expect(modules).toHaveLength(13);
     const ids = modules.map((m) => m.id).sort();
     expect(ids).toEqual(Object.values(PROMPT_IDS).sort());
   });

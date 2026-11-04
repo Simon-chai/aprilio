@@ -38,6 +38,8 @@
     导入落库在前端完成，前端只记成功/跳过/失败计数（`[renderer]` 前缀，**不记学生姓名等隐私字段**）
   - `rag`：索引重建开始 / 完成 / 失败（含耗时、模型、条目数、维度）；
     语义搜索失败 `error!`、完成 `debug!`（只记 query 字符数，**不记 query 全文**——可能含学生姓名）
+  - `memory`：Agent 记忆文件（agent-memory.md）读取失败 / 写入成功（只记字节数）/
+    写入失败（含路径）；**不记记忆内容与对话内容**
 - MCP serve 模式（`aprilio mcp serve`）**不走日志文件**：该模式无 Tauri 上下文，plugin-log 未初始化，
   诊断统一 `eprintln` 到 **stderr**（MCP 客户端可见），内容带 `[aprilio-mcp]` 前缀：
   启动失败 / 会话结束 / 能力对账提示 / 工具调用成败与耗时（不记工具参数全文，避免学生隐私进客户端日志）
@@ -46,6 +48,10 @@
   - `window.error` 与 `unhandledrejection` 全局捕获
   - Vue 组件异常：`src/main.ts` 里的 `app.config.errorHandler` 走 `console.error`，间接落盘
   - Agent 执行失败（含流式链路抛错）：`useAgent.ts` 顶层 `logError` 落盘，界面只展示友好文案
+  - 助手记忆整理（`src/agent/memory.ts`）：请求失败 / 初始化失败 / 整理异常 `logWarn`·`logError`，
+    写盘成功 `logInfo`（只记消化条数与结果，**不记对话片段与记忆全文**）
+  - 模型自动切换（`src/lib/ai-failover.ts`）：方案请求失败改试下一个、成功后持久切换均 `logWarn`，
+    只记方案名 / 模型与错误首行（**不记 API 密钥与消息内容**），见 [MODEL_FAILOVER.md](MODEL_FAILOVER.md)
 
 ## 如何新增日志
 

@@ -23,6 +23,7 @@
 | Agent | [docs/AGENT.md](docs/AGENT.md) | 自主 Agent 框架分层、工具扩展步骤、应用界面注册表 |
 | Agent 技术栈 | [docs/AGENT_FRAMEWORK_EVALUATION.md](docs/AGENT_FRAMEWORK_EVALUATION.md) | Rig + rmcp 双轨方案、能力清单 manifest、迁移路线 |
 | 日志 | [docs/LOGGING.md](docs/LOGGING.md) | 日志文件位置、记录点清单、新增日志写法、排查流程 |
+| 多模型自动切换 | [docs/MODEL_FAILOVER.md](docs/MODEL_FAILOVER.md) | 当前方案失败自动改试其它已配置方案、成功后持久切换、失败方案冷却 5 分钟后恢复、超时闸门 |
 | 背景图库 | [docs/BACKGROUNDS.md](docs/BACKGROUNDS.md) | 首页大图/头像/课表背景：本地上传 + URL 缓存到本地、本地索引与切换、清理时机 |
 | 设计系统 | [docs/DESIGN_SYSTEM.md](docs/DESIGN_SYSTEM.md) | 颜色/字号/圆角/阴影 token、组件规范、交互基建唯一模式（弹层/确认/反馈/图标）与 design-token-guard 防退化门禁；token 唯一事实源为 `src/style.css` 的 `@theme`（图表色例外：`lib/chart-palette.ts`） |
 | 评价报告 | [docs/EVAL_REPORT.md](docs/EVAL_REPORT.md) | 作业台账（P2先行）+评价报告（P1随后）：区间聚合、AI双输出、存档打印 |

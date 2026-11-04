@@ -1,6 +1,7 @@
 import { createApp } from "vue";
 import App from "./App.vue";
 import { router } from "./router";
+import { initAgentMemory } from "./agent/memory";
 import { initLogging } from "./lib/logger";
 import "./style.css";
 
@@ -13,3 +14,5 @@ app.config.errorHandler = (err, _instance, info) => {
 
 app.use(router).mount("#app");
 initLogging();
+// 助手记忆：播种模板 + 积压的对话片段安排一次后台补整理
+initAgentMemory();
